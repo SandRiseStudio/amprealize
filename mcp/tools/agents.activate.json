@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agents.activate",
+  "description": "Activate an agent. Convenience tool that transitions the agent to ACTIVE status. Requires agents.manage scope. Authorization is based on session context.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization identifier (optional - inferred from session if not provided)"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Optional reason for activating the agent",
+        "maxLength": 500
+      }
+    },
+    "required": ["agent_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the agent was activated successfully"
+      },
+      "event_id": {
+        "type": "string",
+        "description": "Status change event identifier"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier"
+      },
+      "from_status": {
+        "type": "string",
+        "description": "Previous status"
+      },
+      "to_status": {
+        "type": "string",
+        "description": "New status (active)"
+      },
+      "message": {
+        "type": "string",
+        "description": "Human-readable status message"
+      }
+    },
+    "required": ["success", "agent_id"]
+  },
+  "examples": [
+    {
+      "description": "Activate a paused agent",
+      "input": {
+        "agent_id": "agent-abc123",
+        "org_id": "org-xyz789",
+        "reason": "Maintenance complete"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "INVALID_TRANSITION",
+      "description": "Agent cannot be activated from current status"
+    },
+    {
+      "code": "AGENT_NOT_FOUND",
+      "description": "Agent not found or not accessible"
+    }
+  ]
+}

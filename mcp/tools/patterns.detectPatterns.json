@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "patterns.detectPatterns",
+  "description": "Detect recurring patterns across multiple execution traces. Analyzes run_ids to identify repeated reasoning sequences using sliding window extraction, similarity grouping, and frequency counting per PRD Component B (TraceAnalysisService). Returns patterns ordered by frequency with occurrence metadata.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["run_ids"],
+    "properties": {
+      "run_ids": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "List of run IDs to analyze for pattern detection.",
+        "minItems": 2
+      },
+      "min_frequency": {
+        "type": "integer",
+        "description": "Minimum occurrences required to consider a pattern (filters rare sequences).",
+        "minimum": 1,
+        "default": 3
+      },
+      "min_similarity": {
+        "type": "number",
+        "description": "Minimum sequence similarity threshold (0-1) for grouping related patterns using SequenceMatcher.",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "default": 0.7
+      },
+      "max_patterns": {
+        "type": "integer",
+        "description": "Maximum number of patterns to return (limits response size).",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 100
+      },
+      "include_context": {
+        "type": "boolean",
+        "description": "Whether to capture before/after steps for each pattern occurrence (enables richer analysis but increases payload size).",
+        "default": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["patterns", "runs_analyzed", "total_occurrences", "execution_time_seconds"],
+    "properties": {
+      "patterns": {
+        "type": "array",
+        "description": "Detected patterns ordered by frequency (descending).",
+        "items": {
+          "type": "object",
+          "required": ["pattern_id", "sequence", "frequency", "first_seen", "last_seen"],
+          "properties": {
+            "pattern_id": {
+              "type": "string",
+              "description": "Unique pattern identifier (UUID)."
+            },
+            "sequence": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Ordered list of reasoning steps forming the pattern."
+            },
+            "frequency": {
+              "type": "integer",
+              "description": "Number of times this pattern occurred across runs."
+            },
+            "first_seen": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO timestamp of first occurrence."
+            },
+            "last_seen": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO timestamp of most recent occurrence."
+            },
+            "extracted_from_runs": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Run IDs where this pattern was detected."
+            },
+            "metadata": {
+              "type": "object",
+              "description": "Additional context (task types, domains, avg tokens)."
+            }
+          }
+        }
+      },
+      "runs_analyzed": {
+        "type": "integer",
+        "description": "Number of runs successfully processed."
+      },
+      "total_occurrences": {
+        "type": "integer",
+        "description": "Total pattern occurrences across all runs."
+      },
+      "execution_time_seconds": {
+        "type": "number",
+        "description": "Time taken to detect patterns."
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Additional statistics (avg_pattern_length, unique_sequences, etc.)."
+      }
+    },
+    "additionalProperties": false
+  }
+}

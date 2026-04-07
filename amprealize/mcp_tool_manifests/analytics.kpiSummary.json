@@ -1,0 +1,86 @@
+{
+  "name": "analytics.kpiSummary",
+  "description": "Query aggregated KPI summary from analytics warehouse showing PRD success metrics: behavior reuse %, token savings %, task completion rate, and compliance coverage %.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results from this date forward"
+      },
+      "end_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results up to this date"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "records": {
+        "type": "array",
+        "description": "List of KPI summary snapshots",
+        "items": {
+          "type": "object",
+          "properties": {
+            "snapshot_time": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Timestamp when the snapshot was taken"
+            },
+            "behavior_reuse_pct": {
+              "type": "number",
+              "description": "Percentage of runs that cited at least one handbook behavior (target: 70%)"
+            },
+            "total_runs": {
+              "type": "integer",
+              "description": "Total number of workflow runs in the period"
+            },
+            "runs_with_behaviors": {
+              "type": "integer",
+              "description": "Number of runs that used behaviors"
+            },
+            "average_token_savings_pct": {
+              "type": "number",
+              "description": "Average token reduction percentage compared to baseline (target: 30%)"
+            },
+            "total_baseline_tokens": {
+              "type": "integer",
+              "description": "Total baseline token count"
+            },
+            "total_output_tokens": {
+              "type": "integer",
+              "description": "Total actual output tokens consumed"
+            },
+            "task_completion_rate_pct": {
+              "type": "number",
+              "description": "Percentage of terminal runs that completed successfully (target: 80%)"
+            },
+            "completed_runs": {
+              "type": "integer",
+              "description": "Number of successfully completed runs"
+            },
+            "failed_runs": {
+              "type": "integer",
+              "description": "Number of failed runs"
+            },
+            "average_compliance_coverage_pct": {
+              "type": ["number", "null"],
+              "description": "Average compliance checklist coverage percentage (target: 95%)"
+            },
+            "total_compliance_events": {
+              "type": "integer",
+              "description": "Total compliance checkpoint events recorded"
+            }
+          },
+          "required": ["snapshot_time", "behavior_reuse_pct", "total_runs"]
+        }
+      },
+      "count": {
+        "type": "integer",
+        "description": "Number of records returned"
+      }
+    },
+    "required": ["records", "count"]
+  }
+}

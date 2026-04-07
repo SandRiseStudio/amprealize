@@ -1,0 +1,75 @@
+{
+  "name": "analytics.dailyCosts",
+  "description": "Query daily cost summary for budget tracking from analytics warehouse. Shows per-day costs with budget threshold comparison and over-budget alerts.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results from this date forward"
+      },
+      "end_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results up to this date"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of days to return (default: 30, max: 365)",
+        "default": 30
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "records": {
+        "type": "array",
+        "description": "List of daily cost records",
+        "items": {
+          "type": "object",
+          "properties": {
+            "cost_date": {
+              "type": "string",
+              "format": "date",
+              "description": "Date of the cost record"
+            },
+            "daily_cost_usd": {
+              "type": "number",
+              "description": "Total cost in USD for this day"
+            },
+            "daily_tokens": {
+              "type": "integer",
+              "description": "Total tokens used this day"
+            },
+            "run_count": {
+              "type": "integer",
+              "description": "Number of runs this day"
+            },
+            "over_budget": {
+              "type": "boolean",
+              "description": "Whether this day exceeded the budget threshold"
+            }
+          }
+        }
+      },
+      "count": {
+        "type": "integer",
+        "description": "Number of days returned"
+      },
+      "budget_threshold_usd": {
+        "type": "number",
+        "description": "Daily budget threshold from COST_DAILY_BUDGET_USD"
+      }
+    }
+  },
+  "endpoint": {
+    "method": "GET",
+    "path": "/v1/analytics/daily-costs",
+    "queryParams": ["start_date", "end_date", "limit"]
+  },
+  "cli": {
+    "command": "amprealize analytics daily-costs",
+    "flags": ["--start-date", "--end-date", "--limit", "--format"]
+  },
+  "tags": ["analytics", "cost", "budget", "daily", "prd-8.17"]
+}

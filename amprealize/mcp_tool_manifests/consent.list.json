@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "consent.list",
+  "description": "List pending consent requests for a user. Used by dashboard/CLI to show requests awaiting approval.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["user_id"],
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "User ID to list consent requests for."
+      },
+      "status": {
+        "type": "string",
+        "enum": ["pending", "approved", "denied", "expired"],
+        "default": "pending",
+        "description": "Filter by status (default: pending)."
+      },
+      "limit": {
+        "type": "integer",
+        "default": 50,
+        "description": "Maximum number of requests to return."
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "requests": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {"type": "string"},
+            "user_code": {"type": "string"},
+            "agent_id": {"type": "string"},
+            "tool_name": {"type": "string"},
+            "scopes": {"type": "array", "items": {"type": "string"}},
+            "status": {"type": "string"},
+            "expires_at": {"type": "string"},
+            "created_at": {"type": "string"}
+          }
+        },
+        "description": "List of consent requests."
+      },
+      "total": {
+        "type": "integer",
+        "description": "Total number of matching requests."
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if listing failed."
+      }
+    }
+  }
+}

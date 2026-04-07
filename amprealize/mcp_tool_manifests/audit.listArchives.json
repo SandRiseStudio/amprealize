@@ -1,0 +1,46 @@
+{
+  "name": "audit.listArchives",
+  "description": "List archived audit batches stored in S3 WORM storage. Each archive contains a batch of events with Ed25519 signatures and hash chain metadata.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "prefix": {
+        "type": "string",
+        "description": "S3 key prefix filter (e.g., '2024/01/' for January 2024 archives)"
+      },
+      "limit": {
+        "type": "integer",
+        "default": 100,
+        "description": "Maximum number of archives to return"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "archives": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "batch_id": { "type": "string" },
+            "s3_key": { "type": "string" },
+            "created_at": { "type": "string" },
+            "events_count": { "type": "integer" },
+            "size_bytes": { "type": "integer" },
+            "retention_until": { "type": "string" }
+          }
+        }
+      },
+      "count": { "type": "integer" },
+      "_links": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "verify": { "type": "string" }
+        }
+      }
+    }
+  }
+}

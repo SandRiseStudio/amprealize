@@ -1,0 +1,315 @@
+# Test-Aware Full Stack Blueprint
+# Demonstrates the test-aware provisioning features of BreakerAmp
+#
+# This blueprint defines a complete environment with:
+# - Service dependencies (depends_on)
+# - Test marker associations (test_markers)
+# - Proper startup ordering
+#
+# Usage:
+#   # Plan for all tests
+#   breakeramp plan-for-tests tests/integration/ -b test-aware-stack
+#
+#   # Plan for specific markers
+#   breakeramp plan-for-tests tests/ -b test-aware-stack -m db -m cache
+#
+#   # Run tests with automatic provisioning
+#   breakeramp run-tests tests/integration/ -b test-aware-stack
+#
+# The plan-for-tests command will analyze your test files and provision
+# ONLY the services needed for those specific tests.
+
+name: test-aware-stack
+version: 2.0.0
+description: "Full stack blueprint with test-aware service definitions"
+
+# =============================================================================
+# MODULES
+# =============================================================================
+modules:
+  core:
+    description: "Core database and cache services"
+    enabled: true
+  messaging:
+    description: "Kafka and message queue services"
+    enabled: false
+  search:
+    description: "Elasticsearch search services"
+    enabled: false
+
+# =============================================================================
+# SERVICES WITH TEST MARKERS
+# =============================================================================
+# Each service can define:
+# - depends_on: Services that must start before this one
+# - test_markers: pytest markers that indicate this service is needed
+# - healthcheck_timeout_s: How long to wait for service to be healthy
+#
+services:
+  # ---------------------------------------------------------------------------
+  # BASE SERVICES (no dependencies)
+  # ---------------------------------------------------------------------------
+
+  postgres:
+    image: docker.io/postgres:15
+    module: core
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+      POSTGRES_DB: "${POSTGRES_DB:-testdb}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    # Test markers that indicate this service is needed
+    test_markers:
+      - db
+      - database
+      - postgres
+      - integration
+      - sql
+    # How long to wait for health check
+    healthcheck_timeout_s: 30
+
+  redis:
+    image: docker.io/redis:7-alpine
+    module: core
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    test_markers:
+      - cache
+      - redis
+      - session
+    healthcheck_timeout_s: 15
+
+  # ---------------------------------------------------------------------------
+  # MESSAGING SERVICES (with dependencies)
+  # ---------------------------------------------------------------------------
+
+  zookeeper:
+    image: docker.io/confluentinc/cp-zookeeper:7.5.0
+    module: messaging
+    ports:
+      - "${ZOOKEEPER_PORT:-2181}:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    test_markers:
+      - kafka
+      - streaming
+      - zookeeper
+    healthcheck_timeout_s: 30
+
+  kafka:
+    image: docker.io/confluentinc/cp-kafka:7.5.0
+    module: messaging
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:${KAFKA_PORT:-9092}"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Kafka requires Zookeeper to be running first
+    depends_on:
+      - zookeeper
+    test_markers:
+      - kafka
+      - streaming
+      - events
+      - pubsub
+    healthcheck_timeout_s: 60
+
+  # ---------------------------------------------------------------------------
+  # SEARCH SERVICES (with dependencies)
+  # ---------------------------------------------------------------------------
+
+  elasticsearch:
+    image: docker.io/elasticsearch:8.11.0
+    module: search
+    ports:
+      - "${ELASTICSEARCH_PORT:-9200}:9200"
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    test_markers:
+      - search
+      - elasticsearch
+      - fulltext
+    healthcheck_timeout_s: 60
+
+  kibana:
+    image: docker.io/kibana:8.11.0
+    module: search
+    ports:
+      - "${KIBANA_PORT:-5601}:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q 'available'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    # Kibana requires Elasticsearch
+    depends_on:
+      - elasticsearch
+    test_markers:
+      - kibana
+      - visualization
+    healthcheck_timeout_s: 90
+
+  # ---------------------------------------------------------------------------
+  # APPLICATION SERVICES (with dependencies)
+  # ---------------------------------------------------------------------------
+
+  api:
+    image: "${API_IMAGE:-amprealize/api:latest}"
+    module: core
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/testdb"
+      REDIS_URL: "redis://redis:6379"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # API depends on postgres and redis; optionally on kafka
+    depends_on:
+      - postgres
+      - redis
+    test_markers:
+      - api
+      - e2e
+      - integration
+    healthcheck_timeout_s: 30
+
+  worker:
+    image: "${WORKER_IMAGE:-amprealize/worker:latest}"
+    module: core
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/testdb"
+      REDIS_URL: "redis://redis:6379"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+    # Worker depends on postgres, redis, and kafka for job processing
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+    test_markers:
+      - worker
+      - jobs
+      - async
+    healthcheck_timeout_s: 30
+
+# =============================================================================
+# TEST SUITE DEFINITIONS
+# =============================================================================
+# Optional: Define named test suites for common test scenarios
+# These can be referenced in test_analyzer configuration
+#
+test_suites:
+  unit:
+    description: "Unit tests - no infrastructure needed"
+    services: []
+
+  db-only:
+    description: "Database-only tests"
+    services:
+      - postgres
+
+  cache-tests:
+    description: "Tests requiring database and cache"
+    services:
+      - postgres
+      - redis
+
+  api-integration:
+    description: "Full API integration tests"
+    services:
+      - postgres
+      - redis
+      - api
+
+  full-stack:
+    description: "Complete stack for E2E tests"
+    services:
+      - postgres
+      - redis
+      - kafka
+      - zookeeper
+      - api
+      - worker
+
+  streaming:
+    description: "Kafka streaming tests"
+    services:
+      - zookeeper
+      - kafka
+      - redis
+
+# =============================================================================
+# MARKER MAPPINGS (fallback for unknown markers)
+# =============================================================================
+# These mappings are used when AST analysis can't determine services
+# from pytest markers directly
+#
+marker_mappings:
+  # Database markers
+  db: [postgres]
+  database: [postgres]
+  postgres: [postgres]
+  sql: [postgres]
+
+  # Cache markers
+  cache: [redis]
+  redis: [redis]
+  session: [redis]
+
+  # Messaging markers
+  kafka: [zookeeper, kafka]
+  streaming: [zookeeper, kafka]
+  events: [zookeeper, kafka]
+  pubsub: [zookeeper, kafka]
+
+  # Search markers
+  search: [elasticsearch]
+  elasticsearch: [elasticsearch]
+  fulltext: [elasticsearch]
+  kibana: [elasticsearch, kibana]
+
+  # Integration markers
+  integration: [postgres, redis]
+  api: [postgres, redis, api]
+  e2e: [postgres, redis, api, worker]
+
+  # Worker markers
+  worker: [postgres, redis, kafka, worker]
+  jobs: [postgres, redis]
+  async: [redis]

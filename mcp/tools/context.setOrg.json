@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "context.setOrg",
+  "description": "Switch the current organization context. All subsequent operations will be scoped to this organization. The user must be a member of the target organization. Note: org_id is optional - users can operate without an org context.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to switch to. Must be an org the authenticated user/SP has access to."
+      }
+    },
+    "required": ["org_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the context switch succeeded"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Active organization ID (if set)"
+      },
+      "org_name": {
+        "type": "string",
+        "description": "Active organization name"
+      },
+      "role": {
+        "type": "string",
+        "enum": ["owner", "admin", "member", "viewer"],
+        "description": "User's role in this organization"
+      },
+      "permissions": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of permissions available to user in this org"
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if switch failed"
+      },
+      "error_code": {
+        "type": "string",
+        "description": "Error code for programmatic handling"
+      }
+    }
+  },
+  "required_scopes": ["context.switch"],
+  "category": "context",
+  "surface_parity": ["CLI", "MCP", "API"]
+}

@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "runs.create",
+  "description": "Create a new workflow execution run. Returns the created run with status=PENDING.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workflow_id": {
+        "type": "string",
+        "description": "Workflow identifier"
+      },
+      "workflow_name": {
+        "type": "string",
+        "description": "Workflow name for display"
+      },
+      "template_id": {
+        "type": "string",
+        "description": "Template identifier"
+      },
+      "template_name": {
+        "type": "string",
+        "description": "Template name for display"
+      },
+      "behavior_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "List of behavior IDs to use in this run"
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Additional run metadata"
+      },
+      "initial_message": {
+        "type": "string",
+        "description": "Initial message or description for the run"
+      },
+      "total_steps": {
+        "type": "integer",
+        "description": "Total number of steps expected in this run"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"]
+      }
+    },
+    "required": ["actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
+      },
+      "workflow_id": {
+        "type": "string"
+      },
+      "workflow_name": {
+        "type": "string"
+      },
+      "template_id": {
+        "type": "string"
+      },
+      "template_name": {
+        "type": "string"
+      },
+      "behavior_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "current_step": {
+        "type": "string"
+      },
+      "progress_pct": {
+        "type": "number"
+      },
+      "message": {
+        "type": "string"
+      },
+      "metadata": {
+        "type": "object"
+      },
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      }
+    },
+    "required": ["run_id", "created_at", "status", "progress_pct"]
+  },
+  "required_scopes": ["runs.create"],
+  "category": "runs"
+}

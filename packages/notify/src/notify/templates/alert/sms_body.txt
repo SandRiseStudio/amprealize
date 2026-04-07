@@ -1,0 +1,1 @@
+[{{ severity | upper }}] {{ title }}. {{ message | truncate(100) }}{% if action_link %} {{ action_link }}{% endif %}

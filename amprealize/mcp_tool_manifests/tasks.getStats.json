@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "tasks.getStats",
+  "description": "Get task analytics aggregations (counts by status, average completion time). Optionally filter by agent_id or task_type.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Optional agent ID filter"
+      },
+      "task_type": {
+        "type": "string",
+        "enum": ["behavior_review", "compliance_audit", "run_execution", "code_review", "documentation", "testing"],
+        "description": "Optional task type filter"
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "total",
+      "pending",
+      "in_progress",
+      "completed",
+      "failed",
+      "blocked",
+      "cancelled"
+    ],
+    "properties": {
+      "total": {
+        "type": "integer",
+        "description": "Total number of tasks"
+      },
+      "pending": {
+        "type": "integer",
+        "description": "Number of pending tasks"
+      },
+      "in_progress": {
+        "type": "integer",
+        "description": "Number of in-progress tasks"
+      },
+      "completed": {
+        "type": "integer",
+        "description": "Number of completed tasks"
+      },
+      "failed": {
+        "type": "integer",
+        "description": "Number of failed tasks"
+      },
+      "blocked": {
+        "type": "integer",
+        "description": "Number of blocked tasks"
+      },
+      "cancelled": {
+        "type": "integer",
+        "description": "Number of cancelled tasks"
+      },
+      "avg_completion_time_hours": {
+        "type": ["number", "null"],
+        "description": "Average completion time in hours (null if no completed tasks)"
+      }
+    },
+    "additionalProperties": false
+  }
+}

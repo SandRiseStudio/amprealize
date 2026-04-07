@@ -1,0 +1,693 @@
+# Amprealize Staging Blueprint
+# ==============================================================================
+# Pre-production validation stack with optional Kafka streaming and monitoring
+#
+# Features:
+#   - 6 PostgreSQL databases (ports 6432-6437) + agent-orchestrator (6438)
+#   - Redis cache (port 6380)
+#   - Amprealize API server, Web Console, and nginx gateway
+#   - Optional Kafka streaming module (with-streaming)
+#   - Optional Prometheus/Grafana monitoring module (with-monitoring)
+#   - Staging-specific resource limits and configuration
+#
+# Application images (override defaults):
+#   AMPREALIZE_API_IMAGE         - API server (default: ghcr.io/amprealize/api:staging)
+#   AMPREALIZE_WEB_CONSOLE_IMAGE - Web console (default: ghcr.io/amprealize/web-console:staging)
+#
+# Container Runtime: Podman (podman-compose)
+#
+# Usage via BreakerAmp:
+#   # Core staging stack only
+#   breakeramp plan --blueprint staging --env staging
+#   breakeramp apply
+#
+#   # With Kafka streaming
+#   breakeramp plan --blueprint staging --env staging --modules core,streaming
+#   breakeramp apply
+#
+#   # With monitoring
+#   breakeramp plan --blueprint staging --env staging --modules core,monitoring
+#   breakeramp apply
+#
+#   # Full stack (streaming + monitoring)
+#   breakeramp plan --blueprint staging --env staging --modules core,streaming,monitoring
+#   breakeramp apply
+#
+# Direct podman-compose usage:
+#   # Core only
+#   podman-compose -f docker-compose.staging.yml up -d
+#
+#   # With streaming
+#   podman-compose -f docker-compose.staging.yml --profile with-streaming up -d
+#
+#   # Full stack
+#   podman-compose -f docker-compose.staging.yml --profile with-streaming --profile with-monitoring up -d
+# ==============================================================================
+
+name: staging
+version: 2.0.0
+description: "Amprealize pre-production staging environment with optional streaming and monitoring"
+
+# ==============================================================================
+# Global Resource Limits
+# ==============================================================================
+resource_limits:
+  total_memory_mb: 12288  # 12GB total for staging
+  total_cpu_cores: 6
+  network_mbps: 1000
+
+# ==============================================================================
+# Module Definitions
+# ==============================================================================
+modules:
+  # Core module - always required
+  core:
+    description: "Core datastores and application services"
+    required: true
+    services:
+      - postgres-telemetry
+      - postgres-behavior
+      - postgres-workflow
+      - postgres-action
+      - postgres-run
+      - postgres-compliance
+      - postgres-agent-orchestrator
+      - redis-staging
+      - amprealize-api
+      - web-console
+      - gateway
+
+  # Streaming module - optional Kafka for event streaming
+  streaming:
+    description: "Kafka streaming infrastructure for telemetry events"
+    required: false
+    services:
+      - zookeeper
+      - kafka
+      - schema-registry
+
+  # Monitoring module - optional Prometheus/Grafana observability
+  monitoring:
+    description: "Prometheus and Grafana for metrics and dashboards"
+    required: false
+    services:
+      - prometheus
+      - grafana
+
+# ==============================================================================
+# Service Definitions
+# ==============================================================================
+services:
+  # ============================================================================
+  # PostgreSQL Databases (Staging Ports: 6432-6438)
+  # ============================================================================
+
+  postgres-telemetry:
+    image: timescale/timescaledb:latest-pg16
+    module: core
+    hostname: postgres-telemetry
+    container_name: amprealize-staging-telemetry
+    ports:
+      - "6432:5432"
+    environment:
+      POSTGRES_DB: amprealize_telemetry
+      POSTGRES_USER: amprealize_telemetry
+      POSTGRES_PASSWORD: "${AMPREALIZE_PG_PASS_TELEMETRY:-telemetry_staging_pass}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=timescaledb"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "log_min_duration_statement=500"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+    volumes:
+      - staging-telemetry-data:/var/lib/postgresql/data
+      # Schema managed by Alembic (alembic.telemetry.ini → migrations_telemetry/)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_telemetry -d amprealize_telemetry"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    resources:
+      memory_mb: 1024
+      cpu_shares: 512
+    restart: unless-stopped
+
+  postgres-behavior:
+    image: timescale/timescaledb:latest-pg16
+    module: core
+    hostname: postgres-behavior
+    container_name: amprealize-staging-behavior
+    ports:
+      - "6433:5432"
+    environment:
+      POSTGRES_DB: amprealize_behavior
+      POSTGRES_USER: amprealize_behavior
+      POSTGRES_PASSWORD: "${AMPREALIZE_PG_PASS_BEHAVIOR:-behavior_staging_pass}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "log_min_duration_statement=500"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+    volumes:
+      - staging-behavior-data:/var/lib/postgresql/data
+      # Schema managed by Alembic (alembic.ini → migrations/)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_behavior -d amprealize_behavior"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    resources:
+      memory_mb: 1024
+      cpu_shares: 512
+    restart: unless-stopped
+
+  postgres-workflow:
+    image: postgres:16-alpine
+    module: core
+    hostname: postgres-workflow
+    container_name: amprealize-staging-workflow
+    ports:
+      - "6434:5432"
+    environment:
+      POSTGRES_DB: amprealize_workflow
+      POSTGRES_USER: amprealize_workflow
+      POSTGRES_PASSWORD: "${AMPREALIZE_PG_PASS_WORKFLOW:-workflow_staging_pass}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "log_min_duration_statement=500"
+    volumes:
+      - staging-workflow-data:/var/lib/postgresql/data
+      # Schema managed by Alembic (alembic.ini → migrations/)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_workflow -d amprealize_workflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    resources:
+      memory_mb: 512
+      cpu_shares: 256
+    restart: unless-stopped
+
+  postgres-action:
+    image: postgres:16-alpine
+    module: core
+    hostname: postgres-action
+    container_name: amprealize-staging-action
+    ports:
+      - "6435:5432"
+    environment:
+      POSTGRES_DB: amprealize_action
+      POSTGRES_USER: amprealize_action
+      POSTGRES_PASSWORD: "${AMPREALIZE_PG_PASS_ACTION:-action_staging_pass}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "log_min_duration_statement=500"
+    volumes:
+      - staging-action-data:/var/lib/postgresql/data
+      # Schema managed by Alembic (alembic.ini → migrations/)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_action -d amprealize_action"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    resources:
+      memory_mb: 512
+      cpu_shares: 256
+    restart: unless-stopped
+
+  postgres-run:
+    image: postgres:16-alpine
+    module: core
+    hostname: postgres-run
+    container_name: amprealize-staging-run
+    ports:
+      - "6436:5432"
+    environment:
+      POSTGRES_DB: amprealize_run
+      POSTGRES_USER: amprealize_run
+      POSTGRES_PASSWORD: "${AMPREALIZE_PG_PASS_RUN:-run_staging_pass}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "log_min_duration_statement=500"
+    volumes:
+      - staging-run-data:/var/lib/postgresql/data
+      # Schema managed by Alembic (alembic.ini → migrations/)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_run -d amprealize_run"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    resources:
+      memory_mb: 512
+      cpu_shares: 256
+    restart: unless-stopped
+
+  postgres-compliance:
+    image: postgres:16-alpine
+    module: core
+    hostname: postgres-compliance
+    container_name: amprealize-staging-compliance
+    ports:
+      - "6437:5432"
+    environment:
+      POSTGRES_DB: amprealize_compliance
+      POSTGRES_USER: amprealize_compliance
+      POSTGRES_PASSWORD: "${AMPREALIZE_PG_PASS_COMPLIANCE:-compliance_staging_pass}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "log_min_duration_statement=500"
+    volumes:
+      - staging-compliance-data:/var/lib/postgresql/data
+      # Schema managed by Alembic (alembic.ini → migrations/)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_compliance -d amprealize_compliance"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    resources:
+      memory_mb: 512
+      cpu_shares: 256
+    restart: unless-stopped
+
+  postgres-agent-orchestrator:
+    image: postgres:16-alpine
+    module: core
+    hostname: postgres-agent-orchestrator
+    container_name: amprealize-staging-agent-orchestrator
+    ports:
+      - "6438:5432"
+    environment:
+      POSTGRES_DB: amprealize_agent_orchestrator
+      POSTGRES_USER: amprealize_agent_orchestrator
+      POSTGRES_PASSWORD: "${AMPREALIZE_PG_PASS_AGENT_ORCHESTRATOR:-agent_orchestrator_staging_pass}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "log_min_duration_statement=500"
+    volumes:
+      - staging-agent-orchestrator-data:/var/lib/postgresql/data
+      # Schema managed by Alembic (alembic.ini → migrations/)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_agent_orchestrator -d amprealize_agent_orchestrator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    resources:
+      memory_mb: 512
+      cpu_shares: 256
+    restart: unless-stopped
+
+  # ============================================================================
+  # Redis Cache (Staging Port: 6380)
+  # ============================================================================
+
+  redis-staging:
+    image: redis:7-alpine
+    module: core
+    hostname: redis-staging
+    container_name: amprealize-staging-redis
+    ports:
+      - "6380:6379"
+    command:
+      - "redis-server"
+      - "--maxmemory"
+      - "512mb"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+      - "--save"
+      - ""
+      - "--appendonly"
+      - "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    resources:
+      memory_mb: 512
+      cpu_shares: 256
+    restart: unless-stopped
+
+  # ============================================================================
+  # Application Services
+  # ============================================================================
+
+  amprealize-api:
+    image: "${AMPREALIZE_API_IMAGE:-ghcr.io/amprealize/api:staging}"
+    module: core
+    hostname: amprealize-api
+    container_name: amprealize-staging-api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: "postgresql://amprealize_behavior:${AMPREALIZE_PG_PASS_BEHAVIOR:-behavior_staging_pass}@postgres-behavior:5432/amprealize_behavior"
+      TELEMETRY_DATABASE_URL: "postgresql://amprealize_telemetry:${AMPREALIZE_PG_PASS_TELEMETRY:-telemetry_staging_pass}@postgres-telemetry:5432/amprealize_telemetry"
+      REDIS_URL: "redis://redis-staging:6379/0"
+      AMPREALIZE_AUTH_ENABLED: "true"
+      AMPREALIZE_CORS_ORIGINS: "${AMPREALIZE_CORS_ORIGINS:-}"
+      AMPREALIZE_LOG_LEVEL: "${AMPREALIZE_LOG_LEVEL:-debug}"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - postgres-telemetry
+      - postgres-behavior
+      - redis-staging
+    resources:
+      memory_mb: 1024
+      cpu_shares: 512
+    restart: unless-stopped
+
+  web-console:
+    image: "${AMPREALIZE_WEB_CONSOLE_IMAGE:-ghcr.io/amprealize/web-console:staging}"
+    module: core
+    hostname: web-console
+    container_name: amprealize-staging-web-console
+    environment:
+      VITE_API_BASE_URL: "${VITE_API_BASE_URL:-}"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5173/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    resources:
+      memory_mb: 256
+      cpu_shares: 128
+    restart: unless-stopped
+
+  gateway:
+    image: nginx:alpine
+    module: core
+    hostname: gateway
+    container_name: amprealize-staging-gateway
+    ports:
+      - "${GATEWAY_PORT:-8080}:80"
+      - "${GATEWAY_TLS_PORT:-8443}:443"
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - ./config/nginx/docker-entrypoint.sh:/docker-entrypoint-custom.sh:ro
+    environment:
+      NGINX_SSL_CERT: "${NGINX_SSL_CERT:-}"
+      NGINX_SSL_KEY: "${NGINX_SSL_KEY:-}"
+      NGINX_SSL_REDIRECT: "${NGINX_SSL_REDIRECT:-false}"
+    command: ["/bin/sh", "/docker-entrypoint-custom.sh"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/nginx-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - amprealize-api
+      - web-console
+    resources:
+      memory_mb: 256
+      cpu_shares: 128
+    restart: unless-stopped
+
+  # ============================================================================
+  # Kafka Streaming Module (Optional)
+  # ============================================================================
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    module: streaming
+    hostname: zookeeper
+    container_name: amprealize-staging-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+    volumes:
+      - staging-zookeeper-data:/var/lib/zookeeper/data
+      - staging-zookeeper-log:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    resources:
+      memory_mb: 512
+      cpu_shares: 256
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    module: streaming
+    hostname: kafka
+    container_name: amprealize-staging-kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_COMPRESSION_TYPE: "gzip"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_NUM_PARTITIONS: 6
+    volumes:
+      - staging-kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    depends_on:
+      - zookeeper
+    resources:
+      memory_mb: 2048
+      cpu_shares: 1024
+    restart: unless-stopped
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    module: streaming
+    hostname: schema-registry
+    container_name: amprealize-staging-schema-registry
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka:29092"
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_SCHEMA_REGISTRY_GROUP_ID: amprealize-staging-schema-registry
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - kafka
+    resources:
+      memory_mb: 512
+      cpu_shares: 256
+    restart: unless-stopped
+
+  # ============================================================================
+  # Monitoring Module (Optional)
+  # ============================================================================
+
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    module: monitoring
+    hostname: prometheus
+    container_name: amprealize-staging-prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+    volumes:
+      - staging-prometheus-data:/prometheus
+      - ./deployment/config/prometheus-staging.yml:/etc/prometheus/prometheus.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    resources:
+      memory_mb: 1024
+      cpu_shares: 512
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.1.0
+    module: monitoring
+    hostname: grafana
+    container_name: amprealize-staging-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
+      GF_INSTALL_PLUGINS: "grafana-clock-panel,grafana-simple-json-datasource,grafana-piechart-panel"
+    volumes:
+      - staging-grafana-data:/var/lib/grafana
+      - ./deployment/config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deployment/config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - prometheus
+    resources:
+      memory_mb: 512
+      cpu_shares: 256
+    restart: unless-stopped
+
+# ==============================================================================
+# Volume Definitions
+# ==============================================================================
+volumes:
+  # Core datastores
+  staging-telemetry-data:
+    driver: local
+  staging-behavior-data:
+    driver: local
+  staging-workflow-data:
+    driver: local
+  staging-action-data:
+    driver: local
+  staging-run-data:
+    driver: local
+  staging-compliance-data:
+    driver: local
+  staging-agent-orchestrator-data:
+    driver: local
+
+  # Streaming module
+  staging-zookeeper-data:
+    driver: local
+  staging-zookeeper-log:
+    driver: local
+  staging-kafka-data:
+    driver: local
+
+  # Monitoring module
+  staging-prometheus-data:
+    driver: local
+  staging-grafana-data:
+    driver: local
+
+# ==============================================================================
+# Network Configuration
+# ==============================================================================
+networks:
+  default:
+    name: amprealize-staging-net
+    driver: bridge
+
+# ==============================================================================
+# Kafka Topic Configuration (Applied when streaming module is enabled)
+# ==============================================================================
+kafka_topics:
+  - name: telemetry.events
+    partitions: 6
+    replication_factor: 1
+    config:
+      compression.type: gzip
+      retention.ms: 604800000  # 7 days
+  - name: telemetry.traces
+    partitions: 6
+    replication_factor: 1
+    config:
+      compression.type: gzip
+      retention.ms: 604800000
+  - name: telemetry.metrics
+    partitions: 3
+    replication_factor: 1
+    config:
+      compression.type: gzip
+      retention.ms: 2592000000  # 30 days
+  - name: pipeline.health
+    partitions: 1
+    replication_factor: 1
+
+# ==============================================================================
+# Healthcheck Configuration
+# ==============================================================================
+healthcheck:
+  enabled: true
+  endpoints:
+    - name: postgres-telemetry
+      type: tcp
+      port: 6432
+    - name: postgres-behavior
+      type: tcp
+      port: 6433
+    - name: postgres-workflow
+      type: tcp
+      port: 6434
+    - name: postgres-action
+      type: tcp
+      port: 6435
+    - name: postgres-run
+      type: tcp
+      port: 6436
+    - name: postgres-compliance
+      type: tcp
+      port: 6437
+    - name: postgres-agent-orchestrator
+      type: tcp
+      port: 6438
+    - name: redis
+      type: tcp
+      port: 6380
+    - name: kafka
+      type: tcp
+      port: 9092
+      module: streaming
+    - name: prometheus
+      type: http
+      url: http://localhost:9090/-/healthy
+      module: monitoring
+    - name: grafana
+      type: http
+      url: http://localhost:3001/api/health
+      module: monitoring

@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "tasks.create",
+  "description": "Create a new task assignment for an agent. Task starts in 'pending' status and can be updated later.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["agent_id", "task_type", "title"],
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent ID (e.g., 'agent-engineering-01')"
+      },
+      "task_type": {
+        "type": "string",
+        "enum": ["behavior_review", "compliance_audit", "run_execution", "code_review", "documentation", "testing"],
+        "description": "Task type category"
+      },
+      "priority": {
+        "type": "integer",
+        "description": "Priority level: 1=urgent, 2=high, 3=normal (default), 4=low",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 4
+      },
+      "title": {
+        "type": "string",
+        "description": "Task title (required)"
+      },
+      "description": {
+        "type": "string",
+        "description": "Detailed task description"
+      },
+      "behavior_id": {
+        "type": "string",
+        "description": "Optional behavior ID reference"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Optional run ID reference"
+      },
+      "deadline": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Optional deadline (ISO 8601 format)"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Optional metadata (JSONB)"
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "task_id",
+      "agent_id",
+      "task_type",
+      "status",
+      "priority",
+      "title"
+    ],
+    "properties": {
+      "task_id": {"type": "string"},
+      "agent_id": {"type": "string"},
+      "task_type": {"type": "string"},
+      "status": {"type": "string"},
+      "priority": {"type": "integer"},
+      "title": {"type": "string"},
+      "description": {"type": ["string", "null"]},
+      "behavior_id": {"type": ["string", "null"]},
+      "run_id": {"type": ["string", "null"]},
+      "metadata": {"type": "object"},
+      "created_at": {"type": ["string", "null"], "format": "date-time"},
+      "updated_at": {"type": ["string", "null"], "format": "date-time"},
+      "completed_at": {"type": ["string", "null"], "format": "date-time"},
+      "deadline": {"type": ["string", "null"], "format": "date-time"}
+    },
+    "additionalProperties": false
+  }
+}

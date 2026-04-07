@@ -1,0 +1,9 @@
+{
+  "name": "tools.activeGroups",
+  "description": "Get list of currently active tool groups and statistics about loaded tools.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  }
+}

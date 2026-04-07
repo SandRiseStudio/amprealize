@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "reviews.create",
+  "description": "Create a new agent review with multi-agent approval workflow.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "review_type": {
+        "type": "string",
+        "enum": ["BEHAVIOR_APPROVAL", "AGENT_PERFORMANCE", "WORKFLOW_QUALITY", "COMPLIANCE_AUDIT"],
+        "description": "Type of review to conduct"
+      },
+      "target_id": {
+        "type": "string",
+        "description": "ID of the entity being reviewed (behavior_id, run_id, etc.)"
+      },
+      "reviewers": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "List of reviewer agent IDs"
+      },
+      "criteria": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "weight": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "required": ["name", "weight"]
+        }
+      },
+      "deadline": {
+        "type": "string",
+        "description": "ISO8601 timestamp for review deadline"
+      }
+    },
+    "required": ["review_type", "target_id", "reviewers"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "review_id": {
+        "type": "string",
+        "description": "Unique review identifier (rvw-<12-char-hex>)"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "IN_PROGRESS", "APPROVED", "REJECTED", "ESCALATED"]
+      },
+      "reviewers": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["ASSIGNED", "REVIEWING", "COMPLETED", "REJECTED"]
+            },
+            "score": {
+              "type": "number"
+            },
+            "comments": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "created_at": {
+        "type": "string",
+        "description": "ISO8601 timestamp"
+      }
+    },
+    "required": ["review_id", "status", "created_at"]
+  }
+}

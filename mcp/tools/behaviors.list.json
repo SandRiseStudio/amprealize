@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "behaviors.list",
+  "description": "List behaviors from the handbook with optional filters for status, tags, and role focus. Returns an array of behavior summaries.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": ["DRAFT", "PENDING_REVIEW", "APPROVED", "DEPRECATED"],
+        "description": "Filter behaviors by lifecycle status"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Filter behaviors by tags (exact match)"
+      },
+      "role_focus": {
+        "type": "string",
+        "enum": ["STRATEGIST", "TEACHER", "STUDENT"],
+        "description": "Filter behaviors by role focus"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "properties": {
+        "behavior_id": {
+          "type": "string",
+          "description": "Unique behavior identifier (bhv-<12-char-hex>)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Behavior name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief behavior description"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["DRAFT", "PENDING_REVIEW", "APPROVED", "DEPRECATED"]
+        },
+        "role_focus": {
+          "type": "string",
+          "enum": ["STRATEGIST", "TEACHER", "STUDENT"]
+        },
+        "version": {
+          "type": "string",
+          "description": "Semantic version (e.g., 1.0.0)"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "created_at": {
+          "type": "string",
+          "description": "ISO8601 timestamp"
+        },
+        "updated_at": {
+          "type": "string",
+          "description": "ISO8601 timestamp"
+        }
+      },
+      "required": ["behavior_id", "name", "status", "role_focus", "version"]
+    }
+  },
+  "required_scopes": ["behaviors.read"],
+  "category": "behaviors"
+}

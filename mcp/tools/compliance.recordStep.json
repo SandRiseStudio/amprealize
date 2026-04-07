@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "compliance.recordStep",
+  "description": "Record a compliance checklist step with status, evidence, and behavior citations. Updates the checklist coverage_score automatically.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "checklist_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Parent checklist identifier"
+      },
+      "title": {
+        "type": "string",
+        "maxLength": 100,
+        "description": "Actionable step description (e.g., 'Run parity tests')"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "SKIPPED"],
+        "description": "Current step status"
+      },
+      "evidence": {
+        "type": "object",
+        "properties": {
+          "artifact_path": {
+            "type": "string",
+            "description": "Path to artifact proving step completion"
+          },
+          "action_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Related ActionService action_id"
+          },
+          "checksum": {
+            "type": "string",
+            "description": "SHA-256 checksum of artifact"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Additional evidence notes"
+          }
+        },
+        "description": "Optional evidence payload"
+      },
+      "behaviors_cited": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Behavior IDs referenced during step execution"
+      },
+      "related_run_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Optional RunService association"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT", "ADMIN", "COMPLIANCE"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor recording the step"
+      }
+    },
+    "required": ["checklist_id", "title", "status", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "step_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "checklist_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "title": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "SKIPPED"]
+      },
+      "timestamp": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "evidence": {
+        "type": "object"
+      },
+      "behaviors_cited": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "audit_log_event_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Link to audit log entry"
+      }
+    },
+    "required": ["step_id", "checklist_id", "title", "status", "timestamp"]
+  }
+}

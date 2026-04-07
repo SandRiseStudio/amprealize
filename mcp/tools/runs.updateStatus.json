@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "runs.updateStatus",
+  "description": "Update only the status of a run. This is a convenience wrapper around runs.updateProgress that only changes status without requiring step or progress information.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "Run identifier"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"],
+        "description": "New run status"
+      },
+      "message": {
+        "type": "string",
+        "description": "Optional status message"
+      }
+    },
+    "required": ["run_id", "status"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "role": { "type": "string" },
+          "surface": { "type": "string" }
+        }
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
+      },
+      "workflow_id": { "type": ["string", "null"] },
+      "workflow_name": { "type": ["string", "null"] },
+      "template_id": { "type": ["string", "null"] },
+      "template_name": { "type": ["string", "null"] },
+      "behavior_ids": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "current_step": { "type": ["string", "null"] },
+      "progress_pct": { "type": "number" },
+      "message": { "type": ["string", "null"] },
+      "started_at": { "type": ["string", "null"], "format": "date-time" },
+      "completed_at": { "type": ["string", "null"], "format": "date-time" },
+      "duration_ms": { "type": ["integer", "null"] },
+      "outputs": { "type": "object" },
+      "error": { "type": ["string", "null"] },
+      "metadata": { "type": "object" },
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "step_id": { "type": "string" },
+            "name": { "type": "string" },
+            "status": { "type": "string" },
+            "started_at": { "type": ["string", "null"] },
+            "completed_at": { "type": ["string", "null"] },
+            "progress_pct": { "type": ["number", "null"] },
+            "metadata": { "type": "object" }
+          }
+        }
+      }
+    },
+    "required": ["run_id", "status", "created_at", "updated_at"]
+  },
+  "examples": [
+    {
+      "name": "Mark run as running",
+      "input": {
+        "run_id": "550e8400-e29b-41d4-a716-446655440000",
+        "status": "RUNNING"
+      }
+    },
+    {
+      "name": "Mark run as failed with message",
+      "input": {
+        "run_id": "550e8400-e29b-41d4-a716-446655440000",
+        "status": "FAILED",
+        "message": "Timeout waiting for external API"
+      }
+    }
+  ]
+}

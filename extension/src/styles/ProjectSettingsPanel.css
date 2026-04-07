@@ -1,0 +1,273 @@
+/**
+ * Project Settings Panel Styles
+ *
+ * Matches the VS Code extension design patterns
+ */
+
+.container {
+  padding: var(--container-padding, 20px);
+  max-width: 600px;
+}
+
+.panel-header {
+  margin-bottom: 24px;
+}
+
+.panel-header h1 {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: var(--vscode-foreground);
+}
+
+.panel-header .subtitle {
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+  margin: 0;
+}
+
+.settings-section {
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+.settings-section:last-of-type {
+  border-bottom: none;
+}
+
+.settings-section h2 {
+  font-size: 1.1em;
+  font-weight: 600;
+  margin: 0 0 8px 0;
+  color: var(--vscode-foreground);
+}
+
+.section-description {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  margin: 0 0 12px 0;
+  line-height: 1.4;
+}
+
+.input-group {
+  display: flex;
+  gap: 8px;
+}
+
+.text-input {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--vscode-input-border);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border-radius: 2px;
+}
+
+.text-input:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  border-color: var(--vscode-focusBorder);
+}
+
+.text-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+
+.select-input {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 13px;
+  border: 1px solid var(--vscode-input-border);
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border-radius: 2px;
+}
+
+.select-input:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  border-color: var(--vscode-focusBorder);
+}
+
+.field-label {
+  display: block;
+  font-size: 0.85em;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: var(--vscode-foreground);
+}
+
+.secondary-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.secondary-btn:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.primary-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.primary-btn:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.validation-status {
+  margin-top: 8px;
+  font-size: 0.85em;
+  min-height: 1.4em;
+}
+
+.validation-status.loading {
+  color: var(--vscode-descriptionForeground);
+}
+
+.validation-status.success {
+  color: var(--vscode-charts-green);
+}
+
+.validation-status.error {
+  color: var(--vscode-errorForeground);
+}
+
+.branch-section {
+  margin-top: 16px;
+}
+
+.branch-section.hidden {
+  display: none;
+}
+
+.actions {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* GitHub Credentials Section */
+.github-link-active {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  margin-top: 12px;
+}
+
+.github-link-active .link-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.github-link-active .link-type {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.github-link-active .link-name,
+.github-link-active .link-identity {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.github-link-active .link-usage {
+  font-size: 0.8em;
+  color: var(--vscode-disabledForeground);
+}
+
+.github-link-form {
+  margin-top: 12px;
+}
+
+.github-link-form .link-option {
+  padding: 16px;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.github-link-form .link-option h4 {
+  margin: 0 0 4px 0;
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+}
+
+.github-link-form .option-description {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  margin: 0 0 12px 0;
+}
+
+.github-link-form .divider {
+  text-align: center;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  margin: 8px 0;
+}
+
+.resolution-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.status-badge {
+  font-size: 0.8em;
+  padding: 2px 6px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.status-badge.success {
+  background: rgba(0, 200, 100, 0.15);
+  color: var(--vscode-charts-green, #4ec9b0);
+}
+
+.status-badge.warning {
+  background: rgba(255, 200, 0, 0.15);
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+.info-card.success {
+  background: rgba(0, 200, 100, 0.1);
+  border-color: var(--vscode-charts-green, #4ec9b0);
+}
+
+.danger-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+  color: var(--vscode-errorForeground, #f48771);
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.danger-btn:hover {
+  opacity: 0.9;
+}
+
+.danger-btn.small {
+  padding: 4px 8px;
+  font-size: 12px;
+}

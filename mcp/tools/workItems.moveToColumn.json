@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workItems.moveToColumn",
+  "description": "Move a work item to a different column by column_id or status_mapping. Useful for updating work item status after execution.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "work_item_id": {
+        "type": "string",
+        "description": "ID or display ID (e.g. 'myproject-42') of the work item to move (required)"
+      },
+      "column_id": {
+        "type": "string",
+        "description": "Target column ID. Either column_id or status_mapping must be provided."
+      },
+      "status_mapping": {
+        "type": "string",
+        "enum": ["backlog", "in_progress", "in_review", "done"],
+        "description": "Target status - finds column with matching status_mapping. Either column_id or status_mapping must be provided."
+      },
+      "position": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Position within the target column (0 = top)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID for multi-tenant context"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "User ID performing the action (for audit logging)"
+      },
+      "actor_role": {
+        "type": "string",
+        "description": "Role of the actor (for audit logging)"
+      },
+      "actor_surface": {
+        "type": "string",
+        "description": "Surface the action is performed from (e.g., 'mcp', 'web', 'cli')"
+      }
+    },
+    "required": ["work_item_id"],
+    "oneOf": [
+      { "required": ["column_id"] },
+      { "required": ["status_mapping"] }
+    ]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the move was successful"
+      },
+      "item": {
+        "type": "object",
+        "description": "The updated work item object with new column_id"
+      },
+      "message": {
+        "type": "string",
+        "description": "Human-readable status message"
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if success is false"
+      }
+    }
+  },
+  "examples": [
+    {
+      "name": "Move to specific column",
+      "input": {
+        "work_item_id": "wi_abc123",
+        "column_id": "col_xyz789"
+      }
+    },
+    {
+      "name": "Move to Done by status",
+      "input": {
+        "work_item_id": "wi_abc123",
+        "status_mapping": "done"
+      }
+    },
+    {
+      "name": "Move to In Progress at top",
+      "input": {
+        "work_item_id": "wi_abc123",
+        "status_mapping": "in_progress",
+        "position": 0
+      }
+    }
+  ]
+}

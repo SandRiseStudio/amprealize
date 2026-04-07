@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "consent.approve",
+  "description": "Approve a consent request. Alias for auth.consentApprove for VS Code extension compatibility.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["user_code", "approver"],
+    "properties": {
+      "user_code": {
+        "type": "string",
+        "description": "User code from device authorization flow."
+      },
+      "approver": {
+        "type": "string",
+        "description": "ID of user approving the consent."
+      },
+      "scopes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Optional subset of scopes to grant."
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["success"],
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether approval succeeded."
+      },
+      "granted_scopes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Scopes that were granted."
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if failed."
+      }
+    }
+  }
+}

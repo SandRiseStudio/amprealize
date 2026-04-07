@@ -1,0 +1,262 @@
+[
+  {
+    "name": "behavior_prefer_mcp_tools",
+    "when": "Working in an IDE with MCP server extensions, or when amprealize MCP tools could replace CLI/API interactions.",
+    "steps": [
+      "Check available tools: Review `MCP_SERVER_DESIGN.md` for the catalog (`behaviors.*`, `runs.*`, `compliance.*`, `actions.*`, `bci.*`, `raze.*`, `breakeramp.*`).",
+      "Prefer MCP over CLI/API: MCP provides consistent schemas, automatic telemetry, and cross-surface parity.",
+      "Leverage IDE extensions: VS Code and other IDEs with MCP support can invoke tools directly for real-time behavior retrieval, run status, and compliance validation.",
+      "Record usage: Cite MCP tools in action logs for reproducibility.",
+      "Fallback gracefully: If MCP unavailable, use CLI commands with same parameters.",
+      "Report gaps: Document missing MCP equivalents in `docs/capability_matrix.md`."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_use_raze_for_logging",
+    "when": "Adding logging to any service, debugging production issues, implementing telemetry, or replacing ad-hoc print statements.",
+    "steps": [
+      "Import: `from raze import RazeLogger` or `from raze import RazeService`.",
+      "Configure sink: TimescaleDB (production), InMemory (tests), JSONL (local).",
+      "Include context fields: `run_id`, `action_id`, `session_id`, `actor_surface`.",
+      "Use structured fields: `logger.info(\"Request processed\", endpoint=\"/v1/users\", latency_ms=45)`.",
+      "For VS Code/web, use the `RazeClient` TypeScript wrapper."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_use_breakeramp_for_environments",
+    "when": "Provisioning development environments, managing containerized resources, setting up test infrastructure.",
+    "steps": [
+      "Check if BreakerAmp is needed (container orchestration, compliance) or simpler Docker Compose suffices.",
+      "Create/select blueprint from `packages/breakeramp/src/breakeramp/blueprints/`.",
+      "Use plan/apply/destroy workflow: `breakeramp plan --blueprint <name>`, review, then `breakeramp apply`.",
+      "Configure hooks for ActionService/ComplianceService when audit trails required.",
+      "Monitor via `breakeramp status`, clean up with `breakeramp destroy`."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_extract_standalone_package",
+    "when": "Adding functionality that could be reused across projects, or refactoring tightly-coupled code.",
+    "steps": [
+      "Evaluate reusability: Is it generic enough to benefit other projects?",
+      "Follow Raze/BreakerAmp pattern: "
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_prevent_secret_leaks",
+    "when": "Initializing repos, preparing commits/pushes, wiring CI pipelines.",
+    "steps": [
+      "Confirm `.gitignore` excludes secrets directories/files.",
+      "Ensure `pre-commit` is installed via `./scripts/install_hooks.sh`.",
+      "Run `scripts/scan_secrets.sh` before PRs; remediate immediately.",
+      "Record `amprealize scan-secrets` action with sanitized reports."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_rotate_leaked_credentials",
+    "when": "Secrets, keys, or credentials appear in code, logs, or chat.",
+    "steps": [
+      "Remove leaked artifact from repo; ensure `.gitignore` blocks future commits.",
+      "Instruct user to rotate affected credentials per `SECRETS_MANAGEMENT_PLAN.md`.",
+      "If secret reached git history, document scrub steps (`git filter-repo`).",
+      "Replace production secrets with placeholders in `.env.example`."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_unify_execution_records",
+    "when": "Work involves run persistence, SSE updates, CLI status, or execution records.",
+    "steps": [
+      "Inventory all execution record definitions and storage adapters.",
+      "Align fields with RunService contract (`MCP_SERVER_DESIGN.md`), ActionService payloads (`ACTION_SERVICE_CONTRACT.md`).",
+      "Route mutations through canonical RunService/ActionService APIs.",
+      "Validate state transitions across Web/CLI/API/MCP surfaces."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_align_storage_layers",
+    "when": "Modifying UnifiedStorage, JSON/SQLite/Firestore adapters, PostgresPool.",
+    "steps": [
+      "Check for duplicate methods or mismatched field names.",
+      "Normalize signatures per `AUDIT_LOG_STORAGE.md` and `REPRODUCIBILITY_STRATEGY.md`.",
+      "Verify PostgresPool commits before returning connections.",
+      "Update schema docs and indexes.",
+      "Test across at least two backends."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_externalize_configuration",
+    "when": "Encountering hardcoded file paths, ports, Firebase configs, API keys.",
+    "steps": [
+      "Add typed config entries via `config/settings.py`.",
+      "Load from env vars/`.env` with safe fallbacks per `SECRETS_MANAGEMENT_PLAN.md`.",
+      "Update Docker Compose, manifests, `.env.example`.",
+      "Remove hardcoded values; fail fast with descriptive errors if missing."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_harden_service_boundaries",
+    "when": "Code makes loopback HTTP calls, uses inline API keys, or crosses service boundaries inconsistently.",
+    "steps": [
+      "Determine if call should be in-process or external client.",
+      "For in-process, use direct service calls honoring contracts.",
+      "For cross-service, configure URLs/credentials, add auth guards, log failures.",
+      "Add integration tests."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_curate_behavior_handbook",
+    "when": "Updating behavior definitions, prompts, retrieval metadata, OR processing behavior proposals.",
+    "steps": [
+      "Review existing entries: to avoid duplicates\u2014search by name and keywords.",
+      "For new behaviors: Follow the Behavior Proposal Template (see Behavior Lifecycle section).",
+      "Include clear triggers: Specific conditions that activate this behavior.",
+      "Define validation steps: How to verify the behavior was applied correctly.",
+      "Assign appropriate role: Student (routine), Teacher (examples), Strategist (novel).",
+      "Calculate confidence score: Based on historical validation (0.8+ for auto-approve).",
+      "Update BehaviorService index: Run `python scripts/seed_behaviors_from_agents_md.py`.",
+      "Update retrieval metadata: Ensure keywords enable semantic search discovery.",
+      "Add regression tests: Create test cases in `tests/test_behavior_*.py`.",
+      "Log in BUILD_TIMELINE.md: Document with date and brief rationale."
+    ],
+    "role": "\ud83e\udde0 Metacognitive Strategist (propose/curate) or \ud83c\udf93 Teacher (validate/approve)"
+  },
+  {
+    "name": "behavior_sanitize_action_registry",
+    "when": "Touching action registry schemas, defaults, or multi-tier storage.",
+    "steps": [
+      "Keep registry modules inside package tree.",
+      "Ensure default URLs match `ACTION_REGISTRY_SPEC.md`.",
+      "Provide graceful fallbacks per `REPRODUCIBILITY_STRATEGY.md`.",
+      "Add tests for resolution order and CLI/API parity."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_instrument_metrics_pipeline",
+    "when": "Telemetry events, dashboards, or metrics contracts need updates.",
+    "steps": [
+      "Map against `TELEMETRY_SCHEMA.md`, `MCP_SERVER_DESIGN.md` MetricsService.",
+      "Ensure events carry run IDs, behavior refs, token accounting for PRD metrics.",
+      "Update Kafka topics, warehouse schemas, retention notes.",
+      "Add automated validation checks."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_wire_cli_to_orchestrator",
+    "when": "Implementing or modifying CLI commands controlling runs.",
+    "steps": [
+      "Map CLI to RunService/ActionService/BehaviorService per `MCP_SERVER_DESIGN.md`.",
+      "Support key ops with clear args per `ACTION_REGISTRY_SPEC.md`.",
+      "Add Click tests including CLI/API/MCP parity.",
+      "Ensure output references unified run IDs."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_lock_down_security_surface",
+    "when": "Adjusting CORS, auth middleware, secrets/API keys.",
+    "steps": [
+      "Restrict CORS via config with safe dev defaults.",
+      "Audit endpoints for consistent auth.",
+      "Remove inline secrets per `SECRETS_MANAGEMENT_PLAN.md`.",
+      "Add security tests."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_update_docs_after_changes",
+    "when": "Any behavior changes developer setup, API contracts, or UX flows.",
+    "steps": [
+      "Update `README.md`, `PRD.md`, `WORK_STRUCTURE.md`, `BUILD_TIMELINE.md`.",
+      "Regenerate API reference if schemas shift."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_prototype_consent_ux",
+    "when": "Designing or updating consent experiences across Web/CLI/IDE.",
+    "steps": [
+      "Review `docs/AGENT_AUTH_ARCHITECTURE.md` and `docs/CONSENT_UX_PROTOTYPE.md`.",
+      "Reference scope catalog entries with purpose/expiry/obligations.",
+      "Define telemetry for prompt impressions, approvals, denials.",
+      "Run WCAG AA accessibility checks."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_handbook_compliance_prompt",
+    "when": "Starting a task, resuming after pause, or when user requests handbook adherence assurance.",
+    "steps": [
+      "Walk through compliance checklist before executing.",
+      "Reference behaviors in plan.",
+      "Reconfirm after major milestones."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_git_governance",
+    "when": "Creating branches, merging, coordinating reviews, mirroring repos.",
+    "steps": [
+      "Review `docs/GIT_STRATEGY.md` for branching/messaging guardrails.",
+      "Create branches as `role/short-slug`, run `pre-commit`.",
+      "Include action IDs and behaviors in commit/PR descriptions.",
+      "Require cross-role review before merge."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_orchestrate_cicd",
+    "when": "Designing or updating CI/CD pipelines, deployment workflows.",
+    "steps": [
+      "Reference `docs/AGENT_DEVOPS.md`, `docs/GIT_STRATEGY.md`.",
+      "Configure pipelines to run pre-commit, pytest, npm build, secret scanning.",
+      "Capture deployment telemetry linked to ActionService.",
+      "Coordinate secrets via `SECRETS_MANAGEMENT_PLAN.md`."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_validate_financial_impact",
+    "when": "Evaluating budget requests, ROI analyses, pricing impacts.",
+    "steps": [
+      "Collect cost forecasts and telemetry baselines.",
+      "Model best/base/worst scenarios.",
+      "Validate against Finance guardrails.",
+      "Ensure financial telemetry is instrumented."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_plan_go_to_market",
+    "when": "Crafting launch plans, messaging frameworks, enablement kits.",
+    "steps": [
+      "Map segments and personas to value propositions.",
+      "Align messaging across Web/API/CLI/MCP surfaces.",
+      "Inventory launch assets with owners and dates.",
+      "Define adoption KPIs and telemetry dashboards."
+    ],
+    "role": null
+  },
+  {
+    "name": "behavior_validate_accessibility",
+    "when": "Designing or auditing user-facing workflows for accessibility.",
+    "steps": [
+      "Run automated scans (axe, Lighthouse, PA11y).",
+      "Perform keyboard and screen reader walkthroughs.",
+      "Review copy for clarity and consistent tone.",
+      "Verify semantic markup and ARIA metadata.",
+      "Track remediation in dashboards."
+    ],
+    "role": null
+  }
+]

@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bootstrap.status",
+  "description": "Get bootstrap status for a workspace. Shows current profile, active knowledge pack, and bootstrap state.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workspace_path": {
+        "type": "string",
+        "description": "Path to the workspace to check. Uses current directory if not provided."
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "is_bootstrapped": {
+        "type": "boolean",
+        "description": "Whether the workspace has been bootstrapped with amprealize"
+      },
+      "profile": {
+        "type": "string",
+        "nullable": true,
+        "description": "Current workspace profile if bootstrapped"
+      },
+      "pack_id": {
+        "type": "string",
+        "nullable": true,
+        "description": "Active knowledge pack ID"
+      },
+      "pack_version": {
+        "type": "string",
+        "nullable": true,
+        "description": "Active knowledge pack version"
+      },
+      "agents_md_exists": {
+        "type": "boolean",
+        "description": "Whether AGENTS.md exists"
+      },
+      "amprealize_dir_exists": {
+        "type": "boolean",
+        "description": "Whether .amprealize/ directory exists"
+      },
+      "last_updated": {
+        "type": "string",
+        "format": "date-time",
+        "nullable": true,
+        "description": "Last modification time of bootstrap files"
+      }
+    },
+    "required": ["is_bootstrapped", "agents_md_exists", "amprealize_dir_exists"]
+  }
+}

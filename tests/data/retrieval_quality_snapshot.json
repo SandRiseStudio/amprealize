@@ -1,0 +1,18 @@
+{
+  "metadata": {
+    "generated_by": "scripts/benchmark_embedding_models.py",
+    "ground_truth_version": "ground_truth_queries_v1",
+    "retrieved_at": "2025-02-04T18:12:00Z",
+    "notes": "Snapshot captured on MacBook Air M2 using sentence-transformers 2.6.0 with FAISS disabled."
+  },
+  "BAAI/bge-m3": {
+    "ndcg@5": 0.926,
+    "p95_latency_ms": 141.2,
+    "query_count": 14
+  },
+  "sentence-transformers/all-MiniLM-L6-v2": {
+    "ndcg@5": 0.874,
+    "p95_latency_ms": 72.5,
+    "query_count": 14
+  }
+}

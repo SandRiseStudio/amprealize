@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgs.update",
+  "description": "Update an organization's settings, name, or plan. Requires admin or owner role.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to update"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "New organization name"
+      },
+      "display_name": {
+        "type": "string",
+        "description": "Display name for the organization"
+      },
+      "plan": {
+        "type": "string",
+        "enum": ["free", "starter", "professional", "enterprise"],
+        "description": "New subscription plan"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["pending", "active", "suspended", "deleted"],
+        "description": "Organization status"
+      },
+      "settings": {
+        "type": "object",
+        "description": "Organization settings to update"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Organization metadata to update"
+      }
+    },
+    "required": ["user_id", "org_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "organization": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "slug": { "type": "string" },
+          "display_name": { "type": "string" },
+          "plan": { "type": "string" },
+          "status": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

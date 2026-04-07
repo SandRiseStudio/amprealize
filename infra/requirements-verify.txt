@@ -1,0 +1,21 @@
+# Minimal requirements for hash chain verification Cloud Run job
+# This is a subset of the main requirements to keep the image small
+
+# Database
+psycopg2-binary>=2.9.9
+
+# OpenSearch client
+opensearch-py>=2.4.0
+
+# Cryptography for Ed25519 signature verification
+cryptography>=42.0.0
+
+# Configuration
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# AWS S3 (optional, for cross-tier S3 verification)
+boto3>=1.34.0
+
+# Logging (optional, for Raze integration)
+# raze>=0.1.0  # Uncomment when Raze is published to PyPI

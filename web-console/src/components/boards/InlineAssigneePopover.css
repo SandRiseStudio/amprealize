@@ -1,0 +1,481 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Inline Assignee Popover (IAP)
+   Glassmorphic dropdown rendered inline inside the work-item card.
+   Matches BoardAgentPresenceRail visual language.
+   GPU-only transitions (transform, opacity, filter).
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Container ──────────────────────────────────────────────────────────── */
+
+.iap-popover {
+  width: 100%;
+  max-height: 260px;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(244, 250, 253, 0.92);
+  backdrop-filter: blur(20px) saturate(140%);
+  box-shadow:
+    0 4px 16px rgba(15, 23, 42, 0.08),
+    0 1px 4px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  margin-top: 6px;
+  transform-origin: top center;
+}
+
+/* ── Enter animation ────────────────────────────────────────────────────── */
+
+.iap-popover-entering {
+  animation: iap-enter 200ms var(--ease-out-expo) both;
+}
+
+@keyframes iap-enter {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: scaleY(0.7);
+    margin-top: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 260px;
+    transform: scaleY(1);
+    margin-top: 6px;
+  }
+}
+
+/* ── Close animation ────────────────────────────────────────────────────── */
+
+.iap-popover-closing {
+  animation: iap-close 150ms var(--ease-out-expo) both;
+  pointer-events: none;
+}
+
+@keyframes iap-close {
+  from {
+    opacity: 1;
+    max-height: 260px;
+    transform: scaleY(1);
+  }
+  to {
+    opacity: 0;
+    max-height: 0;
+    transform: scaleY(0.8);
+    margin-top: 0;
+  }
+}
+
+/* ── Search ─────────────────────────────────────────────────────────────── */
+
+.iap-search-wrapper {
+  padding: 6px 6px 3px;
+  flex-shrink: 0;
+}
+
+.iap-search {
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(8px);
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+  outline: none;
+  transition:
+    border-color var(--duration-fast) var(--ease-out-expo),
+    background-color var(--duration-fast) var(--ease-out-expo);
+}
+
+.iap-search::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.iap-search:focus {
+  border-color: rgba(14, 165, 233, 0.3);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+/* ── Scrollable options ─────────────────────────────────────────────────── */
+
+.iap-options-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 3px 6px 6px;
+  overscroll-behavior: contain;
+}
+
+.iap-options-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+
+.iap-options-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.iap-options-scroll::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.12);
+  border-radius: 4px;
+}
+
+/* ── Groups ─────────────────────────────────────────────────────────────── */
+
+.iap-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.iap-group + .iap-group {
+  margin-top: 5px;
+}
+
+.iap-group-label {
+  font-size: 9px;
+  font-weight: var(--font-semibold);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 4px 2px;
+  line-height: 1;
+}
+
+.iap-group-options {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* ── Option button ──────────────────────────────────────────────────────── */
+
+.iap-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition:
+    background-color 100ms var(--ease-out-expo),
+    border-color 100ms var(--ease-out-expo),
+    transform 100ms var(--ease-spring-gentle);
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.iap-option:hover,
+.iap-option-focused {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(15, 23, 42, 0.06);
+}
+
+.iap-option:active {
+  transform: scale(0.97);
+}
+
+.iap-option-selected {
+  background: rgba(14, 165, 233, 0.08);
+  border-color: rgba(14, 165, 233, 0.18);
+}
+
+.iap-option-selected:hover,
+.iap-option-selected.iap-option-focused {
+  background: rgba(14, 165, 233, 0.12);
+  border-color: rgba(14, 165, 233, 0.24);
+}
+
+/* ── Option internals ───────────────────────────────────────────────────── */
+
+.iap-option-avatar {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+
+.iap-option-avatar-initials {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: rgba(14, 165, 233, 0.10);
+  border: 1px solid rgba(14, 165, 233, 0.14);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: var(--font-semibold);
+  color: var(--color-accent);
+}
+
+.iap-option-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0px;
+}
+
+.iap-option-name {
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.iap-option-subtitle {
+  font-size: 9px;
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+/* ── Presence dot ───────────────────────────────────────────────────────── */
+
+.iap-option-presence {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-tertiary);
+}
+
+.iap-option-presence-available,
+.iap-option-presence-idle,
+.iap-option-presence-finished_recently {
+  background: rgb(34, 197, 94);
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+}
+
+.iap-option-presence-working,
+.iap-option-presence-executing {
+  background: rgb(245, 158, 11);
+  box-shadow: 0 0 4px rgba(245, 158, 11, 0.4);
+}
+
+.iap-option-presence-offline,
+.iap-option-presence-paused {
+  background: rgb(148, 163, 184);
+}
+
+/* ── Check mark ─────────────────────────────────────────────────────────── */
+
+.iap-option-check {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: rgba(14, 165, 233, 0.14);
+  color: var(--color-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+
+.iap-empty {
+  padding: 12px 6px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+/* ── Unassign section ───────────────────────────────────────────────────── */
+
+.iap-unassign-section {
+  margin-top: 3px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.iap-unassign-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 5px 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  transition:
+    background-color 100ms var(--ease-out-expo),
+    color 100ms var(--ease-out-expo);
+}
+
+.iap-unassign-btn:hover {
+  background: rgba(239, 68, 68, 0.06);
+  color: rgb(220, 50, 50);
+}
+
+.iap-unassign-btn:active {
+  transform: scale(0.97);
+}
+
+.iap-unassign-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: rgba(239, 68, 68, 0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: rgb(220, 50, 50);
+}
+
+/* ── Pill trigger enhancements (applied to the card's assignee pill) ──── */
+
+.work-item-assignee-pill.assignee-pill-interactive {
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-out-quart),
+    background var(--duration-fast) var(--ease-out-quart),
+    transform var(--duration-fast) var(--ease-spring),
+    box-shadow var(--duration-fast) var(--ease-out-quart);
+}
+
+.work-item-assignee-pill.assignee-pill-interactive:hover {
+  transform: translateY(-1px);
+}
+
+.work-item-assignee-pill.assignee-pill-user.assignee-pill-interactive:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.16) 0%,
+    rgba(99, 102, 241, 0.12) 100%
+  );
+  border-color: rgba(59, 130, 246, 0.42);
+  box-shadow: 0 3px 8px rgba(59, 130, 246, 0.18), inset 0 1px 0 rgba(255,255,255,0.55);
+}
+
+.work-item-assignee-pill.assignee-pill-agent.assignee-pill-interactive:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(16, 185, 129, 0.16) 0%,
+    rgba(5, 150, 105, 0.10) 100%
+  );
+  border-color: rgba(16, 185, 129, 0.42);
+  box-shadow: 0 3px 8px rgba(16, 185, 129, 0.18), inset 0 1px 0 rgba(255,255,255,0.55);
+}
+
+.work-item-assignee-pill.assignee-pill-unassigned.assignee-pill-interactive:hover {
+  border-color: rgba(15, 23, 42, 0.28);
+  background: rgba(15, 23, 42, 0.06);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+}
+
+.work-item-assignee-pill.assignee-pill-interactive:active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* Open state */
+.work-item-assignee-pill.assignee-pill-user.assignee-pill-open {
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.18) 0%,
+    rgba(99, 102, 241, 0.13) 100%
+  );
+  border-color: rgba(59, 130, 246, 0.48);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12), 0 3px 8px rgba(59, 130, 246, 0.16);
+}
+
+.work-item-assignee-pill.assignee-pill-agent.assignee-pill-open {
+  background: linear-gradient(
+    135deg,
+    rgba(16, 185, 129, 0.18) 0%,
+    rgba(5, 150, 105, 0.13) 100%
+  );
+  border-color: rgba(16, 185, 129, 0.48);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12), 0 3px 8px rgba(16, 185, 129, 0.16);
+}
+
+.work-item-assignee-pill.assignee-pill-unassigned.assignee-pill-open {
+  border-color: rgba(15, 23, 42, 0.32);
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.07);
+}
+
+/* Unassigned + pulse hint on the plus avatar */
+.assignee-pill-interactive.assignee-pill-unassigned .assignee-pill-avatar {
+  animation: iap-plus-pulse 2s ease-in-out infinite;
+}
+
+@keyframes iap-plus-pulse {
+  0%, 100% {
+    background: rgba(15, 23, 42, 0.08);
+  }
+  50% {
+    background: rgba(14, 165, 233, 0.14);
+  }
+}
+
+/* Post-assignment flash — color-matched ring burst */
+.work-item-assignee-pill.assignee-pill-just-assigned {
+  animation: iap-assign-flash 500ms var(--ease-out-expo) both;
+}
+
+.work-item-assignee-pill.assignee-pill-agent.assignee-pill-just-assigned {
+  animation: iap-assign-flash-green 500ms var(--ease-out-expo) both;
+}
+
+@keyframes iap-assign-flash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.45);
+    transform: scale(1.04);
+  }
+  100% {
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.0);
+    transform: scale(1);
+  }
+}
+
+@keyframes iap-assign-flash-green {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45);
+    transform: scale(1.04);
+  }
+  100% {
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.0);
+    transform: scale(1);
+  }
+}
+
+/* ── Compact meta assignee interactive ──────────────────────────────────── */
+
+.compact-meta-assignee.compact-meta-assignee-interactive {
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out-quart),
+    border-color var(--duration-fast) var(--ease-out-quart),
+    transform var(--duration-fast) var(--ease-spring),
+    box-shadow var(--duration-fast) var(--ease-out-quart);
+}
+
+.compact-meta-assignee.compact-meta-assignee-interactive:hover {
+  transform: translateY(-1px);
+}

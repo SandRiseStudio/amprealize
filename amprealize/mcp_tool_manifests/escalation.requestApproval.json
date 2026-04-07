@@ -1,0 +1,178 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "escalation.requestApproval",
+  "description": "Request blocking human approval for a decision. Execution pauses until approval is granted or denied. Use this for high-impact decisions, destructive operations, or when explicit human authorization is required. Default timeout is 1 hour.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "decision": {
+        "type": "string",
+        "description": "Clear description of what decision needs approval"
+      },
+      "options": {
+        "type": "array",
+        "items": { "type": "string" },
+        "minItems": 2,
+        "description": "Available choices (e.g., ['approve', 'reject'] or ['option_a', 'option_b', 'option_c'])"
+      },
+      "context": {
+        "type": "object",
+        "description": "Information to help the human make an informed decision",
+        "properties": {
+          "impact": {
+            "type": "string",
+            "description": "What will happen if approved"
+          },
+          "risk_assessment": {
+            "type": "string",
+            "description": "Assessment of risks involved"
+          },
+          "rollback_plan": {
+            "type": "string",
+            "description": "How to reverse the action if needed"
+          },
+          "affected_resources": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Resources that will be modified"
+          },
+          "cost_estimate": {
+            "type": "string",
+            "description": "Estimated cost impact if applicable"
+          },
+          "recommendation": {
+            "type": "string",
+            "description": "Agent's recommended option and reasoning"
+          }
+        },
+        "additionalProperties": true
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Current run ID for tracking (auto-filled if in run context)"
+      },
+      "work_item_id": {
+        "type": "string",
+        "description": "Associated work item ID if applicable"
+      },
+      "timeout_seconds": {
+        "type": "integer",
+        "default": 3600,
+        "minimum": 60,
+        "maximum": 604800,
+        "description": "How long to wait for approval (default 1 hour, max 7 days)"
+      }
+    },
+    "required": ["decision", "options"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "escalation_id": {
+        "type": "string",
+        "description": "Unique identifier for this approval request"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Associated run ID"
+      },
+      "decision": {
+        "type": "string",
+        "description": "The decision that was requested"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["pending", "approved", "rejected", "expired", "cancelled"],
+        "description": "Current status of the approval request"
+      },
+      "approved": {
+        "type": "boolean",
+        "description": "Whether the request was approved"
+      },
+      "selected_option": {
+        "type": "string",
+        "description": "Which option was selected (when resolved)"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Explanation for the decision (when resolved)"
+      },
+      "approved_by": {
+        "type": "string",
+        "description": "User who made the decision (when resolved)"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the request was created"
+      },
+      "expires_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the request will expire if not resolved"
+      },
+      "resolved_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the decision was made"
+      },
+      "notification_sent": {
+        "type": "boolean",
+        "description": "Whether a notification was dispatched"
+      }
+    },
+    "required": ["escalation_id", "run_id", "decision", "status", "approved", "expires_at"]
+  },
+  "examples": [
+    {
+      "name": "Request approval for database migration",
+      "input": {
+        "decision": "Execute database migration that will rename user_profiles to users",
+        "options": ["approve", "reject", "defer"],
+        "context": {
+          "impact": "All 15 services using user_profiles table will be updated",
+          "risk_assessment": "Medium - requires coordinated deployment",
+          "rollback_plan": "Run reverse migration within 30 minutes if issues detected",
+          "affected_resources": ["user_profiles table", "auth-service", "profile-service", "analytics-service"],
+          "recommendation": "approve - migration has been tested in staging"
+        },
+        "timeout_seconds": 7200
+      },
+      "output": {
+        "escalation_id": "esc_appr_abc123",
+        "run_id": "run_xyz789",
+        "decision": "Execute database migration that will rename user_profiles to users",
+        "status": "pending",
+        "approved": false,
+        "expires_at": "2024-01-15T12:30:00Z",
+        "notification_sent": true,
+        "created_at": "2024-01-15T10:30:00Z"
+      }
+    },
+    {
+      "name": "Request approval for production deployment",
+      "input": {
+        "decision": "Deploy v2.3.0 to production environment",
+        "options": ["approve", "reject"],
+        "context": {
+          "impact": "New features will be available to all users",
+          "risk_assessment": "Low - all tests passing, staged rollout planned",
+          "rollback_plan": "Automatic rollback via ArgoCD if health checks fail",
+          "cost_estimate": "No additional cost"
+        }
+      },
+      "output": {
+        "escalation_id": "esc_appr_def456",
+        "run_id": "run_abc123",
+        "decision": "Deploy v2.3.0 to production environment",
+        "status": "pending",
+        "approved": false,
+        "expires_at": "2024-01-15T11:30:00Z",
+        "notification_sent": true,
+        "created_at": "2024-01-15T10:30:00Z"
+      }
+    }
+  ],
+  "tags": ["escalation", "human-in-the-loop", "approval", "blocking", "authorization"],
+  "category": "escalation"
+}

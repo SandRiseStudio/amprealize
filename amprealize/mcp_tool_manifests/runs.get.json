@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "runs.get",
+  "description": "Get run details by ID. Returns the complete run with all steps.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "Run identifier"
+      }
+    },
+    "required": ["run_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          }
+        }
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
+      },
+      "workflow_id": {
+        "type": "string"
+      },
+      "template_id": {
+        "type": "string"
+      },
+      "behavior_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "current_step": {
+        "type": "string"
+      },
+      "progress_pct": {
+        "type": "number"
+      },
+      "message": {
+        "type": "string"
+      },
+      "started_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "completed_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "duration_ms": {
+        "type": "integer"
+      },
+      "outputs": {
+        "type": "object"
+      },
+      "error": {
+        "type": "string"
+      },
+      "metadata": {
+        "type": "object"
+      },
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "step_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "started_at": {
+              "type": "string"
+            },
+            "completed_at": {
+              "type": "string"
+            },
+            "progress_pct": {
+              "type": "number"
+            },
+            "metadata": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "required": ["run_id", "created_at", "status"]
+  }
+}

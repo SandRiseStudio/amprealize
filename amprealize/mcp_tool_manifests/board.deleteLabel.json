@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "board.deleteLabel",
+  "description": "Delete a label. Removes the label from all work items.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["label_id"],
+    "properties": {
+      "label_id": {
+        "type": "string",
+        "description": "ID of the label to delete"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      },
+      "actor": {
+        "type": "object",
+        "description": "Optional actor context for audit logging",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Actor ID"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["user", "agent", "system"],
+            "description": "Actor type"
+          }
+        }
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the deletion was successful"
+      },
+      "deleted_id": {
+        "type": "string",
+        "description": "ID of the deleted label"
+      }
+    }
+  }
+}

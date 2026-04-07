@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "compliance.validateChecklist",
+  "description": "Validate a compliance checklist against completion requirements and return coverage score, missing steps, failed steps, and warnings. Requires compliance.validate RBAC scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "checklist_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Checklist identifier to validate"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT", "ADMIN", "COMPLIANCE"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor requesting validation (requires compliance.validate scope)"
+      }
+    },
+    "required": ["checklist_id", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "checklist_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "valid": {
+        "type": "boolean",
+        "description": "True if all required steps are COMPLETED or SKIPPED"
+      },
+      "coverage_score": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "description": "Percentage of steps completed successfully"
+      },
+      "missing_steps": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Titles of steps with status PENDING or IN_PROGRESS"
+      },
+      "failed_steps": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Titles of steps with status FAILED"
+      },
+      "warnings": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Advisory warnings (e.g., missing evidence, no behavior citations)"
+      }
+    },
+    "required": ["checklist_id", "valid", "coverage_score", "missing_steps", "failed_steps", "warnings"]
+  },
+  "required_scopes": ["compliance.validate"],
+  "category": "compliance"
+}

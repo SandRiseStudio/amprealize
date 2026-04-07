@@ -1,0 +1,4 @@
+/Users/nick/amprealize/amprealize/llm/providers/test.py:17: PytestCollectionWarning: cannot collect test class 'TestProvider' because it has a __init__ constructor (from: tests/test_llm_client.py)
+  class TestProvider(Provider):
+/Users/nick/amprealize/amprealize/llm/providers/test.py:17: PytestCollectionWarning: cannot collect test class 'TestProvider' because it has a __init__ constructor (from: tests/test_llm_client.py)
+  class TestProvider(Provider):

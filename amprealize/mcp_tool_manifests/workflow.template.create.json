@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workflow.template.create",
+  "description": "Create a new workflow template with role-specific steps and behavior injection points for Strategist/Teacher/Student execution patterns.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["name", "description", "role_focus", "steps", "actor"],
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Template name (max 200 characters)",
+        "maxLength": 200
+      },
+      "description": {
+        "type": "string",
+        "description": "Template description (max 1000 characters)",
+        "maxLength": 1000
+      },
+      "role_focus": {
+        "type": "string",
+        "enum": ["STRATEGIST", "TEACHER", "STUDENT", "MULTI_ROLE"],
+        "description": "Primary role this template targets"
+      },
+      "steps": {
+        "type": "array",
+        "description": "Array of template steps (1-50 steps)",
+        "minItems": 1,
+        "maxItems": 50,
+        "items": {
+          "type": "object",
+          "required": ["name", "description", "prompt_template"],
+          "properties": {
+            "step_id": {
+              "type": "string",
+              "description": "Optional step identifier (auto-generated if omitted)"
+            },
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+            "prompt_template": {
+              "type": "string",
+              "description": "Template with placeholders like {{BEHAVIORS}}"
+            },
+            "behavior_injection_point": {
+              "type": "string",
+              "description": "Placeholder for behavior injection (default: {{BEHAVIORS}})",
+              "default": "{{BEHAVIORS}}"
+            },
+            "required_behaviors": {
+              "type": "array",
+              "description": "Behavior IDs to inject at this step",
+              "items": {"type": "string"}
+            },
+            "validation_rules": {
+              "type": "object",
+              "description": "Step validation constraints"
+            },
+            "metadata": {
+              "type": "object",
+              "description": "Additional step metadata"
+            }
+          }
+        }
+      },
+      "tags": {
+        "type": "array",
+        "description": "Tags for categorization",
+        "items": {"type": "string"}
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Additional template metadata"
+      },
+      "actor": {
+        "type": "object",
+        "required": ["id", "role"],
+        "properties": {
+          "id": {"type": "string"},
+          "role": {"type": "string"},
+          "surface": {"type": "string"}
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["template_id", "name", "role_focus", "steps", "created_at"],
+    "properties": {
+      "template_id": {"type": "string"},
+      "name": {"type": "string"},
+      "description": {"type": "string"},
+      "role_focus": {"type": "string"},
+      "version": {"type": "string"},
+      "created_at": {"type": "string", "format": "date-time"},
+      "created_by": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "role": {"type": "string"},
+          "surface": {"type": "string"}
+        }
+      },
+      "steps": {"type": "array"},
+      "tags": {"type": "array", "items": {"type": "string"}},
+      "metadata": {"type": "object"}
+    }
+  }
+}

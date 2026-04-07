@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "behaviors.approve",
+  "description": "Approve a behavior for production use. Changes status from PENDING_REVIEW to APPROVED. Requires approval authority. Returns the approved behavior.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string",
+        "description": "Behavior ID to approve"
+      },
+      "version": {
+        "type": "string",
+        "description": "Version to approve (must be PENDING_REVIEW)"
+      },
+      "effective_from": {
+        "type": "string",
+        "description": "ISO8601 timestamp when behavior becomes active (defaults to now)"
+      },
+      "approval_action_id": {
+        "type": "string",
+        "description": "Optional ActionService action ID recording the approval decision"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor must have approval authority (behaviors:approve scope)"
+      }
+    },
+    "required": ["behavior_id", "version", "effective_from", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["APPROVED"]
+      },
+      "version": {
+        "type": "string"
+      },
+      "effective_from": {
+        "type": "string",
+        "description": "When the behavior became/becomes active"
+      },
+      "approved_at": {
+        "type": "string",
+        "description": "ISO8601 timestamp of approval"
+      },
+      "approved_by": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "required": ["behavior_id", "status", "version", "effective_from", "approved_at", "approved_by"]
+  }
+}

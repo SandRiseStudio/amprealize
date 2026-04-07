@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bci.inject",
+  "description": "Full runtime injection: resolve context, retrieve behaviors, and compose enriched prompt with pack/profile/surface/phase awareness.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task": {
+        "type": "string",
+        "description": "The task or prompt description"
+      },
+      "surface": {
+        "type": "string",
+        "description": "Invoking surface (optional, uses session)",
+        "enum": ["vscode", "cli", "mcp", "web", "api"]
+      },
+      "role": {
+        "type": "string",
+        "description": "Agent role (optional)",
+        "enum": ["Student", "Teacher", "Strategist"]
+      },
+      "workspace_path": {
+        "type": "string",
+        "description": "Local workspace path for profile detection (optional)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID (optional, uses session)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID (optional, uses session)"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "User ID (optional, uses session)"
+      },
+      "active_pack_id": {
+        "type": "string",
+        "description": "Explicit pack override (optional)"
+      },
+      "active_pack_version": {
+        "type": "string",
+        "description": "Explicit pack version (optional)"
+      },
+      "editor_context": {
+        "type": "object",
+        "description": "Rich context from editor: file path, language, selection (optional)"
+      },
+      "top_k": {
+        "type": "integer",
+        "description": "Number of behaviors to retrieve (default 5)",
+        "default": 5
+      },
+      "strategy": {
+        "type": "string",
+        "description": "Retrieval strategy (default hybrid)",
+        "enum": ["hybrid", "embedding", "keyword"]
+      },
+      "format": {
+        "type": "string",
+        "description": "Prompt format (default list)",
+        "enum": ["list", "prose", "structured"]
+      },
+      "citation_mode": {
+        "type": "string",
+        "description": "Citation instruction mode (default explicit)",
+        "enum": ["explicit", "implicit", "inline"]
+      },
+      "tags": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Filter behaviors by tags (optional)"
+      },
+      "phase": {
+        "type": "string",
+        "description": "Current GEP phase for phase-aware behavior boosting (optional)",
+        "enum": ["PLANNING", "CLARIFYING", "ARCHITECTING", "EXECUTING", "TESTING", "FIXING", "VERIFYING", "COMPLETING"]
+      }
+    },
+    "required": []
+  }
+}

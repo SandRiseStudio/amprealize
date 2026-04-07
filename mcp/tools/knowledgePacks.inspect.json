@@ -1,0 +1,157 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "knowledgePacks.inspect",
+  "description": "Inspect the contents of a built knowledge pack, showing overlays, sources, metadata, and statistics.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "pack_id": {
+        "type": "string",
+        "description": "Identifier of the knowledge pack to inspect"
+      },
+      "version": {
+        "type": "string",
+        "description": "Specific version to inspect. Defaults to latest if not specified"
+      },
+      "include_overlays": {
+        "type": "boolean",
+        "default": true,
+        "description": "Include overlay details in the output"
+      },
+      "include_sources": {
+        "type": "boolean",
+        "default": true,
+        "description": "Include source provenance details in the output"
+      },
+      "include_primer": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include the rendered primer content in the output"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"]
+      }
+    },
+    "required": ["pack_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "pack_id": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string"
+      },
+      "profile": {
+        "type": "string",
+        "enum": ["dev_local", "ci_ephemeral", "prod_collaborative"]
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "token_budget_used": {
+        "type": "integer"
+      },
+      "primer_hash": {
+        "type": "string"
+      },
+      "primer_content": {
+        "type": "string",
+        "description": "Rendered primer text, only included if include_primer is true"
+      },
+      "overlays": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "overlay_id": {
+              "type": "string"
+            },
+            "overlay_type": {
+              "type": "string",
+              "enum": ["tool", "behavior", "instruction", "doc_snippet"]
+            },
+            "source_id": {
+              "type": "string"
+            },
+            "content_hash": {
+              "type": "string"
+            },
+            "token_cost": {
+              "type": "integer"
+            },
+            "priority": {
+              "type": "string",
+              "enum": ["critical", "high", "medium", "low"]
+            }
+          }
+        },
+        "description": "List of overlays in the pack, only included if include_overlays is true"
+      },
+      "sources": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "source_id": {
+              "type": "string"
+            },
+            "source_type": {
+              "type": "string",
+              "enum": ["agents_md", "skills_folder", "mcp_tool", "repo_readme", "prd_doc"]
+            },
+            "ref": {
+              "type": "string"
+            },
+            "version_hash": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string",
+              "enum": ["org", "project", "user"]
+            }
+          }
+        },
+        "description": "List of sources contributing to the pack, only included if include_sources is true"
+      },
+      "statistics": {
+        "type": "object",
+        "properties": {
+          "overlay_count": {
+            "type": "integer"
+          },
+          "source_count": {
+            "type": "integer"
+          },
+          "overlays_by_type": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "sources_by_type": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  }
+}

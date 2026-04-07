@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "behaviors.deleteDraft",
+  "description": "Permanently delete a behavior draft. Only DRAFT behaviors can be deleted. This operation cannot be undone.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string",
+        "description": "Behavior ID to delete"
+      },
+      "version": {
+        "type": "string",
+        "description": "Version to delete (must be DRAFT)"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"]
+      }
+    },
+    "required": ["behavior_id", "version", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string"
+      },
+      "deleted": {
+        "type": "boolean",
+        "enum": [true]
+      },
+      "deleted_at": {
+        "type": "string",
+        "description": "ISO8601 timestamp of deletion"
+      }
+    },
+    "required": ["behavior_id", "version", "deleted", "deleted_at"]
+  }
+}

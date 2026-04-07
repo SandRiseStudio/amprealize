@@ -1,0 +1,131 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workItems.update",
+  "description": "Update work item fields. Only provided fields will be updated. The cascade_to_children flag is accepted for compatibility but ignored (descendant mass-complete is disabled).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "item_id": {
+        "type": "string",
+        "description": "Work item ID or display ID (e.g. 'myproject-42') to update (required)"
+      },
+      "item_type": {
+        "type": "string",
+        "enum": ["goal", "feature", "task", "bug"],
+        "description": "Change the work item type (optional, uses session). Accepts legacy names: epic→goal, story→feature."
+      },
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500,
+        "description": "New title"
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 10000,
+        "description": "New description"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["backlog", "in_progress", "in_review", "done"],
+        "description": "New status"
+      },
+      "priority": {
+        "type": "string",
+        "enum": ["critical", "high", "medium", "low"],
+        "description": "New priority"
+      },
+      "labels": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "New labels (replaces existing)"
+      },
+      "points": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "description": "Point estimate for this work item"
+      },
+      "story_points": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "description": "Deprecated alias for 'points'. Use 'points' instead."
+      },
+      "estimated_hours": {
+        "type": "number",
+        "minimum": 0,
+        "description": "Estimated hours"
+      },
+      "actual_hours": {
+        "type": "number",
+        "minimum": 0,
+        "description": "Actual hours spent"
+      },
+      "start_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Start date"
+      },
+      "target_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Target date"
+      },
+      "due_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Due date"
+      },
+      "behavior_id": {
+        "type": "string",
+        "description": "Associated behavior ID"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Associated run ID"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Additional metadata"
+      },
+      "parent_id": {
+        "type": "string",
+        "description": "New parent work item ID or display ID (e.g. 'AMPREALIZE-42') to reparent this item under a different goal/feature"
+      },
+      "cascade_to_children": {
+        "type": "boolean",
+        "default": false,
+        "description": "Ignored. Previously attempted to mark incomplete descendants done when status became done; disabled to prevent accidental subtree closure."
+      },
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user updating the item"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": ["item_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "item": {
+        "type": "object",
+        "properties": {
+          "item_id": { "type": "string" },
+          "item_type": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "string" },
+          "priority": { "type": "string" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" },
+      "error": { "type": "string" }
+    }
+  }
+}

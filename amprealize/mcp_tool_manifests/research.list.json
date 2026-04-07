@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "research.list",
+  "description": "List all evaluated research papers with summary information. Returns papers sorted by evaluation date (newest first).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of papers to return (default: 50)"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "Offset for pagination (default: 0)"
+      },
+      "verdict": {
+        "type": "string",
+        "enum": ["ADOPT", "ADAPT", "DEFER", "REJECT"],
+        "description": "Filter by verdict"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "papers": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "paper_id": { "type": "string" },
+            "title": { "type": "string" },
+            "verdict": { "type": "string" },
+            "overall_score": { "type": "number" },
+            "core_idea": { "type": "string" }
+          }
+        }
+      },
+      "total_count": { "type": "integer" },
+      "has_more": { "type": "boolean" }
+    }
+  }
+}

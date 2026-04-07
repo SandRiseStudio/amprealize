@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agents.assign",
+  "description": "Request initial agent assignment for a run. Evaluates policy heuristics (task type, compliance tags, telemetry) and returns the chosen agent persona. Requires agents.assign scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "Run identifier to associate with this assignment (optional, will generate if not provided)"
+      },
+      "requested_agent_id": {
+        "type": "string",
+        "description": "Specific agent ID to request (e.g., 'compliance', 'product', 'engineering'). If omitted, service selects agent via heuristics."
+      },
+      "stage": {
+        "type": "string",
+        "description": "Workflow stage (e.g., 'PLANNING', 'EXECUTION', 'REVIEW')",
+        "default": "PLANNING"
+      },
+      "context": {
+        "type": "object",
+        "description": "Task context for heuristic evaluation",
+        "properties": {
+          "task_type": {
+            "type": "string",
+            "description": "Type of task (e.g., 'compliance', 'feature', 'bugfix', 'architecture')"
+          },
+          "severity": {
+            "type": "string",
+            "description": "Task severity (e.g., 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL')"
+          },
+          "compliance_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Compliance categories relevant to this task"
+          },
+          "behaviors_cited": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Behavior IDs referenced in the plan"
+          },
+          "surface": {
+            "type": "string",
+            "description": "Surface where the task originated (CLI, WEB, MCP, API)"
+          }
+        },
+        "additionalProperties": true
+      },
+      "requested_by": {
+        "type": "object",
+        "description": "Requester identity",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Requester identifier"
+          },
+          "role": {
+            "type": "string",
+            "description": "Requester role (STRATEGIST, TEACHER, STUDENT, ADMIN)"
+          },
+          "surface": {
+            "type": "string",
+            "description": "Surface of request origin"
+          }
+        },
+        "required": ["id", "role"]
+      }
+    },
+    "required": ["stage", "requested_by"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "assignment_id": {
+        "type": "string",
+        "description": "Unique identifier for this agent assignment"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Run identifier associated with this assignment"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Assigned agent identifier (e.g., 'compliance', 'product', 'engineering')"
+      },
+      "stage": {
+        "type": "string",
+        "description": "Current workflow stage"
+      },
+      "heuristics_applied": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "weight": { "type": "number" },
+            "matched": { "type": "boolean" }
+          }
+        },
+        "description": "Heuristics evaluated during assignment"
+      },
+      "assigned_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp of assignment"
+      }
+    },
+    "required": ["assignment_id", "agent_id", "stage", "assigned_at"]
+  }
+}

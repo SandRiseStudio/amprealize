@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "compliance.createChecklist",
+  "description": "Create a new compliance checklist to track required evidence steps for a workflow or milestone. Returns the created checklist with an initial coverage_score of 0.0.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "maxLength": 160,
+        "description": "Checklist name (e.g., 'Milestone 1 Compliance Review')"
+      },
+      "description": {
+        "type": "string",
+        "description": "Markdown overview of scope and purpose"
+      },
+      "template_id": {
+        "type": "string",
+        "description": "Optional reference to workflow template UUID"
+      },
+      "milestone": {
+        "type": "string",
+        "description": "Associated milestone (e.g., 'Milestone 1', 'Milestone 2')"
+      },
+      "compliance_category": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["SOC2", "GDPR", "HIPAA", "Internal", "Security", "Quality"]
+        },
+        "minItems": 1,
+        "description": "Compliance categories this checklist addresses"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT", "ADMIN", "COMPLIANCE"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor creating the checklist"
+      }
+    },
+    "required": ["title", "compliance_category", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "checklist_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "title": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "template_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "milestone": {
+        "type": "string"
+      },
+      "compliance_category": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        },
+        "description": "Initially empty array"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "coverage_score": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "description": "Initial score is 0.0"
+      }
+    },
+    "required": ["checklist_id", "title", "compliance_category", "steps", "created_at", "coverage_score"]
+  }
+}

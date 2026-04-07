@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgAgents.assignToProject",
+  "description": "Assign an agent to a project. Agent can be assigned to multiple projects.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent ID to assign"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID to assign the agent to"
+      },
+      "role": {
+        "type": "string",
+        "enum": ["primary", "secondary", "backup"],
+        "default": "primary",
+        "description": "Agent's role within the project"
+      }
+    },
+    "required": ["user_id", "agent_id", "project_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "assignment": {
+        "type": "object",
+        "properties": {
+          "agent_id": { "type": "string" },
+          "project_id": { "type": "string" },
+          "role": { "type": "string" },
+          "assigned_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

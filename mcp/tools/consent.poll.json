@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "consent.poll",
+  "description": "Poll the status of a consent request. Used by MCP clients waiting for user approval.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["user_code"],
+    "properties": {
+      "user_code": {
+        "type": "string",
+        "description": "User code from the consent request (e.g., 'ABCD-1234')."
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": ["pending", "approved", "denied", "expired", "not_found"],
+        "description": "Current status of the consent request."
+      },
+      "scopes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Granted scopes (only present if approved)."
+      },
+      "decided_at": {
+        "type": "string",
+        "description": "ISO timestamp when decision was made."
+      },
+      "reason": {
+        "type": "string",
+        "description": "Reason for denial (if applicable)."
+      },
+      "expires_in_seconds": {
+        "type": "integer",
+        "description": "Seconds until request expires (if pending)."
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if poll failed."
+      }
+    }
+  }
+}

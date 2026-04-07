@@ -1,0 +1,40 @@
+{
+  "name": "agentPerformance.resolveAlert",
+  "description": "Resolve a performance alert. This marks the alert as fixed with resolution notes.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "alert_id": {
+        "type": "string",
+        "description": "Unique identifier of the alert to resolve"
+      },
+      "resolution_notes": {
+        "type": "string",
+        "description": "Notes describing how the issue was resolved"
+      }
+    },
+    "required": ["alert_id", "resolution_notes"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "alert_id": {
+        "type": "string",
+        "description": "Alert identifier"
+      },
+      "resolved_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the alert was resolved"
+      },
+      "resolution_notes": {
+        "type": "string",
+        "description": "Resolution notes"
+      },
+      "status": {
+        "type": "string",
+        "description": "Current alert status (resolved)"
+      }
+    }
+  }
+}

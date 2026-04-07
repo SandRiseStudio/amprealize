@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "billing.checkLimit",
+  "description": "Check if a specific action would exceed plan limits.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to check limit for"
+      },
+      "metric": {
+        "type": "string",
+        "enum": ["api_calls", "tokens", "agents", "runs", "members", "projects", "storage_gb"],
+        "description": "Metric to check"
+      },
+      "requested_amount": {
+        "type": "number",
+        "default": 1,
+        "description": "Amount to be added (default 1)"
+      }
+    },
+    "required": ["user_id", "org_id", "metric"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "allowed": {
+        "type": "boolean",
+        "description": "Whether the action is allowed within limits"
+      },
+      "current": {
+        "type": "number",
+        "description": "Current usage"
+      },
+      "limit": {
+        "type": "number",
+        "description": "Plan limit"
+      },
+      "remaining": {
+        "type": "number",
+        "description": "Remaining capacity"
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

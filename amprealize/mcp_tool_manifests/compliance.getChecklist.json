@@ -1,0 +1,153 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "compliance.getChecklist",
+  "description": "Retrieve a single compliance checklist by ID with all steps, evidence, and validation details.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "checklist_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Checklist identifier to retrieve"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT", "ADMIN", "COMPLIANCE"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor requesting the checklist"
+      }
+    },
+    "required": ["checklist_id", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "checklist_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "title": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "template_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "milestone": {
+        "type": "string"
+      },
+      "compliance_category": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "step_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "title": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "SKIPPED"]
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "actor": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "surface": {
+                  "type": "string"
+                }
+              }
+            },
+            "evidence": {
+              "type": "object"
+            },
+            "behaviors_cited": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "related_run_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "audit_log_event_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "validation_result": {
+              "type": "object",
+              "properties": {
+                "passed": {
+                  "type": "boolean"
+                },
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "required": ["step_id", "title", "status", "timestamp", "actor"]
+        }
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "completed_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "coverage_score": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "description": "Percentage of completed steps (completed / total)"
+      }
+    },
+    "required": ["checklist_id", "title", "compliance_category", "steps", "created_at", "coverage_score"]
+  }
+}

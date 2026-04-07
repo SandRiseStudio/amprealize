@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schema.amprealize.dev/bci/v1/reflection.json",
+  "title": "Behavior-Conditioned Inference Reflection Schemas",
+  "type": "object",
+  "description": "JSON schema definitions for automated behavior extraction via reflection services.",
+  "definitions": {
+    "ReflectionQualityScores": {
+      "type": "object",
+      "required": ["clarity", "generality", "reusability", "correctness"],
+      "properties": {
+        "clarity": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "generality": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "reusability": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "correctness": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      },
+      "additionalProperties": false
+    },
+    "ReflectionExample": {
+      "type": "object",
+      "required": ["title", "body"],
+      "properties": {
+        "title": {"type": "string", "maxLength": 160},
+        "body": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "ReflectionCandidate": {
+      "type": "object",
+      "required": [
+        "slug",
+        "display_name",
+        "instruction",
+        "supporting_steps",
+        "examples",
+        "quality_scores",
+        "confidence"
+      ],
+      "properties": {
+        "slug": {"type": "string", "pattern": "^behavior_[a-z0-9_\\-]+$"},
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 160},
+        "instruction": {"type": "string", "minLength": 1},
+        "summary": {"type": "string"},
+        "supporting_steps": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "examples": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/ReflectionExample"},
+          "maxItems": 5
+        },
+        "quality_scores": {"$ref": "#/definitions/ReflectionQualityScores"},
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "duplicate_behavior_id": {"type": "string", "format": "uuid"},
+        "duplicate_behavior_name": {"type": "string", "maxLength": 160},
+        "tags": {
+          "type": "array",
+          "items": {"type": "string", "maxLength": 50},
+          "maxItems": 20
+        }
+      },
+      "additionalProperties": false
+    },
+    "ReflectRequest": {
+      "type": "object",
+      "required": ["trace_text"],
+      "properties": {
+        "trace_text": {"type": "string", "minLength": 1},
+        "trace_format": {
+          "$ref": "trace.json#/definitions/TraceFormat",
+          "default": "chain_of_thought"
+        },
+        "run_id": {"type": "string"},
+        "max_candidates": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5},
+        "min_quality_score": {"type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.6},
+        "include_examples": {"type": "boolean", "default": true},
+        "preferred_tags": {
+          "type": ["array", "null"],
+          "items": {"type": "string", "maxLength": 50},
+          "maxItems": 20
+        }
+      },
+      "additionalProperties": false
+    },
+    "ReflectResponse": {
+      "type": "object",
+      "required": ["trace_step_count", "candidates"],
+      "properties": {
+        "run_id": {"type": ["string", "null"]},
+        "trace_step_count": {"type": "integer", "minimum": 0},
+        "candidates": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/ReflectionCandidate"}
+        },
+        "summary": {"type": ["string", "null"]},
+        "metadata": {
+          "type": ["object", "null"],
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

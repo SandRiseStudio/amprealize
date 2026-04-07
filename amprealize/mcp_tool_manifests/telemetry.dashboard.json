@@ -1,0 +1,206 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "telemetry.dashboard",
+  "description": "Display telemetry dashboard with KPIs, token accounting, and cost summaries. Provides daily summary view with optional drill-down to specific run details. Supports real-time watch mode for monitoring.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "Optional: Drill down to specific run ID for detailed token accounting and cost breakdown"
+      },
+      "start_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Start date for daily summary (YYYY-MM-DD). Defaults to 7 days ago."
+      },
+      "end_date": {
+        "type": "string",
+        "format": "date",
+        "description": "End date for daily summary (YYYY-MM-DD). Defaults to today."
+      },
+      "include_kpi": {
+        "type": "boolean",
+        "default": true,
+        "description": "Include KPI summary section (behavior reuse %, token savings %, etc.)"
+      },
+      "include_token_savings": {
+        "type": "boolean",
+        "default": true,
+        "description": "Include top token savings section"
+      },
+      "include_daily_costs": {
+        "type": "boolean",
+        "default": true,
+        "description": "Include daily cost summary section"
+      },
+      "token_savings_limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 10,
+        "description": "Number of top token-saving runs to include"
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "period": {
+        "type": "object",
+        "properties": {
+          "start": {"type": "string", "format": "date"},
+          "end": {"type": "string", "format": "date"}
+        },
+        "description": "Date range for the dashboard data"
+      },
+      "run_detail": {
+        "type": ["object", "null"],
+        "description": "Detailed data when drilling down to a specific run_id",
+        "properties": {
+          "run_id": {"type": "string"},
+          "token_accounting": {
+            "type": "object",
+            "properties": {
+              "baseline_tokens": {"type": "integer"},
+              "actual_tokens": {"type": "integer"},
+              "tokens_saved": {"type": "integer"},
+              "savings_rate_pct": {"type": "number"}
+            }
+          },
+          "cost_breakdown": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "service": {"type": "string"},
+                "cost_usd": {"type": "number"}
+              }
+            }
+          }
+        }
+      },
+      "kpi_summary": {
+        "type": ["object", "null"],
+        "description": "Latest KPI metrics when not drilling down",
+        "properties": {
+          "behavior_reuse_rate_pct": {
+            "type": "number",
+            "description": "Percentage of runs using behaviors (target: 70%)"
+          },
+          "token_savings_rate_pct": {
+            "type": "number",
+            "description": "Average token savings compared to baseline (target: 30%)"
+          },
+          "task_completion_rate_pct": {
+            "type": "number",
+            "description": "Percentage of successful completions (target: 80%)"
+          },
+          "compliance_coverage_pct": {
+            "type": "number",
+            "description": "Average compliance checklist coverage (target: 95%)"
+          }
+        }
+      },
+      "token_savings": {
+        "type": ["array", "null"],
+        "description": "Top runs by token savings",
+        "items": {
+          "type": "object",
+          "properties": {
+            "run_id": {"type": "string"},
+            "tokens_saved": {"type": "integer"},
+            "savings_rate_pct": {"type": "number"},
+            "timestamp": {"type": "string", "format": "date-time"}
+          }
+        }
+      },
+      "daily_costs": {
+        "type": ["array", "null"],
+        "description": "Daily cost summaries",
+        "items": {
+          "type": "object",
+          "properties": {
+            "date": {"type": "string", "format": "date"},
+            "total_runs": {"type": "integer"},
+            "total_cost_usd": {"type": "number"}
+          }
+        }
+      },
+      "totals": {
+        "type": "object",
+        "properties": {
+          "total_tokens_saved": {"type": "integer"},
+          "total_cost_usd": {"type": "number"},
+          "total_runs": {"type": "integer"}
+        },
+        "description": "Aggregate totals for the period"
+      }
+    },
+    "required": ["period"]
+  },
+  "examples": [
+    {
+      "name": "Get dashboard summary for last 7 days",
+      "input": {},
+      "output": {
+        "period": {
+          "start": "2024-01-08",
+          "end": "2024-01-15"
+        },
+        "kpi_summary": {
+          "behavior_reuse_rate_pct": 72.5,
+          "token_savings_rate_pct": 34.2,
+          "task_completion_rate_pct": 85.0,
+          "compliance_coverage_pct": 96.3
+        },
+        "token_savings": [
+          {
+            "run_id": "run-abc123",
+            "tokens_saved": 15420,
+            "savings_rate_pct": 42.1,
+            "timestamp": "2024-01-14T14:30:00Z"
+          }
+        ],
+        "daily_costs": [
+          {
+            "date": "2024-01-15",
+            "total_runs": 45,
+            "total_cost_usd": 12.50
+          }
+        ],
+        "totals": {
+          "total_tokens_saved": 125000,
+          "total_cost_usd": 87.25,
+          "total_runs": 320
+        }
+      }
+    },
+    {
+      "name": "Drill down to specific run",
+      "input": {
+        "run_id": "run-xyz789"
+      },
+      "output": {
+        "period": {
+          "start": "2024-01-08",
+          "end": "2024-01-15"
+        },
+        "run_detail": {
+          "run_id": "run-xyz789",
+          "token_accounting": {
+            "baseline_tokens": 25000,
+            "actual_tokens": 17500,
+            "tokens_saved": 7500,
+            "savings_rate_pct": 30.0
+          },
+          "cost_breakdown": [
+            {"service": "openai-gpt4", "cost_usd": 0.45},
+            {"service": "embedding", "cost_usd": 0.02}
+          ]
+        }
+      }
+    }
+  ]
+}

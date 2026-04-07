@@ -1,0 +1,416 @@
+# Metabase Dashboard Quick Reference
+
+> **TL;DR:** Copy-paste SQL queries for fast dashboard creation
+> **Full Guide:** See `METABASE_DASHBOARD_CREATION_GUIDE.md` for detailed instructions
+
+## Access Info
+- **URL:** http://localhost:3000
+- **Login:** admin@amprealize.local / changeme123
+- **Database:** `/duckdb/telemetry_sqlite.db` (SQLite driver)
+
+## Dashboard 1: PRD KPI Summary
+
+### Metric Card: Behavior Reuse Rate
+```sql
+SELECT
+  ROUND(AVG(behavior_reuse_rate) * 100, 1) as rate_pct,
+  CASE
+    WHEN AVG(behavior_reuse_rate) >= 0.70 THEN 'On Track'
+    WHEN AVG(behavior_reuse_rate) >= 0.60 THEN 'At Risk'
+    ELSE 'Off Track'
+  END as status
+FROM main.view_behavior_reuse_rate
+WHERE DATE(last_updated) >= DATE('now', '-30 days');
+```
+
+### Metric Card: Token Savings Rate
+```sql
+SELECT
+  ROUND(AVG(token_savings_rate) * 100, 1) as rate_pct,
+  CASE
+    WHEN AVG(token_savings_rate) >= 0.30 THEN 'On Track'
+    WHEN AVG(token_savings_rate) >= 0.20 THEN 'At Risk'
+    ELSE 'Off Track'
+  END as status
+FROM main.view_token_savings_rate
+WHERE DATE(last_updated) >= DATE('now', '-30 days');
+```
+
+### Metric Card: Task Completion Rate
+```sql
+SELECT
+  ROUND(AVG(completion_rate) * 100, 1) as rate_pct,
+  CASE
+    WHEN AVG(completion_rate) >= 0.80 THEN 'On Track'
+    WHEN AVG(completion_rate) >= 0.70 THEN 'At Risk'
+    ELSE 'Off Track'
+  END as status
+FROM main.view_completion_rate
+WHERE DATE(last_updated) >= DATE('now', '-30 days');
+```
+
+### Metric Card: Compliance Coverage Rate
+```sql
+SELECT
+  ROUND(AVG(compliance_coverage_rate) * 100, 1) as rate_pct,
+  CASE
+    WHEN AVG(compliance_coverage_rate) >= 0.95 THEN 'On Track'
+    WHEN AVG(compliance_coverage_rate) >= 0.90 THEN 'At Risk'
+    ELSE 'Off Track'
+  END as status
+FROM main.view_compliance_coverage_rate
+WHERE DATE(last_updated) >= DATE('now', '-30 days');
+```
+
+### Chart: 30-Day Trend Lines
+```sql
+WITH daily_metrics AS (
+  SELECT
+    DATE(e.execution_timestamp) as metric_date,
+    'Behavior Reuse' as metric_name,
+    COALESCE(AVG(b.behavior_count) * 1.0 / NULLIF(COUNT(DISTINCT e.run_id), 0), 0) * 100 as value
+  FROM main.fact_execution_status e
+  LEFT JOIN main.fact_behavior_usage b ON e.run_id = b.run_id
+  WHERE DATE(e.execution_timestamp) >= DATE('now', '-30 days')
+  GROUP BY DATE(e.execution_timestamp)
+
+  UNION ALL
+
+  SELECT
+    DATE(execution_timestamp) as metric_date,
+    'Token Savings' as metric_name,
+    AVG(token_savings_pct) * 100 as value
+  FROM main.fact_token_savings
+  WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+  GROUP BY DATE(execution_timestamp)
+
+  UNION ALL
+
+  SELECT
+    DATE(execution_timestamp) as metric_date,
+    'Completion' as metric_name,
+    AVG(CASE WHEN final_status = 'success' THEN 100.0 ELSE 0.0 END) as value
+  FROM main.fact_execution_status
+  WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+  GROUP BY DATE(execution_timestamp)
+
+  UNION ALL
+
+  SELECT
+    DATE(execution_timestamp) as metric_date,
+    'Compliance' as metric_name,
+    AVG(coverage_score) * 100 as value
+  FROM main.fact_compliance_steps
+  WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+  GROUP BY DATE(execution_timestamp)
+)
+SELECT * FROM daily_metrics ORDER BY metric_date, metric_name;
+```
+
+### Chart: Run Volume by Status
+```sql
+SELECT
+  DATE(execution_timestamp) as run_date,
+  final_status,
+  COUNT(*) as run_count
+FROM main.fact_execution_status
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+GROUP BY DATE(execution_timestamp), final_status
+ORDER BY run_date, final_status;
+```
+
+## Dashboard 2: Behavior Usage Trends
+
+### Chart: Daily Citations
+```sql
+SELECT
+  DATE(execution_timestamp) as citation_date,
+  SUM(behavior_count) as total_citations,
+  COUNT(DISTINCT run_id) as runs_with_behaviors
+FROM main.fact_behavior_usage
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+GROUP BY DATE(execution_timestamp)
+ORDER BY citation_date;
+```
+
+### Table: Behavior Leaderboard
+```sql
+SELECT
+  run_id,
+  behavior_count as citations,
+  ROUND(behavior_count * 1.0 /
+    ((JULIANDAY(MAX(execution_timestamp)) - JULIANDAY(MIN(execution_timestamp))) + 1), 2
+  ) as citations_per_day,
+  execution_timestamp as last_cited
+FROM main.fact_behavior_usage
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+GROUP BY run_id
+ORDER BY behavior_count DESC
+LIMIT 20;
+```
+
+### Chart: Usage Distribution
+```sql
+SELECT
+  CASE
+    WHEN behavior_count = 0 THEN '0 behaviors'
+    WHEN behavior_count BETWEEN 1 AND 3 THEN '1-3 behaviors'
+    WHEN behavior_count BETWEEN 4 AND 6 THEN '4-6 behaviors'
+    WHEN behavior_count BETWEEN 7 AND 10 THEN '7-10 behaviors'
+    ELSE '10+ behaviors'
+  END as bucket,
+  COUNT(*) as run_count
+FROM main.fact_behavior_usage
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+GROUP BY bucket
+ORDER BY MIN(behavior_count);
+```
+
+## Dashboard 3: Token Savings Analysis
+
+### Chart: Token Trends
+```sql
+SELECT
+  DATE(execution_timestamp) as savings_date,
+  AVG(baseline_tokens) as avg_baseline,
+  AVG(output_tokens) as avg_output,
+  AVG(token_savings_pct) * 100 as avg_savings_pct
+FROM main.fact_token_savings
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+GROUP BY DATE(execution_timestamp)
+ORDER BY savings_date;
+```
+
+### Chart: Savings Distribution
+```sql
+SELECT
+  CASE
+    WHEN token_savings_pct >= 0.50 THEN '50%+ savings'
+    WHEN token_savings_pct >= 0.30 THEN '30-50% savings'
+    WHEN token_savings_pct >= 0.10 THEN '10-30% savings'
+    WHEN token_savings_pct >= 0.00 THEN '0-10% savings'
+    ELSE 'Negative savings'
+  END as bucket,
+  COUNT(*) as run_count,
+  ROUND(AVG(token_savings_pct) * 100, 1) as avg_pct
+FROM main.fact_token_savings
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+GROUP BY bucket
+ORDER BY MIN(token_savings_pct) DESC;
+```
+
+### Chart: Savings vs Behaviors (Scatter)
+```sql
+SELECT
+  b.behavior_count,
+  t.token_savings_pct * 100 as savings_pct,
+  t.run_id
+FROM main.fact_token_savings t
+LEFT JOIN main.fact_behavior_usage b ON t.run_id = b.run_id
+WHERE DATE(t.execution_timestamp) >= DATE('now', '-30 days');
+```
+
+### Chart: Cumulative Savings
+```sql
+SELECT
+  DATE(execution_timestamp) as savings_date,
+  SUM(baseline_tokens - output_tokens) as tokens_saved,
+  ROUND(SUM(baseline_tokens - output_tokens) / 1000.0 * 0.02, 2) as cost_savings_usd
+FROM main.fact_token_savings
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+GROUP BY DATE(execution_timestamp)
+ORDER BY savings_date;
+```
+
+### Table: Efficiency Leaderboard
+```sql
+SELECT
+  run_id,
+  baseline_tokens,
+  output_tokens,
+  ROUND(token_savings_pct * 100, 1) as savings_pct,
+  (baseline_tokens - output_tokens) as tokens_saved,
+  execution_timestamp
+FROM main.fact_token_savings
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+ORDER BY token_savings_pct DESC
+LIMIT 20;
+```
+
+## Dashboard 4: Compliance Coverage
+
+### Chart: Coverage Trend (with 95% goal line)
+```sql
+SELECT
+  DATE(execution_timestamp) as coverage_date,
+  AVG(coverage_score) * 100 as avg_coverage_pct,
+  95.0 as goal_line
+FROM main.fact_compliance_steps
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+GROUP BY DATE(execution_timestamp)
+ORDER BY coverage_date;
+```
+
+### Chart: Checklist Rankings
+```sql
+SELECT
+  checklist_id,
+  ROUND(AVG(coverage_score) * 100, 1) as avg_coverage,
+  COUNT(*) as executions,
+  SUM(CASE WHEN all_steps_complete = 1 THEN 1 ELSE 0 END) as complete_count
+FROM main.fact_compliance_steps
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+GROUP BY checklist_id
+ORDER BY avg_coverage DESC;
+```
+
+### Table: Step Completion Summary
+```sql
+SELECT
+  checklist_id,
+  step_count as total_steps,
+  ROUND(AVG(coverage_score) * 100, 1) as avg_coverage,
+  COUNT(*) as runs,
+  SUM(CASE WHEN all_steps_complete = 1 THEN 1 ELSE 0 END) as fully_complete
+FROM main.fact_compliance_steps
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+GROUP BY checklist_id, step_count
+ORDER BY avg_coverage ASC;
+```
+
+### Table: Audit Queue (Incomplete)
+```sql
+SELECT
+  run_id,
+  checklist_id,
+  step_count as total_steps,
+  ROUND(coverage_score * 100, 1) as coverage_pct,
+  (step_count - ROUND(coverage_score * step_count)) as incomplete_steps,
+  execution_timestamp
+FROM main.fact_compliance_steps
+WHERE all_steps_complete = 0
+  AND DATE(execution_timestamp) >= DATE('now', '-7 days')
+ORDER BY coverage_score ASC, execution_timestamp DESC
+LIMIT 50;
+```
+
+### Chart: Coverage Distribution (Pie)
+```sql
+SELECT
+  CASE
+    WHEN coverage_score >= 0.95 THEN '95-100%'
+    WHEN coverage_score >= 0.85 THEN '85-95%'
+    WHEN coverage_score >= 0.75 THEN '75-85%'
+    WHEN coverage_score >= 0.50 THEN '50-75%'
+    ELSE '<50%'
+  END as coverage_bucket,
+  COUNT(*) as run_count
+FROM main.fact_compliance_steps
+WHERE DATE(execution_timestamp) >= DATE('now', '-30 days')
+GROUP BY coverage_bucket
+ORDER BY MIN(coverage_score) DESC;
+```
+
+## Visualization Tips
+
+### Metric Cards (Numbers)
+- Display: Single number
+- Format: Add `%` suffix for percentages
+- Colors: Green (≥target), Yellow (near target), Red (<threshold)
+
+### Line Charts
+- X-axis: Date field
+- Y-axis: Numeric metric(s)
+- Series: Group by category
+- Reference lines: Add goal thresholds
+
+### Bar Charts
+- Horizontal: Good for rankings/leaderboards
+- Vertical: Good for time series
+- Stacked: Show composition
+
+### Tables
+- Sort: By primary metric (descending)
+- Limit: 20-50 rows max
+- Highlight: Conditional formatting for thresholds
+
+### Scatter Plots
+- X/Y: Numeric fields
+- Bubble size: Optional third dimension
+- Trend line: Enable to show correlation
+
+## Common Filters
+
+Add these as dashboard-level filters:
+
+### Date Range
+```sql
+-- In WHERE clause
+WHERE DATE(execution_timestamp) BETWEEN {{start_date}} AND {{end_date}}
+
+-- Default to last 30 days
+-- {{start_date}} = DATE('now', '-30 days')
+-- {{end_date}} = DATE('now')
+```
+
+### Agent Role (if available)
+```sql
+WHERE agent_role = {{role_filter}}
+```
+
+### Run Status
+```sql
+WHERE final_status = {{status_filter}}
+```
+
+## Auto-Refresh
+
+Enable auto-refresh for live dashboards:
+1. Edit dashboard → Settings
+2. Auto-refresh: Every 5 minutes
+3. Save
+
+## Export & Sharing
+
+### Share Dashboard
+1. Click share icon → Get public link
+2. Or: Add to team workspace
+
+### Export Data
+1. Click download icon on any card
+2. Format: CSV, Excel, JSON
+
+### Schedule Email
+1. Dashboard → Subscriptions
+2. Set frequency (daily/weekly)
+3. Add recipients
+
+## Performance Tips
+
+1. **Index date columns:**
+```sql
+CREATE INDEX idx_behavior_usage_timestamp
+ON fact_behavior_usage(execution_timestamp);
+
+CREATE INDEX idx_token_savings_timestamp
+ON fact_token_savings(execution_timestamp);
+```
+
+2. **Limit date ranges** - Default to 30 days, expand as needed
+
+3. **Pre-aggregate** - Use views for complex calculations
+
+4. **Cache results** - Metabase caches queries automatically
+
+## Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| Empty results | Run `python scripts/export_duckdb_to_sqlite.py` |
+| Query error | Check table names: `main.fact_*`, `main.view_*` |
+| Slow performance | Add indexes, limit date ranges |
+| Permission denied | Login as admin, check database connection |
+
+---
+
+**Ready to start?** Open http://localhost:3000 and follow the guide!

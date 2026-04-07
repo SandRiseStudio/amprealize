@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agents.pause",
+  "description": "Pause an agent. Convenience tool that transitions the agent to PAUSED status. Requires agents.manage scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization identifier for security validation"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Optional reason for pausing the agent",
+        "maxLength": 500
+      }
+    },
+    "required": ["agent_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the agent was paused successfully"
+      },
+      "event_id": {
+        "type": "string",
+        "description": "Status change event identifier"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier"
+      },
+      "from_status": {
+        "type": "string",
+        "description": "Previous status"
+      },
+      "to_status": {
+        "type": "string",
+        "description": "New status (paused)"
+      },
+      "message": {
+        "type": "string",
+        "description": "Human-readable status message"
+      }
+    },
+    "required": ["success", "agent_id"]
+  },
+  "examples": [
+    {
+      "description": "Pause an agent for maintenance",
+      "input": {
+        "agent_id": "agent-abc123",
+        "org_id": "org-xyz789",
+        "reason": "Scheduled maintenance window"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "INVALID_TRANSITION",
+      "description": "Agent cannot be paused from current status"
+    },
+    {
+      "code": "AGENT_NOT_FOUND",
+      "description": "Agent not found or not accessible"
+    }
+  ]
+}

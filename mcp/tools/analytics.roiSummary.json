@@ -1,0 +1,68 @@
+{
+  "name": "analytics.roiSummary",
+  "description": "Query ROI analysis summary from analytics warehouse. Shows total cost vs token savings achieved, efficiency score, and budget status against configurable daily threshold.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "roi": {
+        "type": "object",
+        "description": "ROI analysis metrics",
+        "properties": {
+          "total_cost_usd": {
+            "type": "number",
+            "description": "Total spend in USD across all services"
+          },
+          "total_tokens_saved": {
+            "type": "integer",
+            "description": "Total tokens saved through behavior reuse and BCI"
+          },
+          "cost_per_token_saved": {
+            "type": "number",
+            "description": "Cost efficiency: USD spent per token saved"
+          },
+          "efficiency_score": {
+            "type": "number",
+            "description": "Composite efficiency score (higher is better)"
+          },
+          "total_runs": {
+            "type": "integer",
+            "description": "Total number of runs analyzed"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date",
+            "description": "Start of analysis period"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "description": "End of analysis period"
+          }
+        }
+      },
+      "budget_threshold_usd": {
+        "type": "number",
+        "description": "Configured daily budget threshold from COST_DAILY_BUDGET_USD"
+      },
+      "budget_status": {
+        "type": "string",
+        "enum": ["ok", "over"],
+        "description": "Whether total cost exceeds budget threshold"
+      }
+    }
+  },
+  "endpoint": {
+    "method": "GET",
+    "path": "/v1/analytics/roi-summary",
+    "queryParams": []
+  },
+  "cli": {
+    "command": "amprealize analytics roi-summary",
+    "flags": ["--format"]
+  },
+  "tags": ["analytics", "cost", "roi", "budget", "prd-8.17"]
+}

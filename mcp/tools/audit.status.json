@@ -1,0 +1,30 @@
+{
+  "name": "audit.status",
+  "description": "Get current status of the audit log system including hot tier (PostgreSQL), warm tier (S3 WORM), and archival statistics.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "pending_events": { "type": "integer" },
+      "batch_size": { "type": "integer" },
+      "last_archive_hash": { "type": ["string", "null"] },
+      "hot_retention_days": { "type": "integer" },
+      "total_archives": { "type": "integer" },
+      "total_events_archived": { "type": "integer" },
+      "last_archive_time": { "type": ["string", "null"] },
+      "components": { "type": "object" },
+      "_links": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "archive": { "type": "string" },
+          "verify": { "type": "string" }
+        }
+      }
+    }
+  }
+}

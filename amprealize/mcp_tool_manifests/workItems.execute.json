@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workItems.execute",
+  "description": "Start execution of a work item using the Amprealize Execution Protocol (GEP). This initiates the 8-phase execution process (PLANNING → CLARIFYING → ARCHITECTING → EXECUTING → TESTING → FIXING → VERIFYING → COMPLETING) with the assigned agent.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "work_item_id": {
+        "type": "string",
+        "description": "ID or display ID (e.g. 'myproject-42') of the work item to execute (required)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID (optional)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID (required)"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Optional agent ID override. If not provided, uses the assigned agent."
+      },
+      "idempotency_key": {
+        "type": "string",
+        "description": "Optional idempotency key to prevent duplicate executions"
+      },
+      "model_override": {
+        "type": "string",
+        "description": "Optional model ID to override agent's default model (e.g., 'claude-opus-4-5', 'gpt-5-2')"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "User ID initiating the execution"
+      }
+    },
+    "required": ["work_item_id", "project_id"]
+  },
+  "output": {
+    "description": "Returns execution status with run_id, status, phase, and metrics",
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "execution": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "Unique run ID for tracking execution"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "RUNNING", "PAUSED", "COMPLETED", "FAILED", "CANCELLED"]
+          },
+          "phase": {
+            "type": "string",
+            "description": "Current GEP phase"
+          },
+          "progress_percent": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

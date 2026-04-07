@@ -1,0 +1,55 @@
+[
+    {
+        "type": "header",
+        "text": {
+            "type": "plain_text",
+            "text": "📢 {{ project_name }} Update",
+            "emoji": true
+        }
+    },
+    {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": "*{{ title }}*\n\n{{ message }}"
+        }
+    },
+    {% if details %}
+    {
+        "type": "section",
+        "fields": [
+            {% for key, value in details.items() %}
+            {
+                "type": "mrkdwn",
+                "text": "*{{ key }}:*\n{{ value }}"
+            }{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ]
+    },
+    {% endif %}
+    {% if action_link %}
+    {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "{{ action_text | default('View Details') }}",
+                    "emoji": true
+                },
+                "url": "{{ action_link }}"
+            }
+        ]
+    },
+    {% endif %}
+    {
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": "{{ update_type | default('Update') }} • {{ timestamp | default('Just now') }}"
+            }
+        ]
+    }
+]

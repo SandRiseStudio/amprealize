@@ -1,0 +1,13 @@
+# Amprealize code owners
+# Replace placeholder owners with the appropriate GitHub teams or usernames.
+
+* @amprealize/maintainers
+
+/.github/ @amprealize/maintainers
+/docs/ @amprealize/maintainers
+/amprealize/ @amprealize/backend
+/packages/ @amprealize/platform
+/extension/ @amprealize/vscode
+/web-console/ @amprealize/frontend
+/tests/ @amprealize/maintainers
+/scripts/ @amprealize/maintainers

@@ -1,0 +1,23 @@
+{
+    "python.analysis.typeCheckingMode": "standard",
+    "python.testing.pytestArgs": [
+        "tests"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "chat.mcp.serverSampling": {
+        "amprealize/.vscode/mcp.json: amprealize": {
+            "allowedModels": [
+                "copilot/claude-haiku-4.5",
+                "copilot/claude-opus-4.5",
+                "copilot/claude-sonnet-4.5",
+                "openrouter/deepseek/deepseek-v3.2",
+                "copilot/gemini-3-pro-preview",
+                "copilot/gpt-5.1-codex",
+                "copilot/gpt-5.2",
+                "copilot/gemini-2.5-pro",
+                "copilot/gpt-5.2-codex"
+            ]
+        }
+    }
+}

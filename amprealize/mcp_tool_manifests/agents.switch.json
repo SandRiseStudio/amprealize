@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agents.switch",
+  "description": "Switch the active agent for an existing assignment. Triggers agent change, logs AgentSwitchEvent, updates RunService metadata, and emits telemetry. Requires agents.switch scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "assignment_id": {
+        "type": "string",
+        "description": "Agent assignment identifier to update"
+      },
+      "target_agent_id": {
+        "type": "string",
+        "description": "Agent ID to switch to (e.g., 'compliance', 'product', 'engineering')"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Reason for the switch (e.g., 'manual_override', 'heuristic_recommendation', 'escalation')"
+      },
+      "allow_downgrade": {
+        "type": "boolean",
+        "description": "Whether to allow switching to an agent with lower privilege level",
+        "default": false
+      },
+      "stage": {
+        "type": "string",
+        "description": "Optional stage update to accompany the switch"
+      },
+      "issued_by": {
+        "type": "object",
+        "description": "Identity of user/system issuing the switch",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Issuer identifier"
+          },
+          "role": {
+            "type": "string",
+            "description": "Issuer role (STRATEGIST, ADMIN, COMPLIANCE)"
+          },
+          "surface": {
+            "type": "string",
+            "description": "Surface of switch request"
+          }
+        },
+        "required": ["id", "role"]
+      }
+    },
+    "required": ["assignment_id", "target_agent_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "assignment_id": {
+        "type": "string",
+        "description": "Agent assignment identifier"
+      },
+      "previous_agent_id": {
+        "type": "string",
+        "description": "Agent ID before the switch"
+      },
+      "current_agent_id": {
+        "type": "string",
+        "description": "New active agent ID after switch"
+      },
+      "stage": {
+        "type": "string",
+        "description": "Current workflow stage after switch"
+      },
+      "switch_event": {
+        "type": "object",
+        "properties": {
+          "event_id": { "type": "string" },
+          "reason": { "type": "string" },
+          "issued_by": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "role": { "type": "string" }
+            }
+          },
+          "switched_at": { "type": "string", "format": "date-time" }
+        },
+        "description": "Details of the switch event"
+      },
+      "telemetry_emitted": {
+        "type": "boolean",
+        "description": "Whether telemetry was successfully emitted"
+      }
+    },
+    "required": ["assignment_id", "previous_agent_id", "current_agent_id", "switch_event"]
+  }
+}

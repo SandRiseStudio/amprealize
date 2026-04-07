@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schema.amprealize.dev/telemetry/v1/pack_events.json",
+  "title": "Knowledge Pack Telemetry Event Schemas",
+  "type": "object",
+  "description": "JSON schema definitions for knowledge pack activation, deactivation, and overlay application telemetry events.",
+  "definitions": {
+    "PackActivatedPayload": {
+      "type": "object",
+      "required": ["pack_id", "pack_version", "workspace_id", "surface"],
+      "properties": {
+        "pack_id": { "type": "string", "description": "Knowledge pack identifier." },
+        "pack_version": { "type": "string", "description": "Activated pack version." },
+        "workspace_id": { "type": "string", "description": "Workspace the pack was activated for." },
+        "surface": { "type": "string", "enum": ["web", "cli", "api", "vscode", "mcp"], "description": "Surface that triggered activation." },
+        "profile": { "type": ["string", "null"], "description": "Activation profile (solo-dev, amprealize-platform, etc.)." },
+        "activated_by": { "type": ["string", "null"], "description": "User or agent that activated the pack." }
+      },
+      "additionalProperties": false
+    },
+    "PackDeactivatedPayload": {
+      "type": "object",
+      "required": ["pack_id", "workspace_id", "surface"],
+      "properties": {
+        "pack_id": { "type": "string", "description": "Knowledge pack identifier." },
+        "workspace_id": { "type": "string", "description": "Workspace the pack was deactivated for." },
+        "surface": { "type": "string", "enum": ["web", "cli", "api", "vscode", "mcp"], "description": "Surface that triggered deactivation." },
+        "deactivated_by": { "type": ["string", "null"], "description": "User or agent that deactivated the pack." }
+      },
+      "additionalProperties": false
+    },
+    "PackOverlayAppliedPayload": {
+      "type": "object",
+      "required": ["pack_id", "overlay_kind"],
+      "properties": {
+        "pack_id": { "type": "string", "description": "Knowledge pack identifier." },
+        "overlay_kind": { "type": "string", "enum": ["task", "surface", "role"], "description": "Type of overlay rule that matched." },
+        "task_family": { "type": ["string", "null"], "description": "Matched task family (docs, implementation, testing, etc.)." },
+        "surface": { "type": ["string", "null"], "description": "Matched surface." },
+        "role": { "type": ["string", "null"], "description": "Matched role." },
+        "overlay_id": { "type": ["string", "null"], "description": "Overlay fragment identifier." }
+      },
+      "additionalProperties": false
+    }
+  }
+}

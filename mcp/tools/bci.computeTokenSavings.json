@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bci.computeTokenSavings",
+  "description": "Calculate token savings achieved by behavior-conditioned prompting versus a baseline.",
+  "inputSchema": {
+    "$ref": "../../schema/bci/v1/citation.json#/definitions/ComputeTokenSavingsRequest"
+  },
+  "outputSchema": {
+    "$ref": "../../schema/bci/v1/citation.json#/definitions/ComputeTokenSavingsResponse"
+  }
+}

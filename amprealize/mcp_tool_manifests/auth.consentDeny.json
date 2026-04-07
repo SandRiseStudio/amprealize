@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "auth.consentDeny",
+  "description": "Deny a pending consent request, rejecting the requested scopes. The requesting agent/client will receive a denial response.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["user_code", "approver"],
+    "properties": {
+      "user_code": {
+        "type": "string",
+        "description": "The user-facing code displayed during device authorization (e.g., 'ABCD-EFGH'). Case-insensitive, hyphens optional."
+      },
+      "approver": {
+        "type": "string",
+        "description": "Identifier of the user denying the consent request."
+      },
+      "reason": {
+        "type": "string",
+        "description": "Optional reason for denial (logged to audit trail and returned to requester)."
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["success"],
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the denial succeeded."
+      },
+      "user_code": {
+        "type": "string",
+        "description": "The denied user code."
+      },
+      "status": {
+        "type": "string",
+        "enum": ["DENIED"],
+        "description": "Updated status after denial."
+      },
+      "denied_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the denial was recorded."
+      },
+      "denied_reason": {
+        "type": "string",
+        "description": "Reason provided for denial."
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if denial failed."
+      }
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    {
+      "code": "user-code-not-found",
+      "description": "The specified user code does not exist.",
+      "httpStatus": 404
+    },
+    {
+      "code": "consent-expired",
+      "description": "The consent request has expired.",
+      "httpStatus": 410
+    },
+    {
+      "code": "consent-already-processed",
+      "description": "The consent request has already been approved or denied.",
+      "httpStatus": 409
+    }
+  ]
+}

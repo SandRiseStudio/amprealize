@@ -1,0 +1,84 @@
+{
+  "name": "agentPerformance.compare",
+  "description": "Compare performance metrics across multiple agents. Useful for benchmarking and identifying best practices.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_ids": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of agent IDs to compare (2-10 agents)",
+        "minItems": 2,
+        "maxItems": 10
+      },
+      "period_days": {
+        "type": "integer",
+        "description": "Number of days to analyze (default: 30)",
+        "default": 30,
+        "minimum": 1,
+        "maximum": 365
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization filter"
+      }
+    },
+    "required": ["agent_ids"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "period_days": {
+        "type": "integer",
+        "description": "Analysis period in days"
+      },
+      "agents": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "agent_id": { "type": "string" },
+            "total_tasks": { "type": "integer" },
+            "success_rate_pct": { "type": "number" },
+            "token_savings_pct": { "type": "number" },
+            "behavior_reuse_pct": { "type": "number" },
+            "compliance_coverage_pct": { "type": "number" },
+            "avg_duration_ms": { "type": "number" }
+          }
+        },
+        "description": "Performance summaries for each agent"
+      },
+      "averages": {
+        "type": "object",
+        "properties": {
+          "success_rate_pct": { "type": "number" },
+          "token_savings_pct": { "type": "number" },
+          "behavior_reuse_pct": { "type": "number" },
+          "compliance_coverage_pct": { "type": "number" }
+        },
+        "description": "Average metrics across all compared agents"
+      },
+      "rankings": {
+        "type": "object",
+        "properties": {
+          "success_rate": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Agent IDs ranked by success rate"
+          },
+          "token_savings": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Agent IDs ranked by token savings"
+          },
+          "behavior_reuse": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Agent IDs ranked by behavior reuse"
+          }
+        },
+        "description": "Rankings by each metric"
+      }
+    }
+  }
+}

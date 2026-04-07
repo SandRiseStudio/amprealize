@@ -1,0 +1,38 @@
+{
+  "name": "breakeramp.destroy",
+  "description": "Destroy resources from an BreakerAmp deployment run.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "The amp_run_id to destroy."
+      },
+      "cascade": {
+        "type": "boolean",
+        "description": "Whether to cascade delete dependent resources.",
+        "default": true
+      },
+      "reason": {
+        "type": "string",
+        "enum": ["POST_TEST", "FAILED", "ABANDONED", "MANUAL", "TTL_EXPIRED"],
+        "description": "Reason for destroying the deployment.",
+        "default": "MANUAL"
+      }
+    },
+    "required": ["run_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "amp_run_id": { "type": "string" },
+      "status": { "type": "string", "enum": ["destroyed", "destroying", "failed"] },
+      "resources_destroyed": { "type": "array", "items": { "type": "string" } },
+      "reason": { "type": "string" },
+      "destroyed_at": { "type": "string", "format": "date-time" },
+      "error": { "type": "string" },
+      "_links": { "type": "object", "description": "HATEOAS links - use run_detail for archived execution record" }
+    },
+    "required": ["amp_run_id", "status"]
+  }
+}

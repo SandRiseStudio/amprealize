@@ -1,0 +1,61 @@
+{
+  "name": "breakeramp.plan",
+  "description": "Plan an infrastructure deployment from a blueprint. Returns a plan ID that can be applied to create resources.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "blueprint_id": {
+        "type": "string",
+        "description": "Blueprint ID or path to blueprint file."
+      },
+      "environment": {
+        "type": "string",
+        "description": "Target environment (development, staging, production).",
+        "default": "development"
+      },
+      "checklist_id": {
+        "type": "string",
+        "description": "Optional compliance checklist ID."
+      },
+      "lifetime": {
+        "type": "string",
+        "description": "Environment lifetime (e.g., '90m', '4h', '1d').",
+        "default": "90m"
+      },
+      "compliance_tier": {
+        "type": "string",
+        "enum": ["dev", "standard", "strict", "prod-sim", "pci-sandbox"],
+        "description": "Compliance tier for the deployment.",
+        "default": "dev"
+      },
+      "behaviors": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional list of behavior IDs to enable."
+      },
+      "variables": {
+        "type": "object",
+        "additionalProperties": { "type": "string" },
+        "description": "Optional variables to pass to the blueprint."
+      }
+    },
+    "required": ["blueprint_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "amp_run_id": { "type": "string", "description": "Unique run ID for the plan (use with breakeramp.apply)" },
+      "blueprint_id": { "type": "string" },
+      "valid": { "type": "boolean", "description": "Whether the plan is valid and can be applied" },
+      "environment": { "type": "string" },
+      "compliance_tier": { "type": "string" },
+      "lifetime": { "type": "string" },
+      "estimates": { "type": "object", "description": "Resource estimates (cpu_cores, memory_mb, estimated_duration_seconds)" },
+      "steps": { "type": "array", "items": { "type": "object" }, "description": "Ordered list of deployment steps" },
+      "errors": { "type": "array", "items": { "type": "string" } },
+      "warnings": { "type": "array", "items": { "type": "string" } },
+      "_links": { "type": "object", "description": "HATEOAS links for related operations" }
+    },
+    "required": ["amp_run_id", "blueprint_id", "valid"]
+  }
+}

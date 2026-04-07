@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "files.delete",
+  "description": "Delete a file from the filesystem. Respects write_scope settings for PR-based deletions. Does not delete directories (use files.deleteDir for that).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Absolute or workspace-relative path to the file to delete (required)"
+      },
+      "write_scope": {
+        "type": "string",
+        "enum": ["inherit", "local_only", "pr_only", "local_and_pr"],
+        "default": "inherit",
+        "description": "Write target scope (default: inherit from project settings)"
+      },
+      "commit_message": {
+        "type": "string",
+        "description": "Commit message for PR deletions (optional, auto-generated if not provided)"
+      }
+    },
+    "required": ["path"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the operation succeeded"
+      },
+      "path": {
+        "type": "string",
+        "description": "Normalized absolute path of deleted file"
+      },
+      "existed": {
+        "type": "boolean",
+        "description": "Whether the file existed before deletion"
+      },
+      "write_targets": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["local", "pr"] },
+        "description": "Where the deletion was applied"
+      },
+      "pr_url": {
+        "type": "string",
+        "description": "PR URL if deletion included PR target"
+      },
+      "commit_sha": {
+        "type": "string",
+        "description": "Git commit SHA if deletion included PR target"
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if success is false"
+      }
+    },
+    "required": ["success"]
+  }
+}

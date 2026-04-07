@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schema.amprealize.dev/telemetry/v1/bci_events.json",
+  "title": "BCI Telemetry Event Schemas",
+  "type": "object",
+  "description": "JSON schema definitions for behavior-conditioned inference retrieval, injection, and citation validation telemetry events.",
+  "definitions": {
+    "BCIRetrievalCompletedPayload": {
+      "type": "object",
+      "required": ["top_k", "behaviors_returned", "latency_ms", "strategy"],
+      "properties": {
+        "run_id": { "type": ["string", "null"], "description": "Associated run identifier." },
+        "pack_id": { "type": ["string", "null"], "description": "Active knowledge pack." },
+        "query": { "type": ["string", "null"], "description": "The retrieval query (may be truncated)." },
+        "top_k": { "type": "integer", "minimum": 1, "description": "Number of behaviors requested." },
+        "behaviors_returned": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of behaviors returned by retrieval."
+        },
+        "latency_ms": { "type": "number", "minimum": 0, "description": "Retrieval latency in milliseconds." },
+        "strategy": { "type": "string", "enum": ["hybrid", "embedding", "keyword"], "description": "Retrieval strategy used." },
+        "surface": { "type": ["string", "null"], "description": "Invoking surface." },
+        "phase": { "type": ["string", "null"], "description": "GEP phase if phase-aware retrieval." }
+      },
+      "additionalProperties": false
+    },
+    "BCIInjectionCompletedPayload": {
+      "type": "object",
+      "required": ["behaviors_count", "token_estimate", "latency_ms"],
+      "properties": {
+        "run_id": { "type": ["string", "null"], "description": "Associated run identifier." },
+        "pack_id": { "type": ["string", "null"], "description": "Active knowledge pack." },
+        "phase": { "type": ["string", "null"], "description": "GEP phase." },
+        "behaviors_count": { "type": "integer", "minimum": 0, "description": "Number of behaviors injected." },
+        "overlays_count": { "type": "integer", "minimum": 0, "description": "Number of overlays applied." },
+        "primer_length": { "type": ["integer", "null"], "minimum": 0, "description": "Character length of primer text." },
+        "constraint_count": { "type": ["integer", "null"], "minimum": 0, "description": "Number of runtime constraints." },
+        "token_estimate": { "type": "integer", "minimum": 0, "description": "Estimated prompt tokens." },
+        "latency_ms": { "type": "number", "minimum": 0, "description": "Total injection latency in milliseconds." },
+        "surface": { "type": ["string", "null"], "description": "Invoking surface." }
+      },
+      "additionalProperties": false
+    },
+    "BCICitationValidatedPayload": {
+      "type": "object",
+      "required": ["valid_count", "invalid_count"],
+      "properties": {
+        "run_id": { "type": ["string", "null"], "description": "Associated run identifier." },
+        "cited_behavior_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Behavior IDs that were cited."
+        },
+        "valid_count": { "type": "integer", "minimum": 0, "description": "Number of valid citations." },
+        "invalid_count": { "type": "integer", "minimum": 0, "description": "Number of invalid citations." },
+        "missing_count": { "type": "integer", "minimum": 0, "description": "Number of expected but missing citations." },
+        "validation_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Percentage of valid citations." }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schema.amprealize.dev/agentauth/v1/agent_auth.json",
+  "title": "AgentAuthService REST Schemas",
+  "type": "object",
+  "description": "Canonical JSON representations of AgentAuthService request/response payloads mirroring proto definitions.",
+  "definitions": {
+    "EnsureGrantRequest": {
+      "type": "object",
+      "required": ["request_id", "agent_id", "surface", "tool_name", "scopes"],
+      "properties": {
+        "request_id": {"type": "string", "format": "uuid"},
+        "agent_id": {"type": "string"},
+        "user_id": {"type": "string"},
+        "surface": {"type": "string", "enum": ["WEB", "CLI", "API", "VS_CODE", "MCP"]},
+        "tool_name": {"type": "string"},
+        "scopes": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        },
+        "policy_version": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "EnsureGrantResponse": {
+      "type": "object",
+      "required": ["decision"],
+      "properties": {
+        "decision": {"$ref": "#/definitions/GrantDecision"},
+        "reason": {"$ref": "#/definitions/DecisionReason"},
+        "consent_url": {"type": "string", "format": "uri"},
+        "consent_request_id": {"type": "string"},
+        "grant": {"$ref": "#/definitions/GrantMetadata"},
+        "audit_action_id": {"type": "string", "format": "uuid"}
+      },
+      "additionalProperties": false
+    },
+    "GrantDecision": {
+      "type": "string",
+      "enum": ["ALLOW", "CONSENT_REQUIRED", "DENY"]
+    },
+    "DecisionReason": {
+      "type": "string",
+      "enum": [
+        "SCOPE_NOT_APPROVED",
+        "POLICY_CONDITION_FAILED",
+        "SECURITY_HOLD",
+        "CONSENT_EXPIRED",
+        "PROVIDER_ERROR"
+      ]
+    },
+    "GrantMetadata": {
+      "type": "object",
+      "required": ["grant_id", "agent_id", "tool_name", "scopes", "provider", "issued_at", "expires_at"],
+      "properties": {
+        "grant_id": {"type": "string", "format": "uuid"},
+        "agent_id": {"type": "string"},
+        "user_id": {"type": "string"},
+        "tool_name": {"type": "string"},
+        "scopes": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        },
+        "provider": {"type": "string"},
+        "issued_at": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"},
+        "obligations": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/Obligation"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "Obligation": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"type": "string"},
+        "attributes": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "RevokeGrantRequest": {
+      "type": "object",
+      "required": ["grant_id", "revoked_by"],
+      "properties": {
+        "grant_id": {"type": "string", "format": "uuid"},
+        "revoked_by": {"type": "string"},
+        "reason": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "RevokeGrantResponse": {
+      "type": "object",
+      "required": ["grant_id", "success"],
+      "properties": {
+        "grant_id": {"type": "string", "format": "uuid"},
+        "success": {"type": "boolean"},
+        "reason": {"$ref": "#/definitions/DecisionReason"}
+      },
+      "additionalProperties": false
+    },
+    "ListGrantsResponse": {
+      "type": "object",
+      "required": ["grants"],
+      "properties": {
+        "grants": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/GrantMetadata"}
+        },
+        "next_page_token": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "PolicyPreviewRequest": {
+      "type": "object",
+      "required": ["agent_id", "tool_name", "scopes"],
+      "properties": {
+        "agent_id": {"type": "string"},
+        "user_id": {"type": "string"},
+        "tool_name": {"type": "string"},
+        "scopes": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        },
+        "bundle_version": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "PolicyPreviewResponse": {
+      "type": "object",
+      "required": ["decision"],
+      "properties": {
+        "decision": {"$ref": "#/definitions/GrantDecision"},
+        "reason": {"$ref": "#/definitions/DecisionReason"},
+        "bundle_version": {"type": "string"},
+        "obligations": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/Obligation"}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

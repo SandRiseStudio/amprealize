@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=69.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "execution-queue"
+version = "0.1.0"
+description = "Redis Streams-based execution queue for Amprealize agent workloads"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["queue", "redis", "streams", "execution", "agents", "async"]
+license = { text = "MIT" }
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Framework :: AsyncIO",
+]
+authors = [
+  { name = "Amprealize Team", email = "team@amprealize.com" }
+]
+dependencies = [
+  "pydantic>=2.5,<3.0",
+  "redis>=5.0,<6.0",
+]
+
+[project.urls]
+Documentation = "https://github.com/SandRiseStudio/amprealize/tree/main/packages/execution-queue"
+Source = "https://github.com/SandRiseStudio/amprealize"
+Issues = "https://github.com/SandRiseStudio/amprealize/issues"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4,<9.0",
+  "pytest-cov>=4.1,<6.0",
+  "pytest-asyncio>=0.21,<1.0",
+  "black>=23.0,<25.0",
+  "isort>=5.12,<6.0",
+  "mypy>=1.5,<2.0",
+  "fakeredis>=2.20,<3.0",
+]
+metrics = [
+  "prometheus-client>=0.19,<1.0",
+]
+all = [
+  "execution-queue[dev,metrics]",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+execution_queue = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

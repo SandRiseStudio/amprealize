@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "mcp-rate-limits.status",
+  "description": "Get current MCP rate limit status for a client, including global and per-tool token buckets.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "client_id": {
+        "type": "string",
+        "description": "Client identifier (defaults to current client if omitted)"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "client_id": {
+        "type": "string"
+      },
+      "global": {
+        "type": "object",
+        "properties": {
+          "tokens": {
+            "type": "number",
+            "description": "Current available tokens"
+          },
+          "capacity": {
+            "type": "integer",
+            "description": "Maximum token capacity"
+          },
+          "pct_remaining": {
+            "type": "number",
+            "description": "Percentage of capacity remaining"
+          }
+        }
+      },
+      "tools": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "properties": {
+            "tokens": {
+              "type": "number"
+            },
+            "capacity": {
+              "type": "integer"
+            },
+            "pct_remaining": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "stats": {
+        "type": "object",
+        "properties": {
+          "request_count": {
+            "type": "integer"
+          },
+          "violations": {
+            "type": "integer"
+          },
+          "warnings": {
+            "type": "integer"
+          },
+          "first_request": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_request": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}

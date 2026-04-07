@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "compliance/validate-by-action",
+  "description": "Validate compliance for all checklists associated with a given action. Looks up the action via ActionService, finds related checklists, and aggregates validation results. Requires compliance.validate RBAC scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Action identifier to validate compliance for"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT", "ADMIN", "COMPLIANCE"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor requesting validation (requires compliance.validate scope)"
+      }
+    },
+    "required": ["action_id", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "checklist_id": {
+        "type": "string",
+        "description": "Action ID used as identifier for aggregated result"
+      },
+      "valid": {
+        "type": "boolean",
+        "description": "True if all related checklists pass validation"
+      },
+      "coverage_score": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "description": "Average coverage across all related checklists"
+      },
+      "missing_steps": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Steps with PENDING status across all checklists"
+      },
+      "failed_steps": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Steps with FAILED status across all checklists"
+      },
+      "warnings": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Warnings from validation (e.g., no checklists found)"
+      }
+    },
+    "required": ["checklist_id", "valid", "coverage_score", "missing_steps", "failed_steps", "warnings"]
+  },
+  "examples": [
+    {
+      "description": "Validate compliance for an action",
+      "input": {
+        "action_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "actor": {
+          "id": "user-001",
+          "role": "COMPLIANCE",
+          "surface": "MCP"
+        }
+      },
+      "output": {
+        "checklist_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "valid": true,
+        "coverage_score": 1.0,
+        "missing_steps": [],
+        "failed_steps": [],
+        "warnings": []
+      }
+    }
+  ],
+  "rbac": {
+    "required_scopes": ["compliance.validate"],
+    "surface_restrictions": ["MCP", "CLI", "REST_API"]
+  }
+}

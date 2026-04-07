@@ -1,0 +1,41 @@
+{
+  "name": "audit.verifyArchive",
+  "description": "Verify the integrity of a specific archived batch by checking Ed25519 signatures, hash chain continuity, and event checksums.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "batch_id": {
+        "type": "string",
+        "description": "Batch ID or S3 key of the archive to verify"
+      },
+      "public_key_path": {
+        "type": "string",
+        "description": "Path to Ed25519 public key for signature verification"
+      }
+    },
+    "required": ["batch_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "valid": { "type": "boolean" },
+      "batch_id": { "type": "string" },
+      "events_verified": { "type": "integer" },
+      "signature_valid": { "type": "boolean" },
+      "hash_chain_valid": { "type": "boolean" },
+      "checksums_valid": { "type": "boolean" },
+      "verification_time_ms": { "type": "integer" },
+      "errors": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "_links": {
+        "type": "object",
+        "properties": {
+          "retention": { "type": "string" },
+          "query": { "type": "string" }
+        }
+      }
+    }
+  }
+}

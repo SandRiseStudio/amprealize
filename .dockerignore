@@ -1,0 +1,58 @@
+# Python
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+.pytest_cache
+.coverage
+.tox
+.hypothesis
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Node
+node_modules
+
+# Logs
+*.log
+logs
+
+# Test data
+tests/data
+*.db
+*.sqlite
+
+# Documentation (exclude from builds)
+docs
+*.md
+!README.md
+!docs/README.md
+!docs/analytics/prd_metrics_schema_duckdb.sql
+
+# CI/CD
+.github
+.gitlab-ci.yml

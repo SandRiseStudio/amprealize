@@ -1,0 +1,119 @@
+version: 1.0.0
+last_updated: 2025-10-15
+scopes:
+  actions.read:
+    description: "Read access to action history and metadata."
+    default_roles:
+      - Strategist
+      - Teacher
+      - Student
+      - Admin
+    tools:
+      - actions.list
+      - actions.get
+  actions.write:
+    description: "Record new actions and attach evidence."
+    default_roles:
+      - Strategist
+      - Teacher
+      - Student
+    tools:
+      - actions.create
+  actions.replay:
+    description: "Initiate replay jobs for previously recorded actions."
+    default_roles:
+      - Strategist
+      - Admin
+    tools:
+      - actions.replay
+    risk_level: high
+    mfa_required: true
+    mfa_methods:
+      - totp
+  agentauth.manage:
+    description: "Administer AgentAuth policies, bundles, and scope catalog updates."
+    default_roles:
+      - Admin
+    tools:
+      - auth.policy.preview
+      - auth.policy.deploy
+    risk_level: high
+    mfa_required: true
+    mfa_methods:
+      - totp
+  agentauth.grant:
+    description: "Request just-in-time consent and retrieve tokens for tool execution."
+    default_roles:
+      - Strategist
+      - Teacher
+      - Student
+      - Admin
+    tools:
+      - auth.ensureGrant
+      - auth.listGrants
+  agentauth.revoke:
+    description: "Revoke agent/user grants and invalidate cached credentials."
+    default_roles:
+      - Admin
+      - Compliance
+    tools:
+      - auth.revoke
+  reviews.run:
+    description: "Schedule cross-functional agent reviews and collect feedback."
+    default_roles:
+      - Product
+      - Strategist
+      - Compliance
+    tools:
+      - reviews.run
+  telemetry.read:
+    description: "Query analytics dashboards and consent telemetry funnels."
+    default_roles:
+      - Product
+      - Analytics
+      - Compliance
+    tools:
+      - analytics.metrics
+      - analytics.tokenSavings
+  consent.read:
+    description: "Look up consent status for authorization requests."
+    default_roles:
+      - Strategist
+      - Teacher
+      - Student
+      - Admin
+      - Compliance
+    tools:
+      - consent.lookup
+  consent.manage:
+    description: "Approve or deny consent requests on behalf of the user."
+    default_roles:
+      - Admin
+      - Compliance
+    tools:
+      - consent.approve
+      - consent.deny
+    risk_level: high
+    mfa_required: false
+    # Note: consent.approve/deny are typically user-initiated actions
+    # and don't require MFA since the user is already authenticated
+consent_triggers:
+  - tool: auth.ensureGrant
+    scopes:
+      - actions.write
+      - actions.replay
+      - reviews.run
+      - agentauth.manage
+    require_jit_consent: true
+    message_template: "Agent {agent_id} requests {scopes} to execute {tool_name}."
+    mfa_required: true
+  - tool: actions.replay
+    scopes:
+      - actions.replay
+    require_jit_consent: true
+    message_template: "Replay job requires elevated scope {scopes}."
+    mfa_required: true
+  - tool: analytics.metrics
+    scopes:
+      - telemetry.read
+    require_jit_consent: false

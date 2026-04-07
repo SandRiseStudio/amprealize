@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "billing.createCheckoutSession",
+  "description": "Create a Stripe checkout session for upgrading or subscribing to a plan.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID"
+      },
+      "plan": {
+        "type": "string",
+        "enum": ["starter", "professional", "enterprise"],
+        "description": "Plan to subscribe to"
+      },
+      "billing_cycle": {
+        "type": "string",
+        "enum": ["monthly", "yearly"],
+        "default": "monthly",
+        "description": "Billing cycle"
+      },
+      "success_url": {
+        "type": "string",
+        "format": "uri",
+        "description": "URL to redirect to on successful checkout"
+      },
+      "cancel_url": {
+        "type": "string",
+        "format": "uri",
+        "description": "URL to redirect to if checkout is canceled"
+      }
+    },
+    "required": ["user_id", "org_id", "plan", "success_url", "cancel_url"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "session": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "url": { "type": "string", "format": "uri", "description": "Checkout URL to redirect user to" },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

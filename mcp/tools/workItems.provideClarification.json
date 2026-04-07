@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workItems.provideClarification",
+  "description": "Provide a clarification response for a work item that is paused awaiting user input during the CLARIFYING phase.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "work_item_id": {
+        "type": "string",
+        "description": "ID or display ID (e.g. 'myproject-42') of the work item (required)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID (optional)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID (required)"
+      },
+      "clarification_id": {
+        "type": "string",
+        "description": "ID of the clarification being answered (required)"
+      },
+      "response": {
+        "type": "string",
+        "description": "The clarification response (required)"
+      }
+    },
+    "required": ["work_item_id", "project_id", "clarification_id", "response"]
+  },
+  "output": {
+    "description": "Returns confirmation that clarification was received and execution resumed",
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "message": {
+        "type": "string"
+      },
+      "run_id": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "description": "Should be RUNNING if clarification was accepted"
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "breakeramp.listEnvironments",
+  "description": "List all active BreakerAmp environments/deployments.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "phase": {
+        "type": "string",
+        "enum": ["planned", "applying", "running", "stopping", "stopped", "failed", "destroyed", "all"],
+        "description": "Filter by deployment phase.",
+        "default": "all"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "environments": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "amp_run_id": { "type": "string", "description": "Unique run ID" },
+            "environment": { "type": "string", "description": "Environment name (development, staging, etc.)" },
+            "phase": { "type": "string", "enum": ["planned", "applying", "running", "stopping", "stopped", "failed", "destroyed"] },
+            "blueprint_id": { "type": "string", "description": "Blueprint used for this deployment" },
+            "created_at": { "type": "string", "format": "date-time" }
+          },
+          "required": ["amp_run_id", "phase"]
+        },
+        "description": "List of active environments"
+      },
+      "count": {
+        "type": "integer",
+        "description": "Total number of environments"
+      },
+      "_links": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "description": "Link to status endpoint template" },
+          "destroy": { "type": "string", "description": "Link to destroy endpoint template" }
+        }
+      }
+    },
+    "required": ["environments", "count"]
+  }
+}

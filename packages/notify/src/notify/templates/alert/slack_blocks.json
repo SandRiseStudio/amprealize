@@ -1,0 +1,54 @@
+[
+    {
+        "type": "header",
+        "text": {
+            "type": "plain_text",
+            "text": "{% if severity == 'critical' %}🚨{% elif severity == 'warning' %}⚠️{% else %}ℹ️{% endif %} {{ severity | upper }} Alert",
+            "emoji": true
+        }
+    },
+    {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": "*{{ title }}*\n\n{{ message }}"
+        }
+    },
+    {% if source %}
+    {
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": "Source: `{{ source }}`"
+            }
+        ]
+    },
+    {% endif %}
+    {% if action_link %}
+    {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "{{ action_text | default('Investigate') }}",
+                    "emoji": true
+                },
+                "style": "{% if severity == 'critical' %}danger{% else %}primary{% endif %}",
+                "url": "{{ action_link }}"
+            }
+        ]
+    },
+    {% endif %}
+    {
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": "{{ timestamp | default('Just now') }}"
+            }
+        ]
+    }
+]

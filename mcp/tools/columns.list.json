@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "columns.list",
+  "description": "List all columns on a board, ordered by position.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "board_id": {
+        "type": "string",
+        "description": "Board UUID to list columns for (required)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "columns": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "column_id": { "type": "string" },
+            "board_id": { "type": "string" },
+            "name": { "type": "string" },
+            "position": { "type": "integer" },
+            "status_mapping": { "type": "string" },
+            "wip_limit": { "type": "integer" }
+          }
+        }
+      },
+      "total": { "type": "integer" },
+      "error": { "type": "string" }
+    }
+  }
+}

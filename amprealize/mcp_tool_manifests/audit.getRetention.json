@@ -1,0 +1,43 @@
+{
+  "name": "audit.getRetention",
+  "description": "Get retention information for a specific archived batch including WORM lock status and legal hold settings.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "batch_id": {
+        "type": "string",
+        "description": "Batch ID or S3 key of the archive"
+      }
+    },
+    "required": ["batch_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "batch_id": { "type": "string" },
+      "s3_key": { "type": "string" },
+      "retention_mode": {
+        "type": "string",
+        "enum": ["GOVERNANCE", "COMPLIANCE"],
+        "description": "S3 Object Lock retention mode"
+      },
+      "retain_until": {
+        "type": "string",
+        "description": "Retention expiration date (ISO 8601)"
+      },
+      "legal_hold": {
+        "type": "boolean",
+        "description": "Whether legal hold is enabled"
+      },
+      "created_at": { "type": "string" },
+      "events_count": { "type": "integer" },
+      "_links": {
+        "type": "object",
+        "properties": {
+          "verify": { "type": "string" },
+          "query": { "type": "string" }
+        }
+      }
+    }
+  }
+}

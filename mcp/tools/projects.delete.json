@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "projects.delete",
+  "description": "Soft-delete a project. Requires project owner or org admin role.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID to delete"
+      }
+    },
+    "required": ["user_id", "project_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "project_id": {
+        "type": "string"
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

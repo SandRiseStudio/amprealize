@@ -1,0 +1,50 @@
+{
+  "name": "audit.verify",
+  "description": "Verify integrity of audit log entries using hash chain and Ed25519 signatures. Can verify recent events in PostgreSQL or archived batches in S3.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_time": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Start of verification range (ISO 8601)"
+      },
+      "end_time": {
+        "type": "string",
+        "format": "date-time",
+        "description": "End of verification range (ISO 8601)"
+      },
+      "batch_id": {
+        "type": "string",
+        "description": "Verify a specific archived batch by ID"
+      },
+      "public_key_path": {
+        "type": "string",
+        "description": "Path to Ed25519 public key for signature verification"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "valid": { "type": "boolean" },
+      "events_verified": { "type": "integer" },
+      "hash_chain_valid": { "type": "boolean" },
+      "signatures_valid": { "type": "boolean" },
+      "first_event": { "type": "string" },
+      "last_event": { "type": "string" },
+      "errors": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "_links": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "archive": { "type": "string" }
+        }
+      }
+    }
+  }
+}

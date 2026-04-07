@@ -1,0 +1,202 @@
+name: core-data-plane
+version: 1.0.0
+services:
+  postgres-telemetry:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: telemetry
+      POSTGRES_USER: amprealize_telemetry
+      POSTGRES_PASSWORD: dev_telemetry_pass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+      - "-c"
+      - "shared_preload_libraries=timescaledb"
+    # Schema managed by Alembic (alembic.telemetry.ini → migrations_telemetry/)
+    volumes:
+      - postgres-telemetry-data:/var/lib/postgresql/data
+  postgres-behavior:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: behaviors
+      POSTGRES_USER: amprealize_behavior
+      POSTGRES_PASSWORD: dev_behavior_pass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    # Schema managed by Alembic (alembic.ini → migrations/)
+    volumes:
+      - postgres-behavior-data:/var/lib/postgresql/data
+  postgres-workflow:
+    image: postgres:16-alpine
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: workflows
+      POSTGRES_USER: amprealize_workflow
+      POSTGRES_PASSWORD: dev_workflow_pass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    # Schema managed by Alembic (alembic.ini → migrations/)
+    volumes:
+      - postgres-workflow-data:/var/lib/postgresql/data
+  postgres-action:
+    image: postgres:16-alpine
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: actions
+      POSTGRES_USER: amprealize_action
+      POSTGRES_PASSWORD: dev_action_pass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    # Schema managed by Alembic (alembic.ini → migrations/)
+    volumes:
+      - postgres-action-data:/var/lib/postgresql/data
+  postgres-run:
+    image: postgres:16-alpine
+    ports:
+      - "5436:5432"
+    environment:
+      POSTGRES_DB: runs
+      POSTGRES_USER: amprealize_run
+      POSTGRES_PASSWORD: dev_run_pass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    # Schema managed by Alembic (alembic.ini → migrations/)
+    volumes:
+      - postgres-run-data:/var/lib/postgresql/data
+  postgres-compliance:
+    image: postgres:16-alpine
+    ports:
+      - "5437:5432"
+    environment:
+      POSTGRES_DB: compliance
+      POSTGRES_USER: amprealize_compliance
+      POSTGRES_PASSWORD: dev_compliance_pass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    # Schema managed by Alembic (alembic.ini → migrations/)
+    volumes:
+      - postgres-compliance-data:/var/lib/postgresql/data
+  postgres-agent-orchestrator:
+    image: postgres:16-alpine
+    ports:
+      - "5438:5432"
+    environment:
+      POSTGRES_DB: agent_orchestrator
+      POSTGRES_USER: amprealize_agent_orchestrator
+      POSTGRES_PASSWORD: dev_agent_orchestrator_pass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    # Schema managed by Alembic (alembic.ini → migrations/)
+    volumes:
+      - postgres-agent-orchestrator-data:/var/lib/postgresql/data
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command:
+      - "redis-server"
+      - "--maxmemory"
+      - "256mb"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+      - "--save"
+      - ""
+      - "--appendonly"
+      - "no"
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    ports:
+      - "6432:6432"
+    environment:
+      DATABASE_URL: "postgres://amprealize_user:local_dev_pw@postgres-telemetry:5432/amprealize_telemetry"
+      DB_USER: "amprealize_user"
+      DB_PASSWORD: "local_dev_pw"
+      DB_HOST: "postgres-telemetry"
+      POOL_MODE: "transaction"
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "20"
+    # TODO: Add pgbouncer config files to deployment/config/ when connection pooling is needed
+    #volumes:
+    #  - ./deployment/config/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+    #  - ./deployment/config/pgbouncer.userlist:/etc/pgbouncer/userlist.txt:ro
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@amprealize.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      # TODO: Add pgadmin server config to deployment/config/ for auto-connecting to DBs
+      #- ./deployment/config/pgadmin_servers.json:/pgadmin4/servers.json:ro

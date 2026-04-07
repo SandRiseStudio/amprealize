@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- GuideAI Logo: Brain with path/route symbolism -->
+
+  <!-- Brain outline -->
+  <path d="M 50 15
+           Q 65 15, 75 25
+           Q 85 35, 85 50
+           Q 85 65, 75 75
+           Q 65 85, 50 85
+           Q 35 85, 25 75
+           Q 15 65, 15 50
+           Q 15 35, 25 25
+           Q 35 15, 50 15 Z"
+        fill="none"
+        stroke="#569CD6"
+        stroke-width="3"/>
+
+  <!-- Neural pathways / workflow routes -->
+  <path d="M 30 35 Q 40 40, 50 35"
+        fill="none"
+        stroke="#4EC9B0"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+
+  <path d="M 50 35 Q 60 40, 70 35"
+        fill="none"
+        stroke="#4EC9B0"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+
+  <path d="M 30 50 L 70 50"
+        fill="none"
+        stroke="#4EC9B0"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+
+  <path d="M 30 65 Q 40 60, 50 65"
+        fill="none"
+        stroke="#4EC9B0"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+
+  <path d="M 50 65 Q 60 60, 70 65"
+        fill="none"
+        stroke="#4EC9B0"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+
+  <!-- Central node (strategist/core) -->
+  <circle cx="50" cy="50" r="5" fill="#CE9178"/>
+
+  <!-- Connection nodes (behaviors) -->
+  <circle cx="30" cy="35" r="3" fill="#DCDCAA"/>
+  <circle cx="70" cy="35" r="3" fill="#DCDCAA"/>
+  <circle cx="30" cy="50" r="3" fill="#DCDCAA"/>
+  <circle cx="70" cy="50" r="3" fill="#DCDCAA"/>
+  <circle cx="30" cy="65" r="3" fill="#DCDCAA"/>
+  <circle cx="70" cy="65" r="3" fill="#DCDCAA"/>
+</svg>

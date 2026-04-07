@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "messages.send",
+  "description": "Send a message to a conversation. Supports text, status_card, blocker_card, progress_card, code_block, run_summary, and system message types. Optionally thread under a parent message.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "conversation_id": {
+        "type": "string",
+        "description": "Conversation ID to send the message to (required)"
+      },
+      "content": {
+        "type": "string",
+        "description": "Message content text (required)"
+      },
+      "message_type": {
+        "type": "string",
+        "enum": ["text", "status_card", "blocker_card", "progress_card", "code_block", "run_summary", "system"],
+        "default": "text",
+        "description": "Type of message"
+      },
+      "parent_id": {
+        "type": "string",
+        "description": "Optional parent message ID for threading"
+      },
+      "structured_payload": {
+        "type": "object",
+        "description": "Optional structured data payload (e.g., code block metadata)"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Optional run ID to link the message to an execution run"
+      },
+      "behavior_id": {
+        "type": "string",
+        "description": "Optional behavior ID to link the message to a behavior"
+      },
+      "work_item_id": {
+        "type": "string",
+        "description": "Optional work item ID to link the message to a work item"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Optional metadata JSON"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "ID of the sender"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": ["conversation_id", "content"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "message": { "type": "object" }
+    }
+  }
+}

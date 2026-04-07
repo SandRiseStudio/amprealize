@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workItems.listExecutions",
+  "description": "List recent work item executions for a project, with optional filtering by status.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID (optional)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID (required)"
+      },
+      "status": {
+        "type": "string",
+        "description": "Filter by status (optional)",
+        "enum": ["PENDING", "RUNNING", "PAUSED", "COMPLETED", "FAILED", "CANCELLED"]
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of executions to return (default 20)",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 20
+      },
+      "offset": {
+        "type": "integer",
+        "description": "Offset for pagination (default 0)",
+        "minimum": 0,
+        "default": 0
+      }
+    },
+    "required": ["project_id"]
+  },
+  "output": {
+    "description": "Returns list of execution summaries",
+    "type": "object",
+    "properties": {
+      "executions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "work_item_id": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "phase": {
+              "type": "string"
+            },
+            "progress_percent": {
+              "type": "number"
+            },
+            "started_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "completed_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      },
+      "total": {
+        "type": "integer",
+        "description": "Total number of executions matching filters"
+      },
+      "limit": {
+        "type": "integer"
+      },
+      "offset": {
+        "type": "integer"
+      }
+    }
+  }
+}

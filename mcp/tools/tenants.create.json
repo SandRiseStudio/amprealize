@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "tenants.create",
+  "description": "Create a new tenant with isolated database and row-level security policies.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "tenant_name": {
+        "type": "string",
+        "description": "Unique tenant identifier"
+      },
+      "display_name": {
+        "type": "string",
+        "description": "Human-readable tenant name"
+      },
+      "admin_email": {
+        "type": "string",
+        "format": "email",
+        "description": "Tenant administrator email"
+      },
+      "subscription_tier": {
+        "type": "string",
+        "enum": ["FREE", "PROFESSIONAL", "ENTERPRISE"],
+        "description": "Subscription tier with quota limits"
+      },
+      "quota_config": {
+        "type": "object",
+        "description": "Custom quota configuration",
+        "properties": {
+          "max_behaviors": {
+            "type": "integer",
+            "default": 100
+          },
+          "max_runs_per_day": {
+            "type": "integer",
+            "default": 1000
+          },
+          "max_storage_gb": {
+            "type": "integer",
+            "default": 5
+          }
+        }
+      }
+    },
+    "required": ["tenant_name", "display_name", "admin_email", "subscription_tier"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "tenant_id": {
+        "type": "string",
+        "description": "Unique tenant identifier (tn-<12-char-hex>)"
+      },
+      "tenant_name": {
+        "type": "string"
+      },
+      "display_name": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["ACTIVE", "SUSPENDED", "DELETED"]
+      },
+      "subscription_tier": {
+        "type": "string",
+        "enum": ["FREE", "PROFESSIONAL", "ENTERPRISE"]
+      },
+      "quota_config": {
+        "type": "object"
+      },
+      "created_at": {
+        "type": "string",
+        "description": "ISO8601 timestamp"
+      }
+    },
+    "required": ["tenant_id", "tenant_name", "status", "subscription_tier", "created_at"]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "pack.rollback",
+  "description": "Deactivate the active knowledge pack for a workspace, restoring pre-pack behaviour. The RuntimeInjector gracefully falls back to no-pack mode.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workspace_path": {
+        "type": "string",
+        "description": "Path to the workspace root (optional, defaults to current directory)"
+      }
+    },
+    "required": []
+  }
+}

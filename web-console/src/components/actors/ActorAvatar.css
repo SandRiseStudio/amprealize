@@ -1,0 +1,863 @@
+.actor-avatar {
+  --actor-size: 40px;
+  --actor-status: var(--color-accent);
+  --actor-dot-size: 12px;
+  --actor-dot-offset: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  inline-size: var(--actor-size);
+  block-size: var(--actor-size);
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--actor-line) 18%, transparent);
+  background:
+    radial-gradient(circle at 28% 24%, color-mix(in srgb, white 32%, transparent), transparent 36%),
+    color-mix(in srgb, var(--actor-surface) 94%, transparent);
+  overflow: hidden;
+  flex: 0 0 auto;
+  backdrop-filter: blur(10px);
+}
+
+.actor-avatar::before,
+.actor-avatar::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.actor-avatar::before {
+  border: 1px solid color-mix(in srgb, white 26%, transparent);
+  opacity: 0.65;
+}
+
+.actor-avatar::after {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, white 14%, transparent), transparent 34%, transparent 62%, color-mix(in srgb, var(--actor-line) 10%, transparent) 100%);
+  opacity: 0.7;
+}
+
+.actor-avatar--sm {
+  --actor-size: 30px;
+  --actor-dot-size: 10px;
+  --actor-dot-offset: 3px;
+}
+
+.actor-avatar--md {
+  --actor-size: 40px;
+  --actor-dot-size: 12px;
+  --actor-dot-offset: 4px;
+}
+
+.actor-avatar--lg {
+  --actor-size: 52px;
+  --actor-dot-size: 13px;
+  --actor-dot-offset: 4px;
+}
+
+.actor-avatar--xl {
+  --actor-size: 72px;
+  --actor-dot-size: 15px;
+  --actor-dot-offset: 5px;
+}
+
+.actor-avatar__layer {
+  position: absolute;
+  inset: 0;
+}
+
+.actor-avatar__bg {
+  background:
+    radial-gradient(circle at 24% 18%, color-mix(in srgb, white 20%, transparent), transparent 32%),
+    linear-gradient(180deg, color-mix(in srgb, white 10%, transparent), transparent 40%, color-mix(in srgb, var(--actor-line) 7%, transparent) 100%),
+    color-mix(in srgb, var(--actor-shell-muted) 44%, var(--actor-surface));
+}
+
+.actor-avatar--kind-agent,
+.actor-avatar--kind-service {
+  border-color: color-mix(in srgb, var(--actor-accent) 24%, var(--actor-line) 10%);
+}
+
+.actor-avatar__body {
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  bottom: 0;
+  height: 34%;
+  border-radius: 14px 14px 8px 8px;
+  background: var(--actor-shell);
+  transform-origin: center bottom;
+}
+
+.actor-avatar__head {
+  position: absolute;
+  left: 24%;
+  right: 24%;
+  top: 18%;
+  bottom: 24%;
+  border-radius: 16px;
+  background: var(--actor-face);
+  border: 1px solid color-mix(in srgb, var(--actor-line) 12%, transparent);
+  overflow: hidden;
+}
+
+.actor-avatar__ears,
+.actor-avatar__snout,
+.actor-avatar__kind-mark {
+  position: absolute;
+}
+
+.actor-avatar__ears,
+.actor-avatar__snout,
+.actor-avatar__kind-mark {
+  display: none;
+}
+
+.actor-avatar__hair {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 34%;
+  background: var(--actor-hair);
+  border-radius: 16px 16px 12px 12px;
+}
+
+.actor-avatar--hair-none .actor-avatar__hair {
+  display: none;
+}
+
+.actor-avatar--hair-buzz .actor-avatar__hair {
+  left: 6%;
+  right: 6%;
+  top: 4%;
+  height: 20%;
+  border-radius: 14px 14px 8px 8px;
+}
+
+.actor-avatar--hair-part .actor-avatar__hair::after,
+.actor-avatar--hair-waves .actor-avatar__hair::after,
+.actor-avatar--hair-curl .actor-avatar__hair::after,
+.actor-avatar--hair-coily .actor-avatar__hair::after,
+.actor-avatar--hair-spikes .actor-avatar__hair::after {
+  content: '';
+  position: absolute;
+}
+
+.actor-avatar--hair-part .actor-avatar__hair {
+  left: -2%;
+  right: 10%;
+  height: 38%;
+  border-radius: 20px 12px 12px 12px;
+}
+
+.actor-avatar--hair-part .actor-avatar__hair::after {
+  inset: 0 34% 0 10%;
+  border-radius: inherit;
+  background: color-mix(in srgb, white 8%, transparent);
+}
+
+.actor-avatar--hair-waves .actor-avatar__hair {
+  left: -4%;
+  right: -4%;
+  height: 42%;
+  border-radius: 20px 20px 14px 14px;
+}
+
+.actor-avatar--hair-waves .actor-avatar__hair::after {
+  left: 8%;
+  right: 8%;
+  bottom: -10%;
+  height: 26%;
+  border-radius: 999px 999px 18px 18px;
+  background:
+    radial-gradient(circle at 14% 44%, var(--actor-hair) 0 18%, transparent 19%),
+    radial-gradient(circle at 42% 58%, var(--actor-hair) 0 18%, transparent 19%),
+    radial-gradient(circle at 74% 44%, var(--actor-hair) 0 18%, transparent 19%);
+}
+
+.actor-avatar--hair-curl .actor-avatar__hair,
+.actor-avatar--hair-coily .actor-avatar__hair {
+  left: -3%;
+  right: -3%;
+  height: 36%;
+  border-radius: 20px 20px 16px 16px;
+}
+
+.actor-avatar--hair-curl .actor-avatar__hair::after,
+.actor-avatar--hair-coily .actor-avatar__hair::after {
+  left: 2%;
+  right: 2%;
+  top: 50%;
+  height: 26%;
+  background:
+    radial-gradient(circle at 14% 50%, var(--actor-hair) 0 18%, transparent 19%),
+    radial-gradient(circle at 34% 58%, var(--actor-hair) 0 18%, transparent 19%),
+    radial-gradient(circle at 56% 44%, var(--actor-hair) 0 18%, transparent 19%),
+    radial-gradient(circle at 76% 58%, var(--actor-hair) 0 18%, transparent 19%);
+}
+
+.actor-avatar--hair-coily .actor-avatar__hair {
+  height: 34%;
+}
+
+.actor-avatar--hair-coily .actor-avatar__hair::after {
+  background:
+    radial-gradient(circle at 10% 54%, var(--actor-hair) 0 20%, transparent 21%),
+    radial-gradient(circle at 28% 50%, var(--actor-hair) 0 20%, transparent 21%),
+    radial-gradient(circle at 46% 58%, var(--actor-hair) 0 20%, transparent 21%),
+    radial-gradient(circle at 64% 46%, var(--actor-hair) 0 20%, transparent 21%),
+    radial-gradient(circle at 82% 56%, var(--actor-hair) 0 20%, transparent 21%);
+}
+
+.actor-avatar--hair-bun .actor-avatar__hair {
+  left: 0;
+  right: 0;
+  top: 7%;
+  height: 28%;
+  border-radius: 18px 18px 12px 12px;
+}
+
+.actor-avatar--hair-bun .actor-avatar__hair::after {
+  content: '';
+  position: absolute;
+  top: -28%;
+  left: 50%;
+  inline-size: 28%;
+  block-size: 44%;
+  border-radius: 999px;
+  background: var(--actor-hair);
+  transform: translateX(-50%);
+}
+
+.actor-avatar--hair-spikes .actor-avatar__hair {
+  left: 6%;
+  right: 6%;
+  top: 6%;
+  height: 18%;
+  clip-path: polygon(0 100%, 10% 40%, 18% 100%, 30% 22%, 40% 100%, 56% 30%, 66% 100%, 82% 42%, 92% 100%, 100% 100%, 100% 0, 0 0);
+}
+
+.actor-avatar__eye {
+  position: absolute;
+  top: 48%;
+  inline-size: 12%;
+  block-size: 12%;
+  border-radius: 999px;
+  background: var(--actor-line);
+}
+
+.actor-avatar__eye--left {
+  left: 28%;
+}
+
+.actor-avatar__eye--right {
+  right: 28%;
+}
+
+.actor-avatar--eye-bar .actor-avatar__eye {
+  block-size: 8%;
+  border-radius: 3px;
+}
+
+.actor-avatar--eye-wide .actor-avatar__eye {
+  inline-size: 14%;
+}
+
+.actor-avatar__mouth {
+  position: absolute;
+  left: 38%;
+  right: 38%;
+  bottom: 18%;
+  height: 10%;
+  border-bottom: 2px solid var(--actor-line);
+  border-radius: 0 0 999px 999px;
+}
+
+.actor-avatar--mouth-flat .actor-avatar__mouth {
+  border-radius: 999px;
+  border-bottom: none;
+  height: 2px;
+  background: var(--actor-line);
+}
+
+.actor-avatar--mouth-focus .actor-avatar__mouth {
+  left: 42%;
+  right: 42%;
+  height: 12%;
+  border-radius: 999px;
+  border: 2px solid var(--actor-line);
+  background: transparent;
+}
+
+.actor-avatar__accessory {
+  position: absolute;
+  background: var(--actor-accent);
+}
+
+.actor-avatar__accessory--visor {
+  left: 22%;
+  right: 22%;
+  top: 34%;
+  height: 12%;
+  border-radius: 999px;
+  opacity: 0.9;
+}
+
+.actor-avatar__accessory--headband {
+  left: 14%;
+  right: 14%;
+  top: 18%;
+  height: 8%;
+  border-radius: 999px;
+}
+
+.actor-avatar__accessory--badge {
+  right: 8%;
+  bottom: 12%;
+  inline-size: 22%;
+  block-size: 22%;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--actor-line) 14%, transparent);
+}
+
+.actor-avatar__accessory--glasses {
+  left: 22%;
+  right: 22%;
+  top: 38%;
+  height: 14%;
+  background: transparent;
+}
+
+.actor-avatar__accessory--glasses::before,
+.actor-avatar__accessory--glasses::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  inline-size: 30%;
+  block-size: 100%;
+  border: 1.8px solid color-mix(in srgb, var(--actor-line) 90%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, white 12%, transparent);
+}
+
+.actor-avatar__accessory--glasses::before {
+  left: 0;
+}
+
+.actor-avatar__accessory--glasses::after {
+  right: 0;
+}
+
+.actor-avatar__accessory--glasses {
+  border-top: 1.8px solid color-mix(in srgb, var(--actor-line) 90%, transparent);
+}
+
+.actor-avatar__accessory--cap {
+  left: 16%;
+  right: 16%;
+  top: 12%;
+  height: 18%;
+  border-radius: 999px 999px 8px 8px;
+}
+
+.actor-avatar__accessory--cap::after {
+  content: '';
+  position: absolute;
+  right: -6%;
+  bottom: -22%;
+  inline-size: 44%;
+  block-size: 40%;
+  border-radius: 0 999px 999px 999px;
+  background: inherit;
+  transform: rotate(-8deg);
+}
+
+.actor-avatar__accessory--antenna {
+  left: 50%;
+  top: 6%;
+  inline-size: 2px;
+  block-size: 18%;
+  transform: translateX(-50%);
+}
+
+.actor-avatar__accessory--antenna::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -5px;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 999px;
+  background: var(--actor-accent);
+  transform: translateX(-50%);
+}
+
+.actor-avatar__accessory--earring {
+  right: 16%;
+  top: 48%;
+  inline-size: 12%;
+  block-size: 16%;
+  border-radius: 999px;
+  background: transparent;
+  border: 2px solid var(--actor-accent);
+  border-top-color: transparent;
+}
+
+.actor-avatar--shape-round {
+  border-radius: 999px;
+}
+
+.actor-avatar--shape-round .actor-avatar__head {
+  border-radius: 999px;
+}
+
+.actor-avatar__dot {
+  position: absolute;
+  right: var(--actor-dot-offset);
+  bottom: var(--actor-dot-offset);
+  inline-size: var(--actor-dot-size);
+  block-size: var(--actor-dot-size);
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--actor-surface) 88%, white 12%);
+  background:
+    radial-gradient(circle at 30% 28%, color-mix(in srgb, white 58%, transparent) 0 20%, transparent 21%),
+    radial-gradient(circle at 50% 48%, color-mix(in srgb, var(--actor-status) 92%, white 8%) 0 56%, color-mix(in srgb, var(--actor-status) 64%, black 36%) 78%, transparent 79%);
+  z-index: 2;
+  isolation: isolate;
+  transform-origin: center;
+}
+
+.actor-avatar__dot::before,
+.actor-avatar__dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.actor-avatar__dot::before {
+  inset: -28%;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--actor-status) 46%, transparent) 0 48%, transparent 72%);
+  filter: blur(2px);
+  opacity: 0.6;
+  transform-origin: center;
+}
+
+.actor-avatar__dot::after {
+  inset: 1px;
+  border: 1px solid color-mix(in srgb, white 34%, transparent);
+  opacity: 0.7;
+}
+
+.actor-avatar__image {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+.actor-avatar--kind-agent .actor-avatar__kind-mark,
+.actor-avatar--kind-service .actor-avatar__kind-mark {
+  display: block;
+  top: 4px;
+  right: 4px;
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 30%, var(--actor-accent) 0 20%, transparent 21%),
+    radial-gradient(circle at 68% 50%, var(--actor-accent) 0 20%, transparent 21%),
+    radial-gradient(circle at 44% 74%, color-mix(in srgb, var(--actor-line) 90%, transparent) 0 16%, transparent 17%);
+  opacity: 0.88;
+}
+
+.actor-avatar--persona-robot .actor-avatar__head {
+  left: 20%;
+  right: 20%;
+  top: 18%;
+  bottom: 26%;
+  border-radius: 12px;
+}
+
+.actor-avatar--persona-robot .actor-avatar__body {
+  left: 18%;
+  right: 18%;
+  height: 36%;
+  border-radius: 10px 10px 7px 7px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, white 10%, transparent), transparent 38%),
+    repeating-linear-gradient(
+      90deg,
+      var(--actor-shell) 0 20%,
+      color-mix(in srgb, white 8%, var(--actor-shell)) 20% 24%
+    );
+}
+
+.actor-avatar--persona-robot .actor-avatar__hair {
+  display: none;
+}
+
+.actor-avatar--persona-robot .actor-avatar__mouth {
+  left: 34%;
+  right: 34%;
+  height: 12%;
+  border-radius: 3px;
+  border-bottom: none;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      var(--actor-line) 0 12%,
+      transparent 12% 20%
+    );
+  opacity: 0.78;
+}
+
+.actor-avatar--persona-cat .actor-avatar__ears,
+.actor-avatar--persona-dog .actor-avatar__ears,
+.actor-avatar--persona-fox .actor-avatar__ears,
+.actor-avatar--persona-owl .actor-avatar__ears {
+  display: block;
+  inset: -8% 0 auto;
+  block-size: 26%;
+}
+
+.actor-avatar--persona-cat .actor-avatar__ears::before,
+.actor-avatar--persona-cat .actor-avatar__ears::after,
+.actor-avatar--persona-fox .actor-avatar__ears::before,
+.actor-avatar--persona-fox .actor-avatar__ears::after,
+.actor-avatar--persona-owl .actor-avatar__ears::before,
+.actor-avatar--persona-owl .actor-avatar__ears::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  inline-size: 28%;
+  block-size: 100%;
+  background: var(--actor-hair);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.actor-avatar--persona-cat .actor-avatar__ears::before,
+.actor-avatar--persona-fox .actor-avatar__ears::before,
+.actor-avatar--persona-owl .actor-avatar__ears::before {
+  left: 12%;
+  transform: rotate(-12deg);
+}
+
+.actor-avatar--persona-cat .actor-avatar__ears::after,
+.actor-avatar--persona-fox .actor-avatar__ears::after,
+.actor-avatar--persona-owl .actor-avatar__ears::after {
+  right: 12%;
+  transform: rotate(12deg);
+}
+
+.actor-avatar--persona-dog .actor-avatar__ears::before,
+.actor-avatar--persona-dog .actor-avatar__ears::after {
+  content: '';
+  position: absolute;
+  top: 12%;
+  inline-size: 24%;
+  block-size: 84%;
+  border-radius: 999px 999px 16px 16px;
+  background: var(--actor-hair);
+}
+
+.actor-avatar--persona-dog .actor-avatar__ears::before {
+  left: 6%;
+  transform: rotate(12deg);
+}
+
+.actor-avatar--persona-dog .actor-avatar__ears::after {
+  right: 6%;
+  transform: rotate(-12deg);
+}
+
+.actor-avatar--persona-fox .actor-avatar__head {
+  left: 22%;
+  right: 22%;
+  top: 20%;
+  bottom: 22%;
+  border-radius: 18px 18px 24px 24px;
+}
+
+.actor-avatar--persona-owl .actor-avatar__head {
+  left: 18%;
+  right: 18%;
+  top: 18%;
+  bottom: 20%;
+  border-radius: 999px 999px 18px 18px;
+}
+
+.actor-avatar--persona-cat .actor-avatar__snout,
+.actor-avatar--persona-dog .actor-avatar__snout,
+.actor-avatar--persona-fox .actor-avatar__snout,
+.actor-avatar--persona-owl .actor-avatar__snout {
+  display: block;
+  left: 34%;
+  right: 34%;
+  bottom: 18%;
+  height: 18%;
+}
+
+.actor-avatar--persona-cat .actor-avatar__snout,
+.actor-avatar--persona-dog .actor-avatar__snout,
+.actor-avatar--persona-fox .actor-avatar__snout {
+  border-radius: 999px;
+  background: color-mix(in srgb, white 38%, var(--actor-face));
+}
+
+.actor-avatar--persona-owl .actor-avatar__snout {
+  left: 40%;
+  right: 40%;
+  bottom: 26%;
+  height: 14%;
+  background: var(--actor-accent);
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+}
+
+.actor-avatar--persona-cat .actor-avatar__hair,
+.actor-avatar--persona-dog .actor-avatar__hair,
+.actor-avatar--persona-fox .actor-avatar__hair,
+.actor-avatar--persona-owl .actor-avatar__hair {
+  display: none;
+}
+
+.actor-avatar--persona-cat .actor-avatar__mouth,
+.actor-avatar--persona-dog .actor-avatar__mouth,
+.actor-avatar--persona-fox .actor-avatar__mouth {
+  left: 44%;
+  right: 44%;
+  bottom: 22%;
+}
+
+.actor-avatar--persona-owl .actor-avatar__mouth {
+  display: none;
+}
+
+.actor-avatar--typing .actor-avatar__body {
+  animation: actor-avatar-bob 1500ms cubic-bezier(0.34, 1.2, 0.64, 1) infinite;
+}
+
+.actor-avatar--typing .actor-avatar__dot {
+  animation: actor-presence-core 1700ms cubic-bezier(0.34, 1.2, 0.64, 1) infinite;
+}
+
+.actor-avatar--typing .actor-avatar__dot::before {
+  animation: actor-presence-aura 1700ms cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.actor-avatar--typing .actor-avatar__head {
+  animation: actor-avatar-nod 1200ms cubic-bezier(0.34, 1.2, 0.64, 1) infinite;
+}
+
+.actor-avatar--idle .actor-avatar__head {
+  animation: actor-avatar-breathe 2400ms cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.actor-avatar--idle .actor-avatar__dot {
+  animation: actor-presence-core 2600ms cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.actor-avatar--idle .actor-avatar__dot::before {
+  animation: actor-presence-aura 2600ms cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+.actor-avatar--sleeping .actor-avatar__eye {
+  block-size: 6%;
+  border-radius: 3px;
+  opacity: 0.72;
+}
+
+.actor-avatar--sleeping .actor-avatar__body {
+  transform: translateY(4%);
+}
+
+.actor-avatar--paused .actor-avatar__body {
+  opacity: 0.72;
+}
+
+.actor-avatar--paused .actor-avatar__dot::before,
+.actor-avatar--sleeping .actor-avatar__dot::before {
+  opacity: 0.28;
+  animation: none;
+}
+
+.actor-presence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  background: color-mix(in srgb, var(--color-surface-elevated) 92%, transparent);
+  color: inherit;
+  text-align: left;
+  transition: transform 180ms cubic-bezier(0.34, 1.2, 0.64, 1), opacity 180ms ease;
+}
+
+.actor-presence-badge--compact {
+  padding: 6px;
+  border-radius: 14px;
+}
+
+.actor-presence-badge--button {
+  cursor: pointer;
+}
+
+.actor-presence-badge__text {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.actor-presence-badge__name,
+.actor-identity-row__name,
+.actor-scene-sprite__name {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.actor-presence-badge__status,
+.actor-identity-row__subtitle,
+.actor-scene-sprite__status {
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
+}
+
+.actor-identity-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.actor-identity-row__text {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.actor-identity-row__name,
+.actor-identity-row__subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actor-scene {
+  display: grid;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--color-surface-elevated) 94%, transparent);
+  padding: 14px;
+}
+
+.actor-scene__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.actor-scene__toggle {
+  border: 1px solid color-mix(in srgb, var(--color-border) 58%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  padding: 8px 12px;
+}
+
+.actor-scene__zones {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.actor-scene__zone {
+  display: grid;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 42%, transparent);
+  border-radius: 18px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+}
+
+.actor-scene__zone-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-secondary);
+}
+
+.actor-scene__sprites {
+  display: grid;
+  gap: 10px;
+}
+
+.actor-scene-sprite {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 54%, transparent);
+  background: transparent;
+  padding: 8px;
+  color: inherit;
+  text-align: left;
+  transition: transform 180ms cubic-bezier(0.34, 1.2, 0.64, 1), opacity 180ms ease;
+}
+
+.actor-scene-sprite--button {
+  cursor: pointer;
+}
+
+@keyframes actor-avatar-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(3%); }
+}
+
+@keyframes actor-avatar-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4%); }
+}
+
+@keyframes actor-avatar-nod {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(3%) rotate(1.5deg); }
+}
+
+@keyframes actor-presence-core {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes actor-presence-aura {
+  0%, 100% {
+    opacity: 0.42;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 0.88;
+    transform: scale(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .actor-avatar--typing .actor-avatar__body,
+  .actor-avatar--typing .actor-avatar__head,
+  .actor-avatar--idle .actor-avatar__head,
+  .actor-avatar--typing .actor-avatar__dot,
+  .actor-avatar--typing .actor-avatar__dot::before,
+  .actor-avatar--idle .actor-avatar__dot,
+  .actor-avatar--idle .actor-avatar__dot::before {
+    animation: none;
+  }
+}

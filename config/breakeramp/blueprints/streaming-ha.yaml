@@ -1,0 +1,243 @@
+name: streaming-ha
+version: 1.0.0
+services:
+  zookeeper-1:
+    image: confluentinc/cp-zookeeper:7.5.0
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_SERVER_ID: "1"
+      ZOOKEEPER_CLIENT_PORT: "2181"
+      ZOOKEEPER_TICK_TIME: "2000"
+      ZOOKEEPER_INIT_LIMIT: "5"
+      ZOOKEEPER_SYNC_LIMIT: "2"
+      ZOOKEEPER_SERVERS: "zookeeper-1:2888:3888;zookeeper-2:2888:3888;zookeeper-3:2888:3888"
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "srvr,ruok"
+    volumes:
+      - zookeeper-1-data:/var/lib/zookeeper/data
+      - zookeeper-1-logs:/var/lib/zookeeper/log
+  zookeeper-2:
+    image: confluentinc/cp-zookeeper:7.5.0
+    ports:
+      - "2182:2181"
+    environment:
+      ZOOKEEPER_SERVER_ID: "2"
+      ZOOKEEPER_CLIENT_PORT: "2181"
+      ZOOKEEPER_TICK_TIME: "2000"
+      ZOOKEEPER_INIT_LIMIT: "5"
+      ZOOKEEPER_SYNC_LIMIT: "2"
+      ZOOKEEPER_SERVERS: "zookeeper-1:2888:3888;zookeeper-2:2888:3888;zookeeper-3:2888:3888"
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "srvr,ruok"
+    volumes:
+      - zookeeper-2-data:/var/lib/zookeeper/data
+      - zookeeper-2-logs:/var/lib/zookeeper/log
+  zookeeper-3:
+    image: confluentinc/cp-zookeeper:7.5.0
+    ports:
+      - "2183:2181"
+    environment:
+      ZOOKEEPER_SERVER_ID: "3"
+      ZOOKEEPER_CLIENT_PORT: "2181"
+      ZOOKEEPER_TICK_TIME: "2000"
+      ZOOKEEPER_INIT_LIMIT: "5"
+      ZOOKEEPER_SYNC_LIMIT: "2"
+      ZOOKEEPER_SERVERS: "zookeeper-1:2888:3888;zookeeper-2:2888:3888;zookeeper-3:2888:3888"
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "srvr,ruok"
+    volumes:
+      - zookeeper-3-data:/var/lib/zookeeper/data
+      - zookeeper-3-logs:/var/lib/zookeeper/log
+  kafka-1:
+    image: confluentinc/cp-kafka:7.5.0
+    ports:
+      - "9092:9092"
+      - "19092:19092"
+    environment:
+      KAFKA_BROKER_ID: "1"
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper-1:2181,zookeeper-2:2181,zookeeper-3:2181"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-1:9092,EXTERNAL://localhost:19092"
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "2"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "3"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "3"
+      KAFKA_MIN_INSYNC_REPLICAS: "2"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: "168"
+      KAFKA_LOG_SEGMENT_BYTES: "1073741824"
+      KAFKA_COMPRESSION_TYPE: gzip
+      KAFKA_NUM_NETWORK_THREADS: "8"
+      KAFKA_NUM_IO_THREADS: "8"
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: "102400"
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: "102400"
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: "104857600"
+      KAFKA_HEAP_OPTS: "-Xms2G -Xmx4G"
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+  kafka-2:
+    image: confluentinc/cp-kafka:7.5.0
+    ports:
+      - "9093:9093"
+      - "19093:19093"
+    environment:
+      KAFKA_BROKER_ID: "2"
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper-1:2181,zookeeper-2:2181,zookeeper-3:2181"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-2:9093,EXTERNAL://localhost:19093"
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "2"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "3"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "3"
+      KAFKA_MIN_INSYNC_REPLICAS: "2"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: "168"
+      KAFKA_LOG_SEGMENT_BYTES: "1073741824"
+      KAFKA_COMPRESSION_TYPE: gzip
+      KAFKA_NUM_NETWORK_THREADS: "8"
+      KAFKA_NUM_IO_THREADS: "8"
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: "102400"
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: "102400"
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: "104857600"
+      KAFKA_HEAP_OPTS: "-Xms2G -Xmx4G"
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+  kafka-3:
+    image: confluentinc/cp-kafka:7.5.0
+    ports:
+      - "9094:9094"
+      - "19094:19094"
+    environment:
+      KAFKA_BROKER_ID: "3"
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper-1:2181,zookeeper-2:2181,zookeeper-3:2181"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-3:9094,EXTERNAL://localhost:19094"
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "3"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "2"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "3"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "3"
+      KAFKA_MIN_INSYNC_REPLICAS: "2"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: "168"
+      KAFKA_LOG_SEGMENT_BYTES: "1073741824"
+      KAFKA_COMPRESSION_TYPE: gzip
+      KAFKA_NUM_NETWORK_THREADS: "8"
+      KAFKA_NUM_IO_THREADS: "8"
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: "102400"
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: "102400"
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: "104857600"
+      KAFKA_HEAP_OPTS: "-Xms2G -Xmx4G"
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka-1:9092,kafka-2:9093,kafka-3:9094"
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_SCHEMA_REGISTRY_GROUP_ID: amprealize-schema-registry
+      SCHEMA_REGISTRY_LEADER_ELIGIBILITY: "true"
+      SCHEMA_REGISTRY_HEAP_OPTS: "-Xms512M -Xmx1G"
+  flink-jobmanager:
+    image: flink:1.18.0-scala_2.12-java11
+    ports:
+      - "8082:8081"
+      - "6123:6123"
+    command:
+      - jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.rpc.port: 6123
+        jobmanager.memory.process.size: 2048m
+        jobmanager.memory.flink.size: 1536m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 6
+        execution.checkpointing.mode: EXACTLY_ONCE
+        execution.checkpointing.interval: 60000
+        execution.checkpointing.timeout: 300000
+        execution.checkpointing.max-concurrent-checkpoints: 1
+        execution.checkpointing.min-pause: 30000
+        state.backend: rocksdb
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        state.savepoints.dir: file:///opt/flink/savepoints
+        metrics.reporter.prometheus.class: org.apache.flink.metrics.prometheus.PrometheusReporter
+        metrics.reporter.prometheus.port: 9091
+    volumes:
+      - flink-jobmanager-data:/opt/flink/checkpoints
+      - flink-savepoints:/opt/flink/savepoints
+      - ./deployment/flink:/opt/flink/jobs
+  flink-taskmanager-1:
+    image: flink:1.18.0-scala_2.12-java11
+    ports:
+      - "8083:8081"
+    command:
+      - taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.rpc.port: 6123
+        taskmanager.memory.process.size: 4096m
+        taskmanager.memory.flink.size: 3072m
+        taskmanager.memory.managed.size: 2048m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 6
+        state.backend: rocksdb
+        metrics.reporter.prometheus.class: org.apache.flink.metrics.prometheus.PrometheusReporter
+        metrics.reporter.prometheus.port: 9092
+    volumes:
+      - flink-taskmanager-1-data:/opt/flink/data
+      - ./deployment/flink:/opt/flink/jobs
+  flink-taskmanager-2:
+    image: flink:1.18.0-scala_2.12-java11
+    command:
+      - taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.rpc.port: 6123
+        taskmanager.memory.process.size: 4096m
+        taskmanager.memory.flink.size: 3072m
+        taskmanager.memory.managed.size: 2048m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 6
+        state.backend: rocksdb
+        metrics.reporter.prometheus.class: org.apache.flink.metrics.prometheus.PrometheusReporter
+        metrics.reporter.prometheus.port: 9093
+    volumes:
+      - flink-taskmanager-2-data:/opt/flink/data
+      - ./deployment/flink:/opt/flink/jobs
+  flink-taskmanager-3:
+    image: flink:1.18.0-scala_2.12-java11
+    command:
+      - taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.rpc.port: 6123
+        taskmanager.memory.process.size: 4096m
+        taskmanager.memory.flink.size: 3072m
+        taskmanager.memory.managed.size: 2048m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 6
+        state.backend: rocksdb
+        metrics.reporter.prometheus.class: org.apache.flink.metrics.prometheus.PrometheusReporter
+        metrics.reporter.prometheus.port: 9094
+    volumes:
+      - flink-taskmanager-3-data:/opt/flink/data
+      - ./deployment/flink:/opt/flink/jobs
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    command:
+      - bash
+      - "-c"
+      - |
+        echo 'Waiting for Kafka to be ready...';
+        sleep 10;
+        kafka-topics --create --if-not-exists --bootstrap-server kafka-1:9092 --topic telemetry.events --partitions 12 --replication-factor 3 --config retention.ms=604800000 --config compression.type=gzip --config min.insync.replicas=2;
+        kafka-topics --create --if-not-exists --bootstrap-server kafka-1:9092 --topic telemetry.traces --partitions 12 --replication-factor 3 --config retention.ms=604800000 --config compression.type=gzip --config min.insync.replicas=2;
+        kafka-topics --create --if-not-exists --bootstrap-server kafka-1:9092 --topic pipeline.health --partitions 3 --replication-factor 3 --config retention.ms=2592000000 --config compression.type=gzip;
+        kafka-topics --list --bootstrap-server kafka-1:9092

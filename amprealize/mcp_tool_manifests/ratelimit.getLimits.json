@@ -1,0 +1,61 @@
+{
+  "name": "ratelimit_getlimits",
+  "description": "Get rate limit configuration for a subscription tier. Shows requests per minute, burst size, and daily quota limits.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "tier": {
+        "type": "string",
+        "enum": ["free", "pro", "enterprise", "unlimited"],
+        "description": "Subscription tier to get limits for",
+        "default": "free"
+      }
+    }
+  },
+  "required_scopes": [],
+  "category": "rate_limiting",
+  "examples": [
+    {
+      "description": "Get free tier limits",
+      "params": {
+        "tier": "free"
+      }
+    },
+    {
+      "description": "Get enterprise tier limits",
+      "params": {
+        "tier": "enterprise"
+      }
+    }
+  ],
+  "response_schema": {
+    "type": "object",
+    "properties": {
+      "tier": {
+        "type": "string",
+        "description": "Subscription tier name"
+      },
+      "limits": {
+        "type": "object",
+        "properties": {
+          "requests_per_minute": {
+            "type": "integer",
+            "description": "Maximum requests allowed per minute"
+          },
+          "burst_size": {
+            "type": "integer",
+            "description": "Maximum burst of requests in short window"
+          },
+          "daily_quota": {
+            "type": ["integer", "null"],
+            "description": "Maximum requests per day (null = unlimited)"
+          },
+          "user_requests_per_minute": {
+            "type": ["integer", "null"],
+            "description": "Per-user limit within org (null = no limit)"
+          }
+        }
+      }
+    }
+  }
+}

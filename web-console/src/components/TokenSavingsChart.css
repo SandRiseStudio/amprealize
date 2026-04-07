@@ -1,0 +1,128 @@
+.token-savings-chart {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--color-border-default, #e5e7eb);
+  border-radius: 16px;
+  padding: 20px;
+  margin: 16px 0;
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.chart-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #1f2937);
+  letter-spacing: -0.02em;
+}
+
+.savings-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #fef3c7;
+  color: #92400e;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 6px 12px;
+  border-radius: 20px;
+}
+
+.savings-badge.meets-target {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.target-met {
+  font-size: 0.8rem;
+  opacity: 0.9;
+}
+
+.chart-bars {
+  margin-bottom: 20px;
+}
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.bar-label {
+  width: 80px;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary, #6b7280);
+  font-weight: 500;
+}
+
+.bar-container {
+  flex: 1;
+  display: flex;
+  height: 32px;
+  background: rgba(226, 232, 240, 0.9);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  transition: width 0.5s ease;
+  min-width: fit-content;
+}
+
+.bar-original {
+  background: rgba(34, 118, 210, 0.78);
+}
+
+.bar-optimized {
+  background: rgba(22, 131, 79, 0.78);
+}
+
+.bar-savings {
+  background: rgba(215, 75, 69, 0.24);
+}
+
+.bar-value {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: white;
+}
+
+.bar-savings .bar-value {
+  color: #991b1b;
+}
+
+.chart-stats {
+  display: flex;
+  gap: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-default, #e5e7eb);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #1f2937);
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}

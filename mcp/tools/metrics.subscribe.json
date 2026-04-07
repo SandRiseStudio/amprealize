@@ -1,0 +1,54 @@
+{
+  "name": "metrics.subscribe",
+  "description": "Create a real-time metrics subscription for SSE streaming. Returns subscription metadata; use the subscription_id to establish an SSE connection for continuous metric updates.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "metrics": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional list of specific metrics to stream (empty = all metrics)"
+      },
+      "refresh_interval_seconds": {
+        "type": "integer",
+        "description": "How often to push metric updates in seconds",
+        "default": 30,
+        "minimum": 5,
+        "maximum": 300
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "subscription_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Unique identifier for this subscription"
+      },
+      "metrics": {
+        "type": ["array", "null"],
+        "items": {
+          "type": "string"
+        },
+        "description": "List of metrics included in subscription (null = all)"
+      },
+      "refresh_interval_seconds": {
+        "type": "integer",
+        "description": "Update frequency in seconds"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO timestamp when subscription was created"
+      },
+      "event_count": {
+        "type": "integer",
+        "description": "Number of events streamed so far (0 at creation)"
+      }
+    },
+    "required": ["subscription_id", "refresh_interval_seconds", "created_at", "event_count"]
+  }
+}

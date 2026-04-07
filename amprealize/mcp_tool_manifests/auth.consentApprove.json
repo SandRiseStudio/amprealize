@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "auth.consentApprove",
+  "description": "Approve a pending consent request, granting the requested scopes to the requesting agent/client. This completes the device authorization flow.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["user_code", "approver"],
+    "properties": {
+      "user_code": {
+        "type": "string",
+        "description": "The user-facing code displayed during device authorization (e.g., 'ABCD-EFGH'). Case-insensitive, hyphens optional."
+      },
+      "approver": {
+        "type": "string",
+        "description": "Identifier of the user approving the consent request."
+      },
+      "roles": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Optional roles to associate with the grant (e.g., ['admin', 'developer'])."
+      },
+      "mfa_verified": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether the approver has completed multi-factor authentication for this approval."
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["success"],
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the approval succeeded."
+      },
+      "user_code": {
+        "type": "string",
+        "description": "The approved user code."
+      },
+      "status": {
+        "type": "string",
+        "enum": ["APPROVED"],
+        "description": "Updated status after approval."
+      },
+      "scopes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Scopes that were granted."
+      },
+      "approved_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the approval was recorded."
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if approval failed."
+      }
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    {
+      "code": "user-code-not-found",
+      "description": "The specified user code does not exist.",
+      "httpStatus": 404
+    },
+    {
+      "code": "consent-expired",
+      "description": "The consent request has expired.",
+      "httpStatus": 410
+    },
+    {
+      "code": "consent-already-processed",
+      "description": "The consent request has already been approved or denied.",
+      "httpStatus": 409
+    },
+    {
+      "code": "mfa-required",
+      "description": "Approval requires MFA verification but mfa_verified is false.",
+      "httpStatus": 403
+    }
+  ]
+}

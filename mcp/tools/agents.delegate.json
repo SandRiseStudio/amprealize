@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agents.delegate",
+  "description": "Delegate a subtask to another agent. Creates a child run assigned to the target agent. Can optionally wait for completion (blocking) or return immediately with the delegated run ID for async tracking.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Target agent ID to delegate to (e.g., 'compliance', 'security', 'engineering')"
+      },
+      "subtask": {
+        "type": "string",
+        "description": "Description of the subtask to delegate"
+      },
+      "context": {
+        "type": "object",
+        "description": "Context to pass to the delegated agent",
+        "properties": {
+          "inputs": {
+            "type": "object",
+            "description": "Input data for the subtask"
+          },
+          "constraints": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Constraints or requirements for the subtask"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+            "description": "Priority level for the subtask"
+          },
+          "behaviors_required": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Specific behaviors the delegated agent should follow"
+          }
+        },
+        "additionalProperties": true
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Current run ID (auto-filled if executing within a run context)"
+      },
+      "timeout_seconds": {
+        "type": "integer",
+        "default": 300,
+        "minimum": 1,
+        "maximum": 3600,
+        "description": "Timeout in seconds for the delegated subtask"
+      },
+      "wait_for_completion": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true, block until the delegated subtask completes. If false, return immediately with delegated_run_id."
+      }
+    },
+    "required": ["agent_id", "subtask"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "delegation_id": {
+        "type": "string",
+        "description": "Unique identifier for this delegation"
+      },
+      "delegated_run_id": {
+        "type": "string",
+        "description": "Run ID created for the delegated subtask"
+      },
+      "parent_run_id": {
+        "type": "string",
+        "description": "The originating run that requested delegation"
+      },
+      "target_agent_id": {
+        "type": "string",
+        "description": "Agent ID handling the delegated subtask"
+      },
+      "subtask": {
+        "type": "string",
+        "description": "Description of the delegated subtask"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"],
+        "description": "Current status of the delegation"
+      },
+      "result": {
+        "type": "object",
+        "description": "Output from the delegated run (present if completed)"
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if the delegation failed"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp when delegation was created"
+      },
+      "completed_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp when delegation completed (if applicable)"
+      }
+    },
+    "required": ["delegation_id", "delegated_run_id", "status"]
+  }
+}

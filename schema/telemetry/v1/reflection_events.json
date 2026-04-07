@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schema.amprealize.dev/telemetry/v1/reflection_events.json",
+  "title": "Reflection Telemetry Event Schemas",
+  "type": "object",
+  "description": "JSON schema definitions for reflection pipeline telemetry events: candidate extraction and approval.",
+  "definitions": {
+    "ReflectionCandidateExtractedPayload": {
+      "type": "object",
+      "required": ["candidate_id", "confidence"],
+      "properties": {
+        "run_id": { "type": ["string", "null"], "description": "Source run that produced this candidate." },
+        "candidate_id": { "type": "string", "description": "Unique identifier for the reflection candidate." },
+        "candidate_slug": { "type": ["string", "null"], "description": "Proposed behavior slug (e.g. behavior_xyz)." },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Extraction confidence score." },
+        "pattern_type": { "type": ["string", "null"], "description": "Type of pattern detected (procedural, diagnostic, etc.)." },
+        "quality_scores": {
+          "type": ["object", "null"],
+          "properties": {
+            "clarity": { "type": "number", "minimum": 0, "maximum": 1 },
+            "generality": { "type": "number", "minimum": 0, "maximum": 1 },
+            "reusability": { "type": "number", "minimum": 0, "maximum": 1 },
+            "correctness": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "description": "Multi-dimensional quality assessment."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ReflectionCandidateApprovedPayload": {
+      "type": "object",
+      "required": ["candidate_id"],
+      "properties": {
+        "candidate_id": { "type": "string", "description": "Reflection candidate that was approved." },
+        "behavior_id": { "type": ["string", "null"], "description": "Newly created behavior ID (if auto-promoted)." },
+        "behavior_version": { "type": ["string", "null"], "description": "Version of the new behavior." },
+        "reviewer_role": { "type": ["string", "null"], "enum": ["Teacher", "Strategist", "system", null], "description": "Role of the reviewer." },
+        "auto_approved": { "type": "boolean", "default": false, "description": "Whether auto-approval triggered (confidence >= 0.8)." }
+      },
+      "additionalProperties": false
+    }
+  }
+}

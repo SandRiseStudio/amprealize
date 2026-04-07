@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "projects.listMembers",
+  "description": "List all members of a project with their roles.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID"
+      },
+      "role": {
+        "type": "string",
+        "enum": ["owner", "admin", "maintainer", "developer", "viewer"],
+        "description": "Filter by role"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 50,
+        "description": "Maximum number of members to return"
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Number of members to skip for pagination"
+      }
+    },
+    "required": ["user_id", "project_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "members": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "user_id": { "type": "string" },
+            "role": { "type": "string" },
+            "added_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
+      "total": { "type": "integer" },
+      "limit": { "type": "integer" },
+      "offset": { "type": "integer" }
+    }
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agentRegistry.list",
+  "description": "List agents from the registry with optional filters for status, visibility, role alignment, and tags. Returns an array of agent summaries.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": ["DRAFT", "PUBLISHED", "DEPRECATED"],
+        "description": "Filter agents by lifecycle status"
+      },
+      "visibility": {
+        "type": "string",
+        "enum": ["PRIVATE", "TEAM", "ORG", "PUBLIC"],
+        "description": "Filter agents by visibility level"
+      },
+      "role_alignment": {
+        "type": "string",
+        "enum": ["STRATEGIST", "TEACHER", "STUDENT"],
+        "description": "Filter agents by role alignment"
+      },
+      "builtin": {
+        "type": "boolean",
+        "description": "Filter to show only builtin agents (from playbooks)"
+      },
+      "owner_id": {
+        "type": "string",
+        "description": "Filter by owner user ID"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Filter agents by tags (exact match)"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200,
+        "default": 50,
+        "description": "Maximum number of agents to return"
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Offset for pagination"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "agents": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "Unique agent identifier (agt-<12-char-hex>)"
+            },
+            "name": {
+              "type": "string",
+              "description": "Agent name"
+            },
+            "description": {
+              "type": "string",
+              "description": "Brief agent description"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["DRAFT", "PUBLISHED", "DEPRECATED"]
+            },
+            "visibility": {
+              "type": "string",
+              "enum": ["PRIVATE", "TEAM", "ORG", "PUBLIC"]
+            },
+            "role_alignment": {
+              "type": "string",
+              "enum": ["STRATEGIST", "TEACHER", "STUDENT"]
+            },
+            "version": {
+              "type": "integer",
+              "description": "Current version number"
+            },
+            "builtin": {
+              "type": "boolean",
+              "description": "Whether this is a builtin agent"
+            },
+            "owner_id": {
+              "type": "string",
+              "description": "Owner user ID"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      },
+      "total": {
+        "type": "integer",
+        "description": "Total number of agents matching filters"
+      },
+      "limit": {
+        "type": "integer"
+      },
+      "offset": {
+        "type": "integer"
+      }
+    },
+    "required": ["agents", "total", "limit", "offset"]
+  }
+}

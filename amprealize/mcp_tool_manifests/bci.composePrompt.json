@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bci.composePrompt",
+  "description": "Compose a behavior-conditioned prompt using retrieved behavior snippets and citation controls.",
+  "inputSchema": {
+    "$ref": "../../schema/bci/v1/prompt.json#/definitions/ComposePromptRequest"
+  },
+  "outputSchema": {
+    "$ref": "../../schema/bci/v1/prompt.json#/definitions/ComposePromptResponse"
+  }
+}

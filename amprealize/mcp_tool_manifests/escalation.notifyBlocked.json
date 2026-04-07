@@ -1,0 +1,180 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "escalation.notifyBlocked",
+  "description": "Notify that execution is blocked and cannot proceed without external intervention. Use this when the agent encounters an insurmountable obstacle that requires human action to resolve (e.g., missing credentials, external system down, permission denied).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "reason": {
+        "type": "string",
+        "description": "Clear explanation of why execution is blocked"
+      },
+      "blocker_details": {
+        "type": "object",
+        "description": "Detailed information about what's blocking progress",
+        "properties": {
+          "blocker_type": {
+            "type": "string",
+            "enum": ["missing_credentials", "permission_denied", "external_dependency", "resource_unavailable", "rate_limited", "configuration_error", "data_quality", "other"],
+            "description": "Category of the blocker"
+          },
+          "error_message": {
+            "type": "string",
+            "description": "Specific error message if applicable"
+          },
+          "error_code": {
+            "type": "string",
+            "description": "Error code if available"
+          },
+          "affected_system": {
+            "type": "string",
+            "description": "Which system or service is affected"
+          },
+          "last_attempt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the last attempt was made"
+          },
+          "retry_count": {
+            "type": "integer",
+            "description": "How many times the operation was retried"
+          }
+        },
+        "additionalProperties": true
+      },
+      "suggested_actions": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Actions the human might take to unblock"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Current run ID for tracking (auto-filled if in run context)"
+      },
+      "work_item_id": {
+        "type": "string",
+        "description": "Associated work item ID if applicable"
+      }
+    },
+    "required": ["reason"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "escalation_id": {
+        "type": "string",
+        "description": "Unique identifier for this blocked notification"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Associated run ID"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["pending", "acknowledged", "resolved"],
+        "description": "Current status of the blocked notification"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Why execution is blocked"
+      },
+      "blocker_details": {
+        "type": "object",
+        "description": "Details about the blocker"
+      },
+      "acknowledged_by": {
+        "type": "string",
+        "description": "User who acknowledged (when acknowledged/resolved)"
+      },
+      "acknowledged_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the notification was acknowledged"
+      },
+      "resolution": {
+        "type": "string",
+        "description": "How the blocker was resolved (when resolved)"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the notification was created"
+      },
+      "notification_sent": {
+        "type": "boolean",
+        "description": "Whether a notification was dispatched"
+      }
+    },
+    "required": ["escalation_id", "run_id", "status", "reason"]
+  },
+  "examples": [
+    {
+      "name": "Blocked by missing API credentials",
+      "input": {
+        "reason": "Cannot access GitHub API - authentication token is missing or expired",
+        "blocker_details": {
+          "blocker_type": "missing_credentials",
+          "error_message": "401 Unauthorized: Bad credentials",
+          "error_code": "GITHUB_AUTH_FAILED",
+          "affected_system": "GitHub API",
+          "retry_count": 3
+        },
+        "suggested_actions": [
+          "Regenerate the GitHub personal access token",
+          "Update the GITHUB_TOKEN environment variable",
+          "Verify token has required scopes: repo, read:org"
+        ]
+      },
+      "output": {
+        "escalation_id": "esc_block_abc123",
+        "run_id": "run_xyz789",
+        "status": "pending",
+        "reason": "Cannot access GitHub API - authentication token is missing or expired",
+        "blocker_details": {
+          "blocker_type": "missing_credentials",
+          "error_message": "401 Unauthorized: Bad credentials",
+          "error_code": "GITHUB_AUTH_FAILED",
+          "affected_system": "GitHub API",
+          "retry_count": 3
+        },
+        "notification_sent": true,
+        "created_at": "2024-01-15T10:30:00Z"
+      }
+    },
+    {
+      "name": "Blocked by external service outage",
+      "input": {
+        "reason": "Payment processing service is unavailable",
+        "blocker_details": {
+          "blocker_type": "external_dependency",
+          "error_message": "Connection timeout after 30s",
+          "affected_system": "Stripe API",
+          "last_attempt": "2024-01-15T10:28:00Z",
+          "retry_count": 5
+        },
+        "suggested_actions": [
+          "Check Stripe status page for outages",
+          "Verify network connectivity to api.stripe.com",
+          "Consider enabling backup payment processor"
+        ]
+      },
+      "output": {
+        "escalation_id": "esc_block_def456",
+        "run_id": "run_abc123",
+        "status": "pending",
+        "reason": "Payment processing service is unavailable",
+        "blocker_details": {
+          "blocker_type": "external_dependency",
+          "error_message": "Connection timeout after 30s",
+          "affected_system": "Stripe API",
+          "last_attempt": "2024-01-15T10:28:00Z",
+          "retry_count": 5
+        },
+        "notification_sent": true,
+        "created_at": "2024-01-15T10:30:00Z"
+      }
+    }
+  ],
+  "tags": ["escalation", "human-in-the-loop", "blocked", "notification", "error"],
+  "category": "escalation"
+}

@@ -1,0 +1,40 @@
+{
+  "name": "agentPerformance.acknowledgeAlert",
+  "description": "Acknowledge a performance alert. This marks the alert as seen and being addressed without resolving it.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "alert_id": {
+        "type": "string",
+        "description": "Unique identifier of the alert to acknowledge"
+      },
+      "acknowledged_by": {
+        "type": "string",
+        "description": "Identifier of the user acknowledging the alert"
+      }
+    },
+    "required": ["alert_id", "acknowledged_by"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "alert_id": {
+        "type": "string",
+        "description": "Alert identifier"
+      },
+      "acknowledged_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the alert was acknowledged"
+      },
+      "acknowledged_by": {
+        "type": "string",
+        "description": "User who acknowledged"
+      },
+      "status": {
+        "type": "string",
+        "description": "Current alert status"
+      }
+    }
+  }
+}

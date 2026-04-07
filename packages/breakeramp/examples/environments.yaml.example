@@ -1,0 +1,252 @@
+# =============================================================================
+# Amprealize Environment Configuration Template
+# =============================================================================
+#
+# This file defines environment configurations for Amprealize-managed
+# infrastructure. Each project should copy this template to their project
+# root as `environments.yaml` and customize as needed.
+#
+# Location: Place at project root as `environments.yaml`
+#
+# Usage:
+#   amprealize plan development --blueprint postgres-dev
+#   amprealize validate environments.yaml
+#   ./scripts/run_tests.sh --amprealize --env ci
+#
+# Environment Variables:
+#   GUIDEAI_ENV_FILE or AMPREALIZE_ENV_FILE - Override config file path
+#
+# Schema validated with `amprealize validate <path>`
+# =============================================================================
+
+environments:
+  # ===========================================================================
+  # Development Environment
+  # ===========================================================================
+  # Local developer sandbox using native runtime (no containers).
+  # Best for quick iteration without container overhead.
+
+  development:
+    name: "development"
+    description: "Local developer sandbox"
+
+    # Compliance tier: dev | standard | prod-sim | strict
+    default_compliance_tier: "dev"
+
+    # Lifetime: infinite | 90m | 2h | 24h | 7d
+    default_lifetime: "infinite"
+
+    # Optional: Only activate specific modules (null = all)
+    # active_modules: ["datastores"]
+
+    runtime:
+      # Provider: native | podman | docker
+      provider: "native"
+
+      # Auto-start/init settings (for podman/docker)
+      auto_start: false
+      auto_init: false
+
+      # Resource limits
+      memory_limit_mb: 4096
+      cpu_limit: 2
+      network_mbps: 100
+
+      # How to handle resource constraints: fail | serialize | scale_out
+      auto_scaling_strategy: "serialize"
+
+    infrastructure:
+      # Blueprint to use (from packages/breakeramp/blueprints/ or custom)
+      blueprint_id: "local-test-suite"
+
+      # Whether to cleanup on destroy
+      teardown_on_exit: false
+
+    # Environment variables injected into services
+    variables:
+      GUIDEAI_ENV: "development"
+
+      # MCP server (guideai-mcp service in local-test-suite blueprint)
+      GUIDEAI_MCP_PORT: "3000"
+      MCP_TRANSPORT: "stdio"
+
+      # Database connections (customize ports/credentials)
+      DATABASE_HOST: "localhost"
+      DATABASE_PORT: "5432"
+      DATABASE_USER: "dev_user"
+      DATABASE_PASSWORD: "dev_password"
+
+  # ===========================================================================
+  # Test/CI Environment
+  # ===========================================================================
+  # Ephemeral containerized environment for automated testing.
+  # Automatically torn down after test runs.
+
+  test:
+    name: "test"
+    description: "CI/CD test environment"
+    default_compliance_tier: "dev"
+    default_lifetime: "90m"
+
+    runtime:
+      provider: "podman"
+
+      # Podman machine name (macOS/Windows)
+      podman_machine: "my-ci-machine"
+      podman_connection: "my-ci-machine"
+
+      # Auto-initialize machine if not exists
+      auto_init: true
+      auto_start: true
+
+      # Higher limits for CI
+      memory_limit_mb: 8192
+      cpu_limit: 4
+      network_mbps: 500
+
+    infrastructure:
+      blueprint_id: "ci-test-stack"
+
+      # IMPORTANT: Cleanup after tests
+      teardown_on_exit: true
+
+    variables:
+      GUIDEAI_ENV: "test"
+      LOG_LEVEL: "DEBUG"
+
+      # Test database ports (offset from dev to avoid conflicts)
+      DATABASE_HOST: "localhost"
+      DATABASE_PORT: "6432"
+      DATABASE_USER: "test_user"
+      DATABASE_PASSWORD: "test_password"
+
+  # ===========================================================================
+  # CI Environment (Alias for Test)
+  # ===========================================================================
+  # Some scripts reference 'ci' instead of 'test'. This provides compatibility.
+  # Consider using 'test' for new projects.
+
+  ci:
+    name: "ci"
+    description: "Ephemeral CI environment (alias for test)"
+    default_compliance_tier: "dev"
+    default_lifetime: "90m"
+
+    runtime:
+      provider: "podman"
+      podman_machine: "my-ci-machine"
+      podman_connection: "my-ci-machine"
+      auto_init: true
+      auto_start: true
+      memory_limit_mb: 8192
+      cpu_limit: 4
+      network_mbps: 500
+
+    infrastructure:
+      blueprint_id: "ci-test-stack"
+      teardown_on_exit: true
+
+    variables:
+      GUIDEAI_ENV: "ci"
+      DATABASE_HOST: "localhost"
+      DATABASE_PORT: "6432"
+
+  # ===========================================================================
+  # Staging Environment
+  # ===========================================================================
+  # Pre-production validation environment.
+  # Persistent (not torn down) with production-like configuration.
+
+  staging:
+    name: "staging"
+    description: "Pre-production validation stack"
+    default_compliance_tier: "prod-sim"
+    default_lifetime: "24h"
+
+    runtime:
+      provider: "podman"
+      podman_machine: "staging-machine"
+      auto_init: true
+      auto_start: true
+      memory_limit_mb: 12288
+      cpu_limit: 6
+      network_mbps: 1000
+
+    infrastructure:
+      blueprint_id: "local-test-suite"
+
+      # Persistent - manual cleanup required
+      teardown_on_exit: false
+
+    variables:
+      GUIDEAI_ENV: "staging"
+      LOG_LEVEL: "INFO"
+      DATABASE_HOST: "localhost"
+      DATABASE_PORT: "6432"
+
+  # ===========================================================================
+  # Production Environment
+  # ===========================================================================
+  # Long-lived production workloads.
+  # Strictest compliance, no auto-start (manual deployment only).
+
+  production:
+    name: "production"
+    description: "Production workloads"
+    default_compliance_tier: "strict"
+    default_lifetime: "infinite"
+
+    runtime:
+      provider: "podman"
+      podman_machine: "prod-machine"
+
+      # IMPORTANT: No auto-init/start in production
+      auto_init: false
+      auto_start: false
+
+      memory_limit_mb: 16384
+      cpu_limit: 8
+      network_mbps: 2000
+
+    infrastructure:
+      # Use production-grade blueprint
+      blueprint_id: "core-data-plane"
+      teardown_on_exit: false
+
+    variables:
+      GUIDEAI_ENV: "production"
+      LOG_LEVEL: "WARNING"
+      # NOTE: Use secrets manager for production credentials
+      # DATABASE_PASSWORD: "${secrets.DATABASE_PASSWORD}"
+
+# =============================================================================
+# Schema Reference
+# =============================================================================
+#
+# environments:
+#   <name>:                          # Environment identifier
+#     name: string                   # Display name (required)
+#     description: string            # Human-readable description
+#     default_compliance_tier: string # dev | standard | prod-sim | strict
+#     default_lifetime: string       # infinite | 90m | 2h | 24h | 7d
+#     active_modules: list[string]   # Module filter (null = all)
+#
+#     runtime:
+#       provider: string             # native | podman | docker (required)
+#       podman_machine: string       # Machine name (macOS/Windows)
+#       podman_connection: string    # Connection name
+#       auto_init: bool              # Auto-initialize machine
+#       auto_start: bool             # Auto-start machine
+#       memory_limit_mb: int         # Memory limit in MB
+#       cpu_limit: int               # CPU core limit
+#       network_mbps: int            # Network bandwidth limit
+#       auto_scaling_strategy: string # fail | serialize | scale_out
+#
+#     infrastructure:
+#       blueprint_id: string         # Blueprint to use
+#       teardown_on_exit: bool       # Cleanup on destroy
+#
+#     variables:                     # Environment variables (dict)
+#       KEY: "value"
+#
+# =============================================================================

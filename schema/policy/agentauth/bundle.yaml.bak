@@ -1,0 +1,98 @@
+bundle_version: 2025-10-15-rc1
+metadata:
+  description: "Baseline AgentAuth policy bundle covering Milestone 0 capabilities."
+  reviewers:
+    - security@amprealize.dev
+    - product@amprealize.dev
+  created_at: 2025-10-15T09:00:00Z
+  changelog:
+    - "Initial contracts for EnsureGrant, RevokeGrant, and PolicyPreview"
+rules:
+  - id: allow_actions_read
+    description: "Allow behavior search and action timeline queries for approved roles."
+    match:
+      tool_name: actions.list
+      roles:
+        - Strategist
+        - Teacher
+        - Student
+        - Admin
+    decision: ALLOW
+  - id: require_consent_actions_write
+    description: "Require consent for write access unless prior approval exists."
+    match:
+      tool_name: actions.create
+    decision: CONSENT_REQUIRED
+    obligations:
+      - type: expiry
+        attributes:
+          ttl_minutes: "60"
+  - id: deny_high_risk_without_admin
+    description: "Deny destructive scopes when requester lacks Admin role."
+    match:
+      scopes:
+        - actions.replay
+        - agentauth.manage
+      roles_excluded:
+        - Admin
+    decision: DENY
+    reason: POLICY_CONDITION_FAILED
+  - id: require_mfa_for_high_risk
+    description: "Require MFA verification before issuing high-risk scopes."
+    match:
+      scopes:
+        - actions.replay
+        - agentauth.manage
+      mfa_verified: false
+    decision: DENY
+    reason: SECURITY_HOLD
+  - id: consent_required_reviews
+    description: "Require consent for cross-functional review scheduling."
+    match:
+      tool_name: reviews.run
+    decision: CONSENT_REQUIRED
+    obligations:
+      - type: notification
+        attributes:
+          channel: "#agent-reviews"
+  - id: analytics_read_allow
+    description: "Allow analytics telemetry queries for approved teams."
+    match:
+      tool_name: analytics.metrics
+      roles:
+        - Product
+        - Analytics
+        - Compliance
+    decision: ALLOW
+  - id: default_deny
+    description: "Default deny for any tool not matched earlier."
+    match: {}
+    decision: DENY
+    reason: SCOPE_NOT_APPROVED
+workflow:
+  gitops:
+    repo: git@github.com:amprealize/policy-bundles.git
+    staging_branch: staging
+    production_branch: main
+  approvals:
+    required:
+      - Security
+      - Product
+    dry_run_tests:
+      - name: policy_contract_suite
+        command: "pytest tests/policy_contracts/"
+    rollout:
+      staging_window_minutes: 30
+      production_window_minutes: 60
+rollback:
+  command: "amprealize auth policy rollback --bundle {previous_version}"
+  validation_tests:
+    - name: replay_allowlist
+      command: "pytest tests/policy_regressions/test_replay_allowlist.py"
+observability:
+  telemetry_events:
+    - auth.policy.evaluate
+    - auth.policy.decision_latency_ms
+  dashboards:
+    - url: https://grafana.amprealize.dev/d/policy/auth
+      description: "Policy decision health metrics"

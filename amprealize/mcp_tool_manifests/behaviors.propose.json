@@ -1,0 +1,164 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "behaviors.propose",
+  "description": "Propose a new behavior from observed patterns. Triggers auto-approval if confidence >= 0.8 with 3+ historical validations. Follows AGENTS.md Behavior Lifecycle: DISCOVER -> PROPOSE -> APPROVE -> INTEGRATE.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "pattern": "^behavior_[a-z_]+$",
+        "description": "Behavior name (must follow 'behavior_<verb>_<noun>' pattern, e.g., behavior_prevent_secret_leaks)"
+      },
+      "description": {
+        "type": "string",
+        "description": "Brief description of what the behavior does"
+      },
+      "instruction": {
+        "type": "string",
+        "description": "Procedural instruction defining how to apply the behavior (include numbered steps)"
+      },
+      "role_focus": {
+        "type": "string",
+        "enum": ["Student", "Teacher", "Strategist"],
+        "description": "Primary role that uses this behavior (Student for routine, Teacher for examples, Strategist for novel patterns)"
+      },
+      "confidence_score": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "description": "Confidence score 0.0-1.0. Score >= 0.8 with 3+ historical_validations triggers auto-approval."
+      },
+      "historical_validations": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Array of run_ids that validated this pattern. Need 3+ for auto-approval eligibility."
+      },
+      "trigger_keywords": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Keywords that trigger this behavior (used in Quick Triggers table)"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Tags for categorization and filtering"
+      },
+      "examples": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "scenario": {
+              "type": "string"
+            },
+            "application": {
+              "type": "string"
+            }
+          },
+          "required": ["scenario", "application"]
+        },
+        "description": "Usage examples demonstrating the behavior"
+      },
+      "pattern_id": {
+        "type": "string",
+        "description": "Optional TraceAnalysisService pattern ID that triggered this proposal"
+      },
+      "rationale": {
+        "type": "string",
+        "description": "Rationale for why this behavior should exist (required for Teacher review)"
+      },
+      "proposed_by_role": {
+        "type": "string",
+        "enum": ["Student", "Teacher", "Strategist"],
+        "description": "Role of the agent proposing (Student escalates, Strategist emits new behaviors)"
+      },
+      "role_context": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["Student", "Teacher", "Strategist"]
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "behaviors_cited": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "escalated_from": {
+            "type": "string"
+          },
+          "escalation_reason": {
+            "type": "string"
+          }
+        },
+        "description": "Optional role context for telemetry (emphasized but not required)"
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Additional metadata"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"]
+      }
+    },
+    "required": ["name", "description", "instruction", "role_focus", "confidence_score", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string",
+        "description": "Unique identifier for the proposed behavior"
+      },
+      "version": {
+        "type": "string",
+        "description": "Initial version (1 for draft)"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["DRAFT", "APPROVED"],
+        "description": "Status after proposal (APPROVED if auto-approved)"
+      },
+      "auto_approved": {
+        "type": "boolean",
+        "description": "True if behavior was auto-approved (confidence >= 0.8 with 3+ validations)"
+      },
+      "confidence_score": {
+        "type": "number",
+        "description": "The confidence score provided in the proposal"
+      },
+      "needs_teacher_review": {
+        "type": "boolean",
+        "description": "True if behavior requires Teacher validation"
+      },
+      "message": {
+        "type": "string",
+        "description": "Human-readable message about the proposal result"
+      }
+    },
+    "required": ["behavior_id", "version", "status", "auto_approved", "needs_teacher_review", "message"]
+  }
+}

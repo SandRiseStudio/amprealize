@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workItems.getBatch",
+  "description": "Get multiple work items by IDs in a single call. Returns up to 100 items.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "item_ids": {
+        "type": "array",
+        "items": { "type": "string" },
+        "minItems": 1,
+        "maxItems": 100,
+        "description": "Array of work item IDs or display IDs (e.g. 'myproject-42') to retrieve (required, max 100)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": ["item_ids"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_id": { "type": "string" },
+            "item_type": { "type": "string" },
+            "project_id": { "type": "string" },
+            "board_id": { "type": "string" },
+            "column_id": { "type": "string" },
+            "parent_id": { "type": "string" },
+            "title": { "type": "string" },
+            "description": { "type": "string" },
+            "status": { "type": "string" },
+            "priority": { "type": "string" },
+            "child_count": { "type": "integer" },
+            "completed_child_count": { "type": "integer" },
+            "progress_percent": { "type": "number" }
+          }
+        }
+      },
+      "total": { "type": "integer" },
+      "missing_ids": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "IDs that were requested but not found"
+      }
+    }
+  }
+}

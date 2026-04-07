@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "consent.create",
+  "description": "Create a JIT (Just-In-Time) consent request for tool execution. Returns a user code that must be approved via dashboard, CLI, or VS Code.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["user_id", "agent_id", "tool_name", "scopes"],
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "User ID who must approve the consent."
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent ID requesting the consent."
+      },
+      "tool_name": {
+        "type": "string",
+        "description": "Name of the tool requiring consent."
+      },
+      "scopes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "List of scopes being requested."
+      },
+      "context": {
+        "type": "object",
+        "description": "Optional context metadata for the consent request."
+      },
+      "expires_in": {
+        "type": "integer",
+        "default": 600,
+        "description": "Time in seconds until the consent request expires (default: 600 = 10 minutes)."
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "UUID of the consent request."
+      },
+      "user_code": {
+        "type": "string",
+        "description": "User-friendly code for approval (e.g., 'ABCD-1234')."
+      },
+      "verification_uri": {
+        "type": "string",
+        "description": "URL where the user can approve the consent."
+      },
+      "expires_at": {
+        "type": "string",
+        "description": "ISO timestamp when the request expires."
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if creation failed."
+      }
+    }
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "name": "analytics.complianceCoverage",
+  "description": "Query compliance coverage facts from analytics warehouse showing checklist completion status, evidence tracking, and coverage scores per run.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results from this date forward"
+      },
+      "end_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results up to this date"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of records to return (1-1000, default: 100)",
+        "minimum": 1,
+        "maximum": 1000,
+        "default": 100
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "records": {
+        "type": "array",
+        "description": "List of compliance coverage facts",
+        "items": {
+          "type": "object",
+          "properties": {
+            "checklist_id": {
+              "type": "string",
+              "description": "Checklist identifier"
+            },
+            "step_id": {
+              "type": "string",
+              "description": "Checklist step identifier"
+            },
+            "status": {
+              "type": "string",
+              "description": "Step status (COMPLETED, PENDING, SKIPPED, etc.)"
+            },
+            "coverage_score": {
+              "type": "number",
+              "description": "Coverage score for this step (0.0-1.0)"
+            },
+            "run_id": {
+              "type": "string",
+              "description": "Associated workflow run identifier"
+            },
+            "session_id": {
+              "type": "string",
+              "description": "User/agent session identifier"
+            },
+            "behavior_ids": {
+              "type": "string",
+              "description": "JSON array string of behaviors used for this step"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Timestamp when the step was recorded"
+            }
+          },
+          "required": ["checklist_id", "step_id", "status"]
+        }
+      },
+      "count": {
+        "type": "integer",
+        "description": "Number of records returned"
+      }
+    },
+    "required": ["records", "count"]
+  }
+}

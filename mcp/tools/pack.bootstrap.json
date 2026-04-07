@@ -1,0 +1,23 @@
+{
+  "name": "pack.bootstrap",
+  "description": "Bootstrap a knowledge pack for an existing workspace. Detects workspace profile and storage backend, then activates an appropriate pack.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workspace_path": {
+        "type": "string",
+        "description": "Path to the workspace root (optional, defaults to current directory)"
+      },
+      "profile": {
+        "type": "string",
+        "enum": ["solo-dev", "amprealize-platform", "team-collab", "extension-dev", "api-backend", "compliance-sensitive"],
+        "description": "Override detected workspace profile (optional)"
+      },
+      "force": {
+        "type": "boolean",
+        "description": "Overwrite existing AGENTS.md and config files (default: false)"
+      }
+    },
+    "required": []
+  }
+}

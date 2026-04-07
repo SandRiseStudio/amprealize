@@ -1,0 +1,525 @@
+/**
+ * Plan Composer Styles
+ *
+ * The primary collaborative artifact - a real-time editable plan builder
+ * Inspired by Figma's canvas feel with Linear's polish
+ */
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Container
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.plan-composer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--color-bg-app);
+  overflow: hidden;
+}
+
+.plan-composer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-6);
+  background-color: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.plan-title-input {
+  font-size: var(--text-xl);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: var(--space-1) var(--space-2);
+  margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2));
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast);
+  width: 100%;
+  max-width: 400px;
+}
+
+.plan-title-input:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.plan-title-input:focus {
+  background-color: var(--color-bg-elevated);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.plan-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Canvas Area
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.plan-canvas {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-6);
+}
+
+.plan-content {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Step Cards
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.plan-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.plan-step {
+  position: relative;
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  transition:
+    border-color var(--duration-fast);
+}
+
+.plan-step:hover {
+  border-color: var(--color-border-default);
+}
+
+.plan-step.focused {
+  border-color: var(--color-accent);
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.plan-step.editing {
+  border-color: var(--color-accent);
+}
+
+/* Remote cursor indicator */
+.plan-step.has-remote-cursor {
+  position: relative;
+}
+
+.plan-step.has-remote-cursor::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border: 2px solid var(--remote-cursor-color, var(--color-accent));
+  border-radius: calc(var(--radius-lg) + 2px);
+  opacity: 0.5;
+  pointer-events: none;
+  animation: cursor-pulse 2s ease-in-out infinite;
+}
+
+@keyframes cursor-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+/* Step Header */
+.step-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background-color: var(--color-accent);
+  border-radius: var(--radius-full);
+  color: white;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  flex-shrink: 0;
+}
+
+.step-number.completed {
+  background: var(--color-success);
+}
+
+.step-title-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-title-input {
+  width: 100%;
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: var(--space-1) 0;
+  resize: none;
+}
+
+.step-title-input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+.step-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-disabled);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.plan-step:hover .step-drag-handle {
+  opacity: 1;
+}
+
+.step-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* Step Body */
+.step-body {
+  padding-left: calc(28px + var(--space-3));
+}
+
+.step-description-input {
+  width: 100%;
+  min-height: 60px;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: var(--space-2) 0;
+  resize: none;
+  line-height: var(--leading-relaxed);
+  font-family: inherit;
+}
+
+.step-description-input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+/* Step Metadata */
+.step-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-left: calc(28px + var(--space-3));
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.step-assignee {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background-color: var(--color-bg-elevated);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background-color var(--duration-fast);
+}
+
+.step-assignee:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.step-assignee-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  color: white;
+}
+
+.step-priority {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: background-color var(--duration-fast);
+}
+
+.step-priority.priority-high {
+  color: var(--color-error);
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.step-priority.priority-medium {
+  color: var(--color-warning);
+  background-color: rgba(245, 158, 11, 0.1);
+}
+
+.step-priority.priority-low {
+  color: var(--color-text-tertiary);
+  background-color: var(--color-bg-elevated);
+}
+
+/* Step Actions */
+.step-actions {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: flex;
+  gap: var(--space-1);
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.plan-step:hover .step-actions {
+  opacity: 1;
+}
+
+.step-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast),
+    color var(--duration-fast);
+}
+
+.step-action-btn:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.step-action-btn.delete:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--color-error);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Add Step Button
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.add-step-wrapper {
+  margin-top: var(--space-4);
+}
+
+.add-step-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-4);
+  background: transparent;
+  border: 2px dashed var(--color-border-default);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast),
+    background-color var(--duration-fast),
+    color var(--duration-fast),
+    transform var(--duration-fast) var(--ease-out-quart);
+}
+
+.add-step-button:hover {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.add-step-button:active {
+  transform: scale(0.98);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Presence Cursors
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.remote-cursor {
+  position: absolute;
+  pointer-events: none;
+  z-index: 100;
+  transition: transform 50ms linear;
+}
+
+.remote-cursor-pointer {
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 10px solid var(--cursor-color);
+  transform: rotate(-45deg);
+}
+
+.remote-cursor-label {
+  position: absolute;
+  top: 10px;
+  left: 4px;
+  padding: 2px 6px;
+  background-color: var(--cursor-color);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: var(--font-medium);
+  color: white;
+  white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Sync Status
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+.sync-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.sync-indicator.synced {
+  background-color: var(--color-success);
+}
+
+.sync-indicator.syncing {
+  background-color: var(--color-warning);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.sync-indicator.error {
+  background-color: var(--color-error);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Version Conflict Modal
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.conflict-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn var(--duration-fast) ease-out;
+}
+
+.conflict-modal {
+  background-color: var(--color-bg-surface);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  max-width: 480px;
+  width: 90%;
+  animation: slideUp var(--duration-normal) var(--ease-out-expo);
+}
+
+.conflict-modal-title {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-3);
+}
+
+.conflict-modal-description {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-relaxed);
+  margin-bottom: var(--space-6);
+}
+
+.conflict-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.conflict-btn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast),
+    opacity var(--duration-fast);
+}
+
+.conflict-btn-secondary {
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  color: var(--color-text-primary);
+}
+
+.conflict-btn-secondary:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.conflict-btn-primary {
+  background-color: var(--color-accent);
+  border: none;
+  color: white;
+}
+
+.conflict-btn-primary:hover {
+  opacity: 0.9;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

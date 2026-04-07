@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgs.get",
+  "description": "Get detailed information about a specific organization including members, projects, and usage.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to retrieve"
+      },
+      "include_members": {
+        "type": "boolean",
+        "default": true,
+        "description": "Include member list in response"
+      },
+      "include_projects": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include project list in response"
+      }
+    },
+    "required": ["org_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "slug": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "plan": {
+        "type": "string",
+        "enum": ["FREE", "PROFESSIONAL", "ENTERPRISE"]
+      },
+      "settings": {
+        "type": "object",
+        "description": "Organization-wide settings"
+      },
+      "members": {
+        "type": "array",
+        "description": "List of members (if requested)",
+        "items": {
+          "type": "object",
+          "properties": {
+            "user_id": {
+              "type": "string"
+            },
+            "email": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string",
+              "enum": ["owner", "admin", "member", "viewer"]
+            },
+            "joined_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      },
+      "projects": {
+        "type": "array",
+        "description": "List of projects (if requested)",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "date-time"
+      }
+    }
+  }
+}

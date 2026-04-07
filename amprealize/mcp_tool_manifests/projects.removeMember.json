@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "projects.removeMember",
+  "description": "Remove a member from a project. Requires project admin or owner role.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID"
+      },
+      "target_user_id": {
+        "type": "string",
+        "description": "ID of the user to remove"
+      }
+    },
+    "required": ["user_id", "project_id", "target_user_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "removed_user_id": {
+        "type": "string"
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

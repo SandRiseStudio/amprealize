@@ -1,0 +1,125 @@
+syntax = "proto3";
+
+package amprealize.agentauth.v1;
+
+option go_package = "github.com/amprealize/platform/pkg/agentauthv1";
+option java_multiple_files = true;
+option java_package = "ai.guide.agentauth.v1";
+
+// AgentAuthService defines the canonical contract for issuing and managing scoped grants
+// that gate access to downstream tools and services. Every surface (Web, CLI, API, MCP)
+// must invoke these RPCs before executing privileged actions.
+service AgentAuthService {
+  // EnsureGrant returns the decision for the requested tool scope. When a cached grant is
+  // available and still valid, it returns ALLOW with token metadata. When consent is required,
+  // clients receive a pending decision with a consent URL. DENY carries structured reason codes.
+  rpc EnsureGrant(EnsureGrantRequest) returns (EnsureGrantResponse);
+
+  // RevokeGrant revokes an existing grant and invalidates any active tokens tied to the grant key.
+  rpc RevokeGrant(RevokeGrantRequest) returns (RevokeGrantResponse);
+
+  // ListGrants enumerates active and historical grants for a given agent/user context.
+  rpc ListGrants(ListGrantsRequest) returns (ListGrantsResponse);
+
+  // PolicyPreview evaluates a potential tool invocation against the current policy bundle without
+  // mutating state. Use this for dry-runs during reviews or developer tooling.
+  rpc PolicyPreview(PolicyPreviewRequest) returns (PolicyPreviewResponse);
+}
+
+// GrantDecision enumerates the possible authorization outcomes for EnsureGrant.
+enum GrantDecision {
+  GRANT_DECISION_UNSPECIFIED = 0;
+  GRANT_DECISION_ALLOW = 1;
+  GRANT_DECISION_CONSENT_REQUIRED = 2;
+  GRANT_DECISION_DENY = 3;
+}
+
+// DecisionReason captures structured reasons for consent or denial.
+enum DecisionReason {
+  DECISION_REASON_UNSPECIFIED = 0;
+  DECISION_REASON_SCOPE_NOT_APPROVED = 1;
+  DECISION_REASON_POLICY_CONDITION_FAILED = 2;
+  DECISION_REASON_SECURITY_HOLD = 3;
+  DECISION_REASON_CONSENT_EXPIRED = 4;
+  DECISION_REASON_PROVIDER_ERROR = 5;
+}
+
+// EnsureGrantRequest represents a just-in-time authorization check for a tool invocation.
+message EnsureGrantRequest {
+  string request_id = 1;              // Client-generated idempotency key for retries.
+  string agent_id = 2;                // Registered agent requesting access.
+  string user_id = 3;                 // Human user on whose behalf the agent is acting (optional for service principals).
+  string surface = 4;                 // Surface identifier: WEB, CLI, API, VS_CODE, MCP.
+  string tool_name = 5;               // Tool or action identifier (matches ACTION_REGISTRY_SPEC).
+  repeated string scopes = 6;         // Provider scopes being requested.
+  map<string, string> context = 7;    // Arbitrary context (run_id, resource identifier, etc.).
+  string policy_version = 8;          // Optional pinned policy bundle version for deterministic evaluations.
+}
+
+message EnsureGrantResponse {
+  GrantDecision decision = 1;
+  DecisionReason reason = 2;
+  string consent_url = 3;             // Populated when decision == CONSENT_REQUIRED.
+  string consent_request_id = 4;      // Identifier to poll consent status.
+  GrantMetadata grant = 5;            // Populated when decision == ALLOW.
+  string audit_action_id = 6;         // ActionService ID recorded for this decision.
+}
+
+message GrantMetadata {
+  string grant_id = 1;
+  string agent_id = 2;
+  string user_id = 3;
+  string tool_name = 4;
+  repeated string scopes = 5;
+  string provider = 6;
+  int64 issued_at = 7;                // Unix epoch seconds.
+  int64 expires_at = 8;               // Unix epoch seconds.
+  repeated Obligation obligations = 9; // Additional constraints (expiry, ip allowlist, etc.).
+}
+
+message Obligation {
+  string type = 1;
+  map<string, string> attributes = 2;
+}
+
+message RevokeGrantRequest {
+  string grant_id = 1;
+  string revoked_by = 2;              // Actor initiating the revocation (user id or system principal).
+  string reason = 3;
+}
+
+message RevokeGrantResponse {
+  string grant_id = 1;
+  bool success = 2;
+  DecisionReason reason = 3;          // Reason for failure when success == false.
+}
+
+message ListGrantsRequest {
+  string agent_id = 1;
+  string user_id = 2;
+  string tool_name = 3;
+  bool include_expired = 4;
+  int32 page_size = 5;
+  string page_token = 6;
+}
+
+message ListGrantsResponse {
+  repeated GrantMetadata grants = 1;
+  string next_page_token = 2;
+}
+
+message PolicyPreviewRequest {
+  string agent_id = 1;
+  string user_id = 2;
+  string tool_name = 3;
+  repeated string scopes = 4;
+  map<string, string> context = 5;
+  string bundle_version = 6;          // Policy bundle hash to evaluate.
+}
+
+message PolicyPreviewResponse {
+  GrantDecision decision = 1;
+  DecisionReason reason = 2;
+  string bundle_version = 3;
+  repeated Obligation obligations = 4;
+}

@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agentRegistry.search",
+  "description": "Search agents using full-text search and optional filters. Returns matching agents ranked by relevance.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Search query for full-text search across name, description, mission, capabilities"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["DRAFT", "PUBLISHED", "DEPRECATED"],
+        "description": "Filter by status"
+      },
+      "visibility": {
+        "type": "string",
+        "enum": ["PRIVATE", "TEAM", "ORG", "PUBLIC"],
+        "description": "Filter by visibility"
+      },
+      "role_alignment": {
+        "type": "string",
+        "enum": ["STRATEGIST", "TEACHER", "STUDENT"],
+        "description": "Filter by role alignment"
+      },
+      "builtin": {
+        "type": "boolean",
+        "description": "Filter to show only builtin agents"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Filter by tags"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 20,
+        "description": "Maximum number of results"
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Offset for pagination"
+      }
+    },
+    "required": ["query"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "results": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "mission": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["DRAFT", "PUBLISHED", "DEPRECATED"]
+            },
+            "visibility": {
+              "type": "string",
+              "enum": ["PRIVATE", "TEAM", "ORG", "PUBLIC"]
+            },
+            "role_alignment": {
+              "type": "string",
+              "enum": ["STRATEGIST", "TEACHER", "STUDENT"]
+            },
+            "version": {
+              "type": "integer"
+            },
+            "capabilities": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "builtin": {
+              "type": "boolean"
+            },
+            "rank": {
+              "type": "number",
+              "description": "Search relevance score"
+            },
+            "highlight": {
+              "type": "string",
+              "description": "Highlighted match snippet"
+            }
+          }
+        }
+      },
+      "total": {
+        "type": "integer",
+        "description": "Total number of matching agents"
+      },
+      "query": {
+        "type": "string",
+        "description": "Original search query"
+      },
+      "limit": {
+        "type": "integer"
+      },
+      "offset": {
+        "type": "integer"
+      }
+    },
+    "required": ["results", "total", "query"]
+  }
+}

@@ -1,0 +1,162 @@
+[build-system]
+requires = ["setuptools>=69.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amprealize"
+version = "0.1.0"
+description = "Amprealize developer tooling and task orchestration helpers"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["amprealize", "cli", "developer-tools"]
+license = { text = "Apache-2.0" }
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+]
+authors = [
+  { name = "Amprealize Team" }
+]
+dependencies = [
+  "fastapi>=0.110,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "httpx>=0.27,<0.29",
+  "click>=8.1,<9.0",
+  "keyring>=24,<25",
+  "python-multipart>=0.0.6,<1.0",
+  "pydantic>=2.5,<3.0",
+  "pydantic-settings>=2.1,<3.0",
+  "boto3>=1.28,<2.0",  # AWS SDK for S3/MinIO storage
+  "PyJWT>=2.8,<3.0",  # JWT tokens for internal auth
+  "bcrypt>=4.1,<5.0",  # Password hashing
+  "openai>=1.0,<2.0",  # OpenAI API client
+  "anthropic>=0.40,<1.0",  # Anthropic Claude API client
+  "sqlalchemy>=2.0,<3.0",  # Database ORM for PostgresPool
+  "psycopg2-binary>=2.9,<3.0",  # PostgreSQL adapter
+  "redis>=5.0,<6.0",  # Redis cache client
+  "alembic>=1.13,<2.0",  # Database migrations
+  "podman>=5.0,<6.0",  # Podman socket API for container management
+  "pyyaml>=6.0,<7.0",  # YAML config loader
+]
+
+[project.urls]
+Homepage = "https://breakeramp.dev"
+Documentation = "https://breakeramp.dev/docs"
+Source = "https://github.com/SandRiseStudio/amprealize"
+"Bug Tracker" = "https://github.com/SandRiseStudio/amprealize/issues"
+Changelog = "https://github.com/SandRiseStudio/amprealize/blob/main/BUILD_TIMELINE.md"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4,<9.0",
+  "pytest-cov>=4.1,<6.0",
+  "pytest-asyncio>=0.21,<1.0",
+  "pytest-xdist>=3.5,<4.0",  # Parallel test execution
+  "pytest-timeout>=2.2,<3.0",  # Test timeouts
+  "pytest-mock>=3.12,<4.0",  # Mocking utilities
+  "black>=23.0,<25.0",
+  "isort>=5.12,<6.0",
+  "flake8>=6.0,<8.0",
+  "mypy>=1.5,<2.0",
+]
+telemetry = [
+  "kafka-python>=2.0,<3.0",
+  "duckdb>=1.1,<2.0",
+  "pytz>=2023.3",
+  "psycopg2-binary>=2.9,<3.0",
+]
+redis = [
+  "redis>=5.0,<6.0",
+]
+postgres = [
+  "sqlalchemy>=2.0,<3.0",
+  "psycopg2-binary>=2.9,<3.0",
+  "prometheus_client>=0.19,<1.0",
+  "alembic>=1.13,<2.0",
+]
+semantic = [
+  "sentence-transformers>=2.2.0,<3.0",
+  "faiss-cpu>=1.7.0,<2.0",
+]
+
+# Heavy ML stack (Torch/SciPy) is intentionally opt-in to keep default installs
+# lightweight (e.g., for container builds with small VM disks).
+ml = [
+  "sentence-transformers>=2.2.0,<3.0",
+  "faiss-cpu>=1.7.0,<2.0",
+  "torch>=2.0,<3.0",
+  "scipy>=1.10,<2.0",
+]
+breakeramp = [
+  "breakeramp[cli]>=0.1.0",
+]
+enterprise = [
+  "amprealize-enterprise~=0.1.0",
+]
+
+[project.scripts]
+amprealize = "amprealize.cli:main"
+amprealize-mcp-server = "amprealize.cli:main_mcp_server"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+amprealize = ["agents/playbooks/*.md", "mcp_tool_manifests/*.json"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.pytest.ini_options]
+minversion = "7.4"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--tb=short",
+    "--cov=amprealize",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=xml",
+    "--cov-report=html",
+    "--cov-fail-under=70",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "parity: marks tests as service parity tests",
+    "asyncio: marks tests as async",
+    "requires_services: marks tests requiring external services (postgres, etc.)",
+]
+asyncio_mode = "auto"
+timeout = 30
+# Parallel execution: use -n 2 or -n 4 (safer than -n auto on laptops)
+# Recommended: pytest -n 2 for laptops with limited resources
+# CI can use: pytest -n auto
+
+[tool.coverage.run]
+source = ["amprealize"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__pycache__/*",
+    "*/migrations/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

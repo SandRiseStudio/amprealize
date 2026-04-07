@@ -1,0 +1,18 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "extension"
+		}
+	],
+	"settings": {
+		"chat.tools.terminal.autoApprove": {
+			"/^python3 -c \"from amprealize\\.auth\\.github_credential_repository import detect_token_type, GitHubTokenType; print\\(detect_token_type\\('ghp_xxx'\\)\\.value\\)\"$/": {
+				"approve": true,
+				"matchCommandLine": true
+			}
+		}
+	}
+}

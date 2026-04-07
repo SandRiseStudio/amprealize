@@ -1,0 +1,66 @@
+{
+  "name": "agentPerformance.updateThresholds",
+  "description": "Update performance alert thresholds for an agent or organization. Set custom threshold values to control when alerts are triggered.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent ID for agent-level thresholds (optional)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID for org-level thresholds (optional)"
+      },
+      "success_rate_warning": {
+        "type": "number",
+        "description": "Success rate warning threshold (0-100)"
+      },
+      "success_rate_critical": {
+        "type": "number",
+        "description": "Success rate critical threshold (0-100)"
+      },
+      "token_savings_warning": {
+        "type": "number",
+        "description": "Token savings warning threshold (0-100)"
+      },
+      "token_savings_critical": {
+        "type": "number",
+        "description": "Token savings critical threshold (0-100)"
+      },
+      "behavior_reuse_warning": {
+        "type": "number",
+        "description": "Behavior reuse warning threshold (0-100)"
+      },
+      "behavior_reuse_critical": {
+        "type": "number",
+        "description": "Behavior reuse critical threshold (0-100)"
+      },
+      "compliance_coverage_warning": {
+        "type": "number",
+        "description": "Compliance coverage warning threshold (0-100)"
+      },
+      "compliance_coverage_critical": {
+        "type": "number",
+        "description": "Compliance coverage critical threshold (0-100)"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether thresholds were updated successfully"
+      },
+      "scope": {
+        "type": "string",
+        "description": "Scope of updated thresholds: 'agent' or 'org'"
+      },
+      "thresholds": {
+        "type": "object",
+        "description": "Updated threshold values"
+      }
+    }
+  }
+}

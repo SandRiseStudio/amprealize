@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "raze.status",
+  "description": "Get the current status of the Raze logging system including buffer state, sink health, and throughput metrics.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "service_name": {
+        "type": "string",
+        "description": "Name of the service instance"
+      },
+      "sink_type": {
+        "type": "string",
+        "enum": ["timescale", "file", "memory", "kafka", "composite"],
+        "description": "Active sink backend type"
+      },
+      "sink_healthy": {
+        "type": "boolean",
+        "description": "Whether the sink is healthy and accepting writes"
+      },
+      "buffer": {
+        "type": "object",
+        "properties": {
+          "current_size": {
+            "type": "integer",
+            "description": "Number of entries currently buffered"
+          },
+          "max_size": {
+            "type": "integer",
+            "description": "Maximum buffer size before auto-flush"
+          },
+          "linger_ms": {
+            "type": "integer",
+            "description": "Maximum time entries linger before flush"
+          }
+        }
+      },
+      "stats": {
+        "type": "object",
+        "properties": {
+          "total_emitted": {
+            "type": "integer",
+            "description": "Total log entries emitted since startup"
+          },
+          "total_flushed": {
+            "type": "integer",
+            "description": "Total entries flushed to sink"
+          },
+          "errors": {
+            "type": "integer",
+            "description": "Total sink write errors"
+          },
+          "uptime_seconds": {
+            "type": "number",
+            "description": "Service uptime in seconds"
+          }
+        }
+      }
+    },
+    "required": ["service_name", "sink_type", "sink_healthy"]
+  },
+  "examples": [
+    {
+      "input": {},
+      "output": {
+        "service_name": "amprealize-mcp-server",
+        "sink_type": "timescale",
+        "sink_healthy": true,
+        "buffer": {
+          "current_size": 12,
+          "max_size": 1000,
+          "linger_ms": 100
+        },
+        "stats": {
+          "total_emitted": 4521,
+          "total_flushed": 4509,
+          "errors": 0,
+          "uptime_seconds": 3600.5
+        }
+      }
+    }
+  ]
+}

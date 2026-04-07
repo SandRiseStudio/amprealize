@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "collaboration.workspace.create",
+  "description": "Create a shared workspace for real-time collaboration with operational transform.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workspace_name": {
+        "type": "string",
+        "description": "Unique workspace identifier"
+      },
+      "display_name": {
+        "type": "string",
+        "description": "Human-readable workspace name"
+      },
+      "workspace_type": {
+        "type": "string",
+        "enum": ["BEHAVIOR_LIBRARY", "WORKFLOW_PROJECT", "AGENT_TEAM", "KNOWLEDGE_BASE"],
+        "description": "Type of workspace"
+      },
+      "members": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "user_id": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string",
+              "enum": ["OWNER", "ADMIN", "EDITOR", "VIEWER"]
+            },
+            "permissions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": ["user_id", "role"]
+        }
+      },
+      "settings": {
+        "type": "object",
+        "description": "Workspace settings",
+        "properties": {
+          "is_public": {
+            "type": "boolean",
+            "default": false
+          },
+          "allow_comments": {
+            "type": "boolean",
+            "default": true
+          },
+          "version_control": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      }
+    },
+    "required": ["workspace_name", "workspace_type", "members"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "workspace_id": {
+        "type": "string",
+        "description": "Unique workspace identifier (wks-<12-char-hex>)"
+      },
+      "workspace_name": {
+        "type": "string"
+      },
+      "workspace_type": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["ACTIVE", "ARCHIVED", "DELETED"]
+      },
+      "members": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "user_id": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string"
+            },
+            "joined_at": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "collaboration_stats": {
+        "type": "object",
+        "properties": {
+          "active_sessions": {
+            "type": "integer"
+          },
+          "total_edits": {
+            "type": "integer"
+          },
+          "last_activity": {
+            "type": "string"
+          }
+        }
+      },
+      "created_at": {
+        "type": "string",
+        "description": "ISO8601 timestamp"
+      }
+    },
+    "required": ["workspace_id", "workspace_name", "status", "created_at"]
+  }
+}

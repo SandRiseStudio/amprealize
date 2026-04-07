@@ -1,0 +1,69 @@
+{
+  "name": "analytics.costByService",
+  "description": "Query cost breakdown by service from analytics warehouse. Shows total cost, token usage, and average cost per run for each service (OpenAI, Anthropic, etc.).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results from this date forward"
+      },
+      "end_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results up to this date"
+      },
+      "service_name": {
+        "type": "string",
+        "description": "Optional filter to show costs for a specific service only"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "records": {
+        "type": "array",
+        "description": "List of cost records by service",
+        "items": {
+          "type": "object",
+          "properties": {
+            "service_name": {
+              "type": "string",
+              "description": "Name of the LLM service (e.g., openai, anthropic)"
+            },
+            "total_cost_usd": {
+              "type": "number",
+              "description": "Total cost in USD for this service"
+            },
+            "total_tokens": {
+              "type": "integer",
+              "description": "Total tokens used by this service"
+            },
+            "avg_cost_per_run": {
+              "type": "number",
+              "description": "Average cost per run for this service"
+            },
+            "run_count": {
+              "type": "integer",
+              "description": "Number of runs using this service"
+            }
+          }
+        }
+      },
+      "count": {
+        "type": "integer",
+        "description": "Number of service records returned"
+      }
+    }
+  },
+  "endpoint": {
+    "method": "GET",
+    "path": "/v1/analytics/cost-by-service",
+    "queryParams": ["start_date", "end_date", "service_name"]
+  },
+  "cli": {
+    "command": "amprealize analytics cost-by-service",
+    "flags": ["--start-date", "--end-date", "--service", "--format"]
+  },
+  "tags": ["analytics", "cost", "budget", "prd-8.17"]
+}

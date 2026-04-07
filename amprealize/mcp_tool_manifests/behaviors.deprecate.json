@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "behaviors.deprecate",
+  "description": "Deprecate an approved behavior. Changes status from APPROVED to DEPRECATED. Optionally specify a successor behavior. Returns the deprecated behavior.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string",
+        "description": "Behavior ID to deprecate"
+      },
+      "version": {
+        "type": "string",
+        "description": "Version to deprecate (must be APPROVED)"
+      },
+      "effective_to": {
+        "type": "string",
+        "description": "ISO8601 timestamp when deprecation takes effect (defaults to now)"
+      },
+      "successor_behavior_id": {
+        "type": "string",
+        "description": "Optional ID of the behavior that replaces this one"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor must have deprecation authority"
+      }
+    },
+    "required": ["behavior_id", "version", "effective_to", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["DEPRECATED"]
+      },
+      "version": {
+        "type": "string"
+      },
+      "effective_to": {
+        "type": "string",
+        "description": "When the behavior was/will be deprecated"
+      },
+      "successor_behavior_id": {
+        "type": "string",
+        "description": "ID of replacement behavior (if any)"
+      },
+      "deprecated_at": {
+        "type": "string",
+        "description": "ISO8601 timestamp of deprecation"
+      }
+    },
+    "required": ["behavior_id", "status", "version", "effective_to", "deprecated_at"]
+  }
+}

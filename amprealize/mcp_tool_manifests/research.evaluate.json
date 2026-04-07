@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "research.evaluate",
+  "description": "Run the full 4-phase AI research evaluation pipeline on a paper or article. Phases: Ingest → Comprehend → Evaluate → Recommend. Returns a structured verdict (ADOPT/ADAPT/DEFER/REJECT) with implementation roadmap.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "source": {
+        "type": "string",
+        "description": "URL, file path, or arXiv ID of the paper to evaluate"
+      },
+      "source_type": {
+        "type": "string",
+        "enum": ["url", "arxiv", "markdown", "pdf", "docx"],
+        "description": "Type of source (optional, auto-detected from source string)"
+      },
+      "context_documents": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Additional context document paths to include in evaluation"
+      },
+      "llm_model": {
+        "type": "string",
+        "description": "LLM model to use for analysis (optional, defaults to service default)"
+      },
+      "save_to_db": {
+        "type": "boolean",
+        "description": "Whether to persist evaluation results to database (default: true)"
+      }
+    },
+    "required": ["source"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "paper_id": { "type": "string", "description": "Unique identifier for the evaluated paper" },
+      "paper_title": { "type": "string", "description": "Title of the paper" },
+      "verdict": { "type": "string", "enum": ["ADOPT", "ADAPT", "DEFER", "REJECT"], "description": "Final verdict" },
+      "overall_score": { "type": "number", "description": "Overall evaluation score (0-10)" },
+      "executive_summary": { "type": "string", "description": "Human-readable 1-2 paragraph summary of findings and recommendation" },
+      "honest_assessment": { "type": "string", "description": "Brutally honest 2-3 sentence gut check -- unvarnished, no-hedging plain-language assessment of whether to adopt" },
+      "competitive_landscape": {
+        "type": "array",
+        "description": "Existing tools, frameworks, libraries, or patterns that address a similar problem",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "category": { "type": "string", "enum": ["tool", "framework", "library", "pattern", "paper"] },
+            "url": { "type": "string" },
+            "description": { "type": "string" },
+            "maturity": { "type": "string", "enum": ["experimental", "stable", "mature", "deprecated", "unknown"] },
+            "overlap_description": { "type": "string" },
+            "differentiators": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      },
+      "value_proposition": {
+        "type": "object",
+        "description": "Structured effectiveness and value assessment",
+        "properties": {
+          "effectiveness_summary": { "type": "string" },
+          "key_benefits": { "type": "array", "items": { "type": "string" } },
+          "measurable_outcomes": { "type": "array", "items": { "type": "string" } },
+          "value_to_amprealize": { "type": "string" }
+        }
+      },
+      "structured_cons": {
+        "type": "array",
+        "description": "Concerns and risks with severity, likelihood, and mitigation",
+        "items": {
+          "type": "object",
+          "properties": {
+            "description": { "type": "string" },
+            "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+            "likelihood": { "type": "string", "enum": ["low", "medium", "high"] },
+            "mitigation": { "type": "string" },
+            "category": { "type": "string", "enum": ["technical", "operational", "security", "licensing"] }
+          }
+        }
+      },
+      "adoption_strategy": {
+        "type": "object",
+        "description": "Recommendation for how to adopt the research findings",
+        "properties": {
+          "approach": { "type": "string", "enum": ["use_directly", "extract_concepts", "hybrid", "build_custom"] },
+          "rationale": { "type": "string" },
+          "direct_use_candidates": { "type": "array", "items": { "type": "string" } },
+          "concepts_to_extract": { "type": "array", "items": { "type": "string" } },
+          "integration_points": { "type": "array", "items": { "type": "string" } },
+          "estimated_time_saved": { "type": "string" }
+        }
+      },
+      "evaluation_duration_seconds": { "type": "number", "description": "Time taken for evaluation" },
+      "markdown_report": { "type": "string", "description": "Full markdown evaluation report" }
+    }
+  }
+}

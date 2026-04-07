@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "files.write",
+  "description": "Write content to a file. Respects write_scope settings: 'local_only' writes to filesystem, 'pr_only' creates a PR branch, 'local_and_pr' does both. Creates parent directories if needed.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Absolute or workspace-relative path for the file (required)"
+      },
+      "content": {
+        "type": "string",
+        "description": "Content to write to the file (required)"
+      },
+      "encoding": {
+        "type": "string",
+        "default": "utf-8",
+        "description": "File encoding (default: utf-8)"
+      },
+      "create_dirs": {
+        "type": "boolean",
+        "default": true,
+        "description": "Create parent directories if they don't exist (default: true)"
+      },
+      "overwrite": {
+        "type": "boolean",
+        "default": true,
+        "description": "Overwrite existing file (default: true)"
+      },
+      "write_scope": {
+        "type": "string",
+        "enum": ["inherit", "local_only", "pr_only", "local_and_pr"],
+        "default": "inherit",
+        "description": "Write target scope (default: inherit from project settings)"
+      },
+      "commit_message": {
+        "type": "string",
+        "description": "Commit message for PR writes (optional, auto-generated if not provided)"
+      }
+    },
+    "required": ["path", "content"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the operation succeeded"
+      },
+      "path": {
+        "type": "string",
+        "description": "Normalized absolute path"
+      },
+      "bytes_written": {
+        "type": "integer",
+        "description": "Number of bytes written"
+      },
+      "write_targets": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["local", "pr"] },
+        "description": "Where the file was written"
+      },
+      "pr_url": {
+        "type": "string",
+        "description": "PR URL if write included PR target"
+      },
+      "commit_sha": {
+        "type": "string",
+        "description": "Git commit SHA if write included PR target"
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if success is false"
+      }
+    },
+    "required": ["success"]
+  }
+}

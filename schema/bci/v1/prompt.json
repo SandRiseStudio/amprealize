@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schema.amprealize.dev/bci/v1/prompt.json",
+  "title": "Behavior-Conditioned Inference Prompt Composition Schemas",
+  "type": "object",
+  "description": "JSON schema definitions for formatting behavior-conditioned prompts across REST, CLI, and MCP flows.",
+  "definitions": {
+    "CitationMode": {
+      "type": "string",
+      "enum": ["explicit", "implicit", "inline"]
+    },
+    "PromptFormat": {
+      "type": "string",
+      "enum": ["list", "prose", "structured"]
+    },
+    "BehaviorSnippet": {
+      "type": "object",
+      "required": ["behavior_id", "name", "instruction"],
+      "properties": {
+        "behavior_id": {"type": "string", "format": "uuid"},
+        "name": {"type": "string", "maxLength": 120},
+        "instruction": {"type": "string"},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+        "role_focus": {"type": "string", "enum": ["STRATEGIST", "TEACHER", "STUDENT", "MULTI_ROLE"]},
+        "citation_label": {"type": "string", "description": "Label to use when referencing the behavior in prompts."},
+        "summary": {"type": "string", "description": "Optional short summary surfaced to Strategist workflows."}
+      },
+      "additionalProperties": false
+    },
+    "ComposePromptRequest": {
+      "type": "object",
+      "required": ["query", "behaviors"],
+      "properties": {
+        "query": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "behaviors": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/BehaviorSnippet"},
+          "minItems": 1,
+          "maxItems": 10
+        },
+        "citation_mode": {"$ref": "#/definitions/CitationMode", "default": "explicit"},
+        "format": {"$ref": "#/definitions/PromptFormat", "default": "list"},
+        "citation_instruction": {
+          "type": "string",
+          "description": "Instruction appended to the prompt guiding citation style."
+        },
+        "max_behaviors": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Optional override for maximum behaviors to include."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ComposePromptResponse": {
+      "type": "object",
+      "required": ["prompt", "behaviors"],
+      "properties": {
+        "prompt": {"type": "string"},
+        "behaviors": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/BehaviorSnippet"}
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "citation_mode": {"$ref": "#/definitions/CitationMode"},
+            "format": {"$ref": "#/definitions/PromptFormat"},
+            "citation_instruction": {"type": "string"}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "BatchComposePromptRequest": {
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "required": ["query", "behaviors"],
+            "properties": {
+              "query": {"type": "string", "minLength": 1, "maxLength": 4000},
+              "behaviors": {
+                "type": "array",
+                "items": {"$ref": "#/definitions/BehaviorSnippet"},
+                "minItems": 1,
+                "maxItems": 10
+              },
+              "citation_mode": {"$ref": "#/definitions/CitationMode"},
+              "format": {"$ref": "#/definitions/PromptFormat"}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "BatchComposePromptResponse": {
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["query", "prompt"],
+            "properties": {
+              "query": {"type": "string"},
+              "prompt": {"type": "string"},
+              "behaviors": {
+                "type": "array",
+                "items": {"$ref": "#/definitions/BehaviorSnippet"}
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

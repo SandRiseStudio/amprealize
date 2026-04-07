@@ -1,0 +1,1 @@
+[{{ project_name }}] {{ update_type | default("Update") }}: {{ title }}

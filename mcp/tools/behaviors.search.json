@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "behaviors.search",
+  "description": "Search behaviors by natural language query using semantic similarity. Returns ranked results with relevance scores.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Natural language search query describing the desired behavior"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional tags filter to narrow search scope"
+      },
+      "role_focus": {
+        "type": "string",
+        "enum": ["STRATEGIST", "TEACHER", "STUDENT"],
+        "description": "Optional role filter"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["DRAFT", "PENDING_REVIEW", "APPROVED", "DEPRECATED"],
+        "description": "Optional status filter (defaults to APPROVED for production searches)"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 25,
+        "description": "Maximum number of results to return"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"]
+      }
+    },
+    "required": ["query"]
+  },
+  "outputSchema": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "properties": {
+        "behavior_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": "string",
+          "description": "The behavior's procedural instruction"
+        },
+        "role_focus": {
+          "type": "string",
+          "enum": ["STRATEGIST", "TEACHER", "STUDENT"]
+        },
+        "version": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "trigger_keywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "relevance_score": {
+          "type": "number",
+          "description": "Similarity score (0.0-1.0)"
+        }
+      },
+      "required": ["behavior_id", "name", "instruction", "role_focus", "relevance_score"]
+    }
+  }
+}

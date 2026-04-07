@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agents.statusHistory",
+  "description": "Get the status change history for an agent. Returns a paginated list of status change events ordered by most recent first. Requires agents.read scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization identifier for security validation"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of events to return",
+        "default": 50,
+        "minimum": 1,
+        "maximum": 100
+      },
+      "offset": {
+        "type": "integer",
+        "description": "Number of events to skip for pagination",
+        "default": 0,
+        "minimum": 0
+      }
+    },
+    "required": ["agent_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier"
+      },
+      "current_status": {
+        "type": "string",
+        "description": "Current agent status"
+      },
+      "total": {
+        "type": "integer",
+        "description": "Total number of status change events"
+      },
+      "events": {
+        "type": "array",
+        "description": "List of status change events",
+        "items": {
+          "type": "object",
+          "properties": {
+            "event_id": {
+              "type": "string",
+              "description": "Event identifier"
+            },
+            "from_status": {
+              "type": "string",
+              "description": "Previous status"
+            },
+            "to_status": {
+              "type": "string",
+              "description": "New status"
+            },
+            "trigger": {
+              "type": "string",
+              "description": "What triggered this change"
+            },
+            "triggered_by": {
+              "type": "string",
+              "description": "User ID who triggered the change"
+            },
+            "task_id": {
+              "type": "string",
+              "description": "Associated task ID if any"
+            },
+            "reason": {
+              "type": "string",
+              "description": "Reason for the change"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the change occurred"
+            }
+          }
+        }
+      }
+    },
+    "required": ["agent_id", "current_status", "total", "events"]
+  },
+  "examples": [
+    {
+      "description": "Get recent status history for an agent",
+      "input": {
+        "agent_id": "agent-abc123",
+        "org_id": "org-xyz789",
+        "limit": 10
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "AGENT_NOT_FOUND",
+      "description": "Agent not found or not accessible"
+    }
+  ]
+}

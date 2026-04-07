@@ -1,0 +1,508 @@
+/* AgentDetailPanel CSS Styles */
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+		'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+		sans-serif;
+	font-size: 14px;
+	line-height: 1.5;
+	color: var(--vscode-foreground);
+	background-color: var(--vscode-editor-background);
+	margin: 0;
+	padding: 0;
+}
+
+.container {
+	max-width: 900px;
+	margin: 0 auto;
+	padding: 20px;
+}
+
+/* No Agent State */
+.no-agent {
+	text-align: center;
+	padding: 60px 20px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.no-agent h2 {
+	margin-bottom: 12px;
+	color: var(--vscode-foreground);
+}
+
+/* Header Styles */
+.agent-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	margin-bottom: 24px;
+	padding-bottom: 16px;
+	border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.agent-title {
+	flex: 1;
+}
+
+.agent-title h1 {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 8px 0;
+	font-size: 22px;
+	font-weight: 600;
+	color: var(--vscode-editor-foreground);
+}
+
+.role-icon {
+	font-size: 24px;
+}
+
+.agent-meta {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-top: 8px;
+}
+
+.agent-id {
+	font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	background-color: var(--vscode-toolbar-background);
+	padding: 4px 8px;
+	border-radius: 4px;
+}
+
+.copy-btn {
+	background: none;
+	border: 1px solid var(--vscode-button-border, transparent);
+	color: var(--vscode-button-foreground);
+	background-color: var(--vscode-button-secondaryBackground);
+	padding: 4px 8px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 11px;
+	transition: all 0.2s ease;
+}
+
+.copy-btn:hover {
+	background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.agent-status {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 6px;
+}
+
+/* Status Badge */
+.status-badge {
+	padding: 6px 12px;
+	border-radius: 4px;
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.status-draft {
+	background-color: var(--vscode-statusBarItem-warningBackground, #f39c12);
+	color: var(--vscode-statusBarItem-warningForeground, white);
+}
+
+.status-published {
+	background-color: var(--vscode-testing-iconPassed, #27ae60);
+	color: white;
+}
+
+.status-deprecated {
+	background-color: var(--vscode-statusBarItem-errorBackground, #e74c3c);
+	color: white;
+}
+
+/* Visibility Badge */
+.visibility-badge {
+	padding: 4px 10px;
+	border-radius: 4px;
+	font-size: 10px;
+	font-weight: 500;
+	text-transform: uppercase;
+}
+
+.visibility-private {
+	background-color: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+}
+
+.visibility-team {
+	background-color: var(--vscode-notificationsInfoIcon-foreground, #3794ff);
+	color: white;
+}
+
+.visibility-public {
+	background-color: var(--vscode-charts-blue, #3794ff);
+	color: white;
+}
+
+/* Version Badge */
+.version-badge {
+	padding: 4px 10px;
+	border-radius: 4px;
+	font-size: 10px;
+	font-weight: 500;
+	background-color: var(--vscode-toolbar-background);
+	color: var(--vscode-descriptionForeground);
+}
+
+/* Action Buttons */
+.agent-actions {
+	display: flex;
+	gap: 10px;
+	margin-bottom: 24px;
+	flex-wrap: wrap;
+}
+
+.action-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 14px;
+	border: 1px solid var(--vscode-button-border, transparent);
+	border-radius: 4px;
+	font-size: 13px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	background-color: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+}
+
+.action-btn:hover {
+	background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.action-primary {
+	background-color: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
+.action-primary:hover {
+	background-color: var(--vscode-button-hoverBackground);
+}
+
+.action-danger {
+	background-color: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+	color: var(--vscode-errorForeground, #f48771);
+	border-color: var(--vscode-inputValidation-errorBorder, #be1100);
+}
+
+.action-danger:hover {
+	opacity: 0.9;
+}
+
+/* Content Sections */
+.agent-content {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+}
+
+.info-section {
+	background-color: var(--vscode-editor-background);
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 6px;
+	padding: 16px;
+}
+
+.info-section h2 {
+	margin: 0 0 12px 0;
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--vscode-foreground);
+	border-bottom: 1px solid var(--vscode-panel-border);
+	padding-bottom: 8px;
+}
+
+.description {
+	margin: 0;
+	color: var(--vscode-foreground);
+	line-height: 1.6;
+}
+
+/* Role Info */
+.role-info {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.role-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 12px;
+	border-radius: 4px;
+	font-size: 12px;
+	font-weight: 600;
+	width: fit-content;
+}
+
+.role-strategist {
+	background-color: rgba(245, 158, 11, 0.2);
+	color: var(--vscode-charts-orange, #f59e0b);
+}
+
+.role-teacher {
+	background-color: rgba(52, 152, 219, 0.2);
+	color: var(--vscode-charts-blue, #3498db);
+}
+
+.role-student {
+	background-color: rgba(46, 204, 113, 0.2);
+	color: var(--vscode-charts-green, #2ecc71);
+}
+
+.role-custom {
+	background-color: rgba(149, 165, 166, 0.2);
+	color: var(--vscode-descriptionForeground);
+}
+
+.role-description {
+	margin: 0;
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+	line-height: 1.5;
+}
+
+/* Config Grid */
+.config-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+	gap: 16px;
+}
+
+.config-item {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.config-item label {
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--vscode-descriptionForeground);
+	text-transform: uppercase;
+}
+
+.config-item span {
+	font-size: 14px;
+	color: var(--vscode-foreground);
+	font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+/* System Prompt */
+.system-prompt {
+	margin: 0;
+	padding: 12px;
+	background-color: var(--vscode-textBlockQuote-background);
+	border-radius: 4px;
+	font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	max-height: 300px;
+	overflow-y: auto;
+}
+
+/* Tag Lists */
+.tag-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.tag {
+	padding: 4px 10px;
+	border-radius: 4px;
+	font-size: 12px;
+	background-color: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+}
+
+.capability-tag {
+	background-color: rgba(52, 152, 219, 0.15);
+	color: var(--vscode-charts-blue, #3498db);
+}
+
+.behavior-tag {
+	background-color: rgba(20, 184, 166, 0.15);
+	color: var(--vscode-charts-teal, #14b8a6);
+}
+
+.no-items {
+	color: var(--vscode-descriptionForeground);
+	font-style: italic;
+	font-size: 12px;
+}
+
+/* MCP Servers */
+.mcp-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.mcp-server {
+	padding: 8px 12px;
+	background-color: var(--vscode-textBlockQuote-background);
+	border-radius: 4px;
+	font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+	font-size: 12px;
+}
+
+/* Version History */
+.version-history {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.version-item {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 12px;
+	background-color: var(--vscode-list-hoverBackground);
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background-color 0.2s ease;
+}
+
+.version-item:hover {
+	background-color: var(--vscode-list-activeSelectionBackground);
+}
+
+.version-item.current {
+	border: 1px solid var(--vscode-focusBorder);
+	background-color: var(--vscode-list-activeSelectionBackground);
+}
+
+.version-number {
+	font-weight: 600;
+	font-size: 13px;
+	min-width: 40px;
+}
+
+.version-date {
+	flex: 1;
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.version-status {
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 10px;
+	font-weight: 500;
+	text-transform: uppercase;
+}
+
+.load-versions {
+	margin: 0;
+	padding: 10px;
+	text-align: center;
+	color: var(--vscode-textLink-foreground);
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.load-versions:hover {
+	text-decoration: underline;
+}
+
+/* Metadata Section */
+.metadata-section {
+	background-color: var(--vscode-textBlockQuote-background);
+}
+
+.metadata-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+	gap: 16px;
+}
+
+.metadata-item {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.metadata-item label {
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--vscode-descriptionForeground);
+	text-transform: uppercase;
+}
+
+.metadata-item span {
+	font-size: 12px;
+	color: var(--vscode-foreground);
+}
+
+/* Message Notifications */
+.message {
+	position: fixed;
+	bottom: 20px;
+	right: 20px;
+	padding: 12px 20px;
+	border-radius: 4px;
+	font-size: 13px;
+	animation: slideIn 0.3s ease;
+	z-index: 1000;
+}
+
+.message-success {
+	background-color: var(--vscode-testing-iconPassed, #27ae60);
+	color: white;
+}
+
+.message-error {
+	background-color: var(--vscode-testing-iconFailed, #e74c3c);
+	color: white;
+}
+
+@keyframes slideIn {
+	from {
+		transform: translateX(100%);
+		opacity: 0;
+	}
+	to {
+		transform: translateX(0);
+		opacity: 1;
+	}
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background-color: var(--vscode-scrollbarSlider-background);
+	border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background-color: var(--vscode-scrollbarSlider-hoverBackground);
+}

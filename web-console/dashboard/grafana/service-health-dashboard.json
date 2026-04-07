@@ -1,0 +1,206 @@
+{
+  "dashboard": {
+    "title": "Amprealize Service Health & Performance",
+    "tags": ["amprealize", "postgresql", "transactions"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "title": "Connection Pool Utilization",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "amprealize_pool_connections_active",
+            "legendFormat": "{{service}} - Active",
+            "refId": "A"
+          },
+          {
+            "expr": "amprealize_pool_connections_idle",
+            "legendFormat": "{{service}} - Idle",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Connections"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "title": "Pool Overflow Connections",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "amprealize_pool_connections_overflow",
+            "legendFormat": "{{service}} - Overflow",
+            "refId": "A"
+          }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [5], "type": "gt"},
+              "query": {"params": ["A", "5m", "now"]},
+              "type": "query"
+            }
+          ],
+          "name": "High Overflow Connections"
+        }
+      },
+      {
+        "title": "Transaction Duration (P95)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(amprealize_transaction_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{service}}/{{operation}} - P95",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Duration"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "title": "Transaction Duration (P99)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.99, rate(amprealize_transaction_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{service}}/{{operation}} - P99",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "s", "label": "Duration"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "title": "Transaction Retry Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "rate(amprealize_transaction_retries_total[5m])",
+            "legendFormat": "{{service}}/{{operation}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Retries/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "title": "Transaction Failure Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "rate(amprealize_transaction_failures_total[5m])",
+            "legendFormat": "{{service}}/{{operation}}/{{error_type}}",
+            "refId": "A"
+          }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [0.01], "type": "gt"},
+              "query": {"params": ["A", "5m", "now"]},
+              "type": "query"
+            }
+          ],
+          "name": "Transaction Failures Detected"
+        }
+      },
+      {
+        "title": "Slow Queries (>1s)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "rate(amprealize_slow_queries_total[5m])",
+            "legendFormat": "{{service}}",
+            "refId": "A"
+          }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [0.1], "type": "gt"},
+              "query": {"params": ["A", "10m", "now"]},
+              "type": "query"
+            }
+          ],
+          "name": "High Slow Query Rate"
+        }
+      },
+      {
+        "title": "Query Duration by Type",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(amprealize_query_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{service}}/{{query_type}} - P95",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "title": "Pool Checkout Duration",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(amprealize_pool_checkout_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{service}} - P95",
+            "refId": "A"
+          }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [0.5], "type": "gt"},
+              "query": {"params": ["A", "5m", "now"]},
+              "type": "query"
+            }
+          ],
+          "name": "Slow Connection Checkout"
+        }
+      },
+      {
+        "title": "Pool Checkout Timeouts",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+        "targets": [
+          {
+            "expr": "rate(amprealize_pool_checkout_timeouts_total[5m])",
+            "legendFormat": "{{service}}",
+            "refId": "A"
+          }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [0], "type": "gt"},
+              "query": {"params": ["A", "5m", "now"]},
+              "type": "query"
+            }
+          ],
+          "name": "Connection Pool Exhausted"
+        }
+      }
+    ],
+    "refresh": "30s",
+    "time": {"from": "now-1h", "to": "now"},
+    "timepicker": {
+      "refresh_intervals": ["10s", "30s", "1m", "5m", "15m"]
+    }
+  },
+  "overwrite": true
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "research.get",
+  "description": "Get full evaluation details for a specific paper by ID, including all phase results and the markdown report.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "paper_id": {
+        "type": "string",
+        "description": "Unique identifier of the paper to retrieve"
+      }
+    },
+    "required": ["paper_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "paper_id": { "type": "string" },
+      "paper_title": { "type": "string" },
+      "verdict": { "type": "string" },
+      "overall_score": { "type": "number" },
+      "markdown_report": { "type": "string" }
+    }
+  }
+}

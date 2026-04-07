@@ -1,0 +1,2273 @@
+[
+  {
+    "item_id": "cb1afbbb-8dda-49b3-be06-3285d7387503",
+    "title": "[Bug] boards.list and boards.get not exposed in MCP CORE_TOOLS",
+    "track": "orphan",
+    "labels": [
+      "installation-plan-v3",
+      "orphan"
+    ]
+  },
+  {
+    "item_id": "379d20cb-2f7d-42e8-b438-e2a76e19e116",
+    "title": "[Bug] Device flow verification URI unreachable in local dev",
+    "track": "orphan",
+    "labels": [
+      "installation-plan-v3",
+      "orphan"
+    ]
+  },
+  {
+    "item_id": "107a6dc1-61a0-48eb-b40c-3ca698dda236",
+    "title": "Research https://venturebeat.com/orchestration/new-kv-cache-compaction-technique-cuts-llm-memory-50x-without-accuracy-loss",
+    "track": "orphan",
+    "labels": [
+      "installation-plan-v3",
+      "orphan"
+    ]
+  },
+  {
+    "item_id": "bf2c18e2-742b-4e65-aa30-6efabe89694f",
+    "title": "A1-T1: Delete leaked credential file from disk",
+    "track": "track-a",
+    "labels": [
+      "cleanup",
+      "installation-plan-v3",
+      "security",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "6ae1b04f-4397-4fa6-8528-79c564520fb8",
+    "title": "A1-T2: Scrub leaked credential from git history",
+    "track": "track-a",
+    "labels": [
+      "git",
+      "installation-plan-v3",
+      "security",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "9fca1940-baa9-4702-b078-cd6f865828a1",
+    "title": "A1-T3: Rotate credentials in Google Cloud Console",
+    "track": "track-a",
+    "labels": [
+      "credentials",
+      "installation-plan-v3",
+      "security",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "e6b1ab20-0c45-454e-8298-fc072e04a13b",
+    "title": "A1-T4: Store new credentials in secrets manager",
+    "track": "track-a",
+    "labels": [
+      "infrastructure",
+      "installation-plan-v3",
+      "security",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "1c85675d-1535-431a-ae0d-029a958d4c7d",
+    "title": "A1-T5: Update .env.example with placeholder references",
+    "track": "track-a",
+    "labels": [
+      "documentation",
+      "installation-plan-v3",
+      "security",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "a1d283c5-56e9-465f-8a55-d039536f380f",
+    "title": "A1-T6: Verify .gitignore blocks client_secret*.json",
+    "track": "track-a",
+    "labels": [
+      "config",
+      "installation-plan-v3",
+      "security",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "d5179921-e198-4904-81b2-c1bd762abee6",
+    "title": "A1-T7: Run scan_secrets.sh to confirm clean",
+    "track": "track-a",
+    "labels": [
+      "installation-plan-v3",
+      "security",
+      "track-a",
+      "verification"
+    ]
+  },
+  {
+    "item_id": "fe5d037f-760e-459f-98ac-daedd7a9e133",
+    "title": "A2-T1: Write hero section with title, tagline, and badges",
+    "track": "track-a",
+    "labels": [
+      "documentation",
+      "installation-plan-v3",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "ea9df3de-cd52-4d07-91fe-a1b72fd73287",
+    "title": "A2-T2: Write 'Get Started in 30 Seconds' section",
+    "track": "track-a",
+    "labels": [
+      "documentation",
+      "installation-plan-v3",
+      "onboarding",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "0ba99f9f-8039-4371-bf9d-29edc199e689",
+    "title": "A2-T3: Write 'What is Amprealize?' and Features sections",
+    "track": "track-a",
+    "labels": [
+      "documentation",
+      "installation-plan-v3",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "9610d39e-2bd5-4397-a7de-fa749a81abd6",
+    "title": "A2-T4: Write Documentation, Contributing, and License sections",
+    "track": "track-a",
+    "labels": [
+      "documentation",
+      "installation-plan-v3",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "322ca6b1-afac-4578-81ec-7e7172bdd85e",
+    "title": "A2-T5: Verify README renders correctly on GitHub",
+    "track": "track-a",
+    "labels": [
+      "installation-plan-v3",
+      "track-a",
+      "verification"
+    ]
+  },
+  {
+    "item_id": "ccd37d1e-c66d-425f-bb36-8c4b2789c8a8",
+    "title": "A3-T1: Decide license type (proprietary vs open-source)",
+    "track": "track-a",
+    "labels": [
+      "decision",
+      "installation-plan-v3",
+      "legal",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "99382fbb-4020-4214-9f1d-93742d463719",
+    "title": "A3-T2: Create LICENSE file at repository root",
+    "track": "track-a",
+    "labels": [
+      "documentation",
+      "installation-plan-v3",
+      "legal",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "8166df5d-97ec-45af-99ad-9720452199e0",
+    "title": "A3-T3: Update pyproject.toml license field to match LICENSE",
+    "track": "track-a",
+    "labels": [
+      "config",
+      "installation-plan-v3",
+      "legal",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "205a7a2c-0b3a-4bb2-aea0-0b0b0535d5e9",
+    "title": "A4-T1: Create CONTRIBUTING.md in .github/",
+    "track": "track-a",
+    "labels": [
+      "documentation",
+      "governance",
+      "installation-plan-v3",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "b8419578-6a20-4bd9-a79e-8ca7f6655f83",
+    "title": "A4-T2: Create CODE_OF_CONDUCT.md at root",
+    "track": "track-a",
+    "labels": [
+      "governance",
+      "installation-plan-v3",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "c24fdfaf-5f9a-40de-8d90-86a1133fdfe8",
+    "title": "A4-T3: Create SECURITY.md at root",
+    "track": "track-a",
+    "labels": [
+      "governance",
+      "installation-plan-v3",
+      "security",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "32a023e2-cedf-45fd-96f4-f5f578a15d95",
+    "title": "A4-T4: Create CODEOWNERS in .github/",
+    "track": "track-a",
+    "labels": [
+      "config",
+      "governance",
+      "installation-plan-v3",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "dd886627-1190-465f-b3bf-eca9e044a9c9",
+    "title": "A5-T1: Create .github/ISSUE_TEMPLATE/config.yml",
+    "track": "track-a",
+    "labels": [
+      "config",
+      "installation-plan-v3",
+      "templates",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "aca6d71f-ecd3-4d25-8ffa-f4a753afc7f7",
+    "title": "A5-T2: Create bug_report.yml issue template",
+    "track": "track-a",
+    "labels": [
+      "installation-plan-v3",
+      "templates",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "fab7ce76-8c82-48e3-83bb-4dba0b9aaded",
+    "title": "A5-T3: Create feature_request.yml issue template",
+    "track": "track-a",
+    "labels": [
+      "installation-plan-v3",
+      "templates",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "81a658bc-4006-41d2-838f-0e451566982b",
+    "title": "A5-T4: Create pull_request_template.md",
+    "track": "track-a",
+    "labels": [
+      "installation-plan-v3",
+      "templates",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "6c26aac9-ec95-4e83-9ef8-4fd4f9acfeb1",
+    "title": "A6-T1: Create target directories (docs/contracts/, docs/agents/, infra/)",
+    "track": "track-a",
+    "labels": [
+      "cleanup",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "1eea4dc2-4b1f-45df-bee6-69ca0f27b1f1",
+    "title": "A6-T2: Move service contract files to docs/contracts/",
+    "track": "track-a",
+    "labels": [
+      "cleanup",
+      "installation-plan-v3",
+      "reorganization",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "5a0ba01a-64ea-43a3-a0e6-7c0deb381f22",
+    "title": "A6-T3: Move agent role docs to docs/agents/",
+    "track": "track-a",
+    "labels": [
+      "cleanup",
+      "installation-plan-v3",
+      "reorganization",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "4d4ef5aa-a980-4ba7-ad7e-ea49834c885c",
+    "title": "A6-T4: Move Docker/deploy files to infra/",
+    "track": "track-a",
+    "labels": [
+      "cleanup",
+      "installation-plan-v3",
+      "reorganization",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "b685e2b6-6155-43a1-9db8-d1e63985a2f1",
+    "title": "A6-T5: Update all internal references to moved files",
+    "track": "track-a",
+    "labels": [
+      "cleanup",
+      "installation-plan-v3",
+      "refactoring",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "4d17a366-e493-476a-bb5e-b07278cd7b5a",
+    "title": "A6-T6: Verify no broken references after moves",
+    "track": "track-a",
+    "labels": [
+      "installation-plan-v3",
+      "track-a",
+      "verification"
+    ]
+  },
+  {
+    "item_id": "22cbbf0a-c64e-4d50-91cf-a612ec21edb9",
+    "title": "A7-T1: Create .github/dependabot.yml",
+    "track": "track-a",
+    "labels": [
+      "automation",
+      "dependencies",
+      "installation-plan-v3",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "31820116-a681-4dc2-8bf9-905b4e9e1e3f",
+    "title": "A7-T2: Update pyproject.toml [project.urls]",
+    "track": "track-a",
+    "labels": [
+      "config",
+      "installation-plan-v3",
+      "metadata",
+      "track-a"
+    ]
+  },
+  {
+    "item_id": "23ec23dc-4a75-47ef-90db-5f02d38cd390",
+    "title": "A7-T3: Verify dependabot and metadata config",
+    "track": "track-a",
+    "labels": [
+      "installation-plan-v3",
+      "track-a",
+      "verification"
+    ]
+  },
+  {
+    "item_id": "4c57f3fb-2b9d-4a7e-8fc7-97ace7edc588",
+    "title": "Register/configure breakeramp.ai domain",
+    "track": "track-b",
+    "labels": [
+      "dns",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "885960ba-9a99-4532-a43b-ac978ffd33ec",
+    "title": "Configure breakeramp.ai root DNS record",
+    "track": "track-b",
+    "labels": [
+      "dns",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "f1d92503-a0f3-404a-88df-ce18b275467a",
+    "title": "Configure api.breakeramp.ai subdomain",
+    "track": "track-b",
+    "labels": [
+      "dns",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "463b53c2-4e50-406a-8248-38a00a613eca",
+    "title": "Configure mcp.breakeramp.ai subdomain",
+    "track": "track-b",
+    "labels": [
+      "dns",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "0220376f-b041-496c-b58c-092c509d8e0f",
+    "title": "Configure docs.breakeramp.ai subdomain",
+    "track": "track-b",
+    "labels": [
+      "dns",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "1a170c36-b67c-429a-ace7-65c22c13d837",
+    "title": "Create web-console Dockerfile",
+    "track": "track-b",
+    "labels": [
+      "docker",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "fe68eca5-264f-4624-b0b0-e95427868e74",
+    "title": "Create nginx.conf for SPA routing",
+    "track": "track-b",
+    "labels": [
+      "config",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "7d7ba70e-7aa1-48b8-bdad-667a64829952",
+    "title": "Configure VITE_API_BASE_URL build arg",
+    "track": "track-b",
+    "labels": [
+      "config",
+      "deployment",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "c6dbe702-a6f4-48d7-b6d8-4d7f1c811d70",
+    "title": "Evaluate and select hosting platform for web-console",
+    "track": "track-b",
+    "labels": [
+      "decision",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "e913c4c0-591a-49bd-bcc4-f0b5df04a9ad",
+    "title": "Set up CI/CD pipeline for web-console",
+    "track": "track-b",
+    "labels": [
+      "automation",
+      "ci-cd",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "79ddb3e2-6e97-4cb2-9b34-037f825b8970",
+    "title": "Configure SSL/TLS certificates",
+    "track": "track-b",
+    "labels": [
+      "infrastructure",
+      "installation-plan-v3",
+      "security",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "9bd09e2d-71e6-4fc0-98fa-b9667b4f830a",
+    "title": "Verify web console deployment end-to-end",
+    "track": "track-b",
+    "labels": [
+      "installation-plan-v3",
+      "track-b",
+      "verification"
+    ]
+  },
+  {
+    "item_id": "829ebc5f-e3f6-4fdc-8345-889f85e6e1d0",
+    "title": "Evaluate and select managed Postgres provider",
+    "track": "track-b",
+    "labels": [
+      "database",
+      "decision",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "790c5aba-02bf-471f-a1af-2a3e928d53fc",
+    "title": "Provision production Postgres cluster",
+    "track": "track-b",
+    "labels": [
+      "database",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "e5c58877-c39a-4c35-b4af-3683ced9cf24",
+    "title": "Run Alembic migrations on production database",
+    "track": "track-b",
+    "labels": [
+      "database",
+      "deployment",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "b2242a32-dc1b-4511-b368-15fe9f55240a",
+    "title": "Provision Redis instance for caching/sessions",
+    "track": "track-b",
+    "labels": [
+      "database",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "cde2ad76-a2c3-4b29-b21f-f66de3cd5bc3",
+    "title": "Evaluate and select API hosting platform",
+    "track": "track-b",
+    "labels": [
+      "decision",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "516caf75-763d-4b78-abf4-c3d16ea60241",
+    "title": "Configure production environment variables",
+    "track": "track-b",
+    "labels": [
+      "config",
+      "installation-plan-v3",
+      "security",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "ab852d6d-287d-499f-93fb-e61f89ab810b",
+    "title": "Deploy FastAPI container to production",
+    "track": "track-b",
+    "labels": [
+      "deployment",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "60a38522-27d6-4133-a6e9-585d8ded7d4c",
+    "title": "Verify API deployment end-to-end",
+    "track": "track-b",
+    "labels": [
+      "installation-plan-v3",
+      "track-b",
+      "verification"
+    ]
+  },
+  {
+    "item_id": "53409f9a-6cf2-44a8-b9e6-0dfe983d435e",
+    "title": "Design landing page wireframe and content",
+    "track": "track-b",
+    "labels": [
+      "design",
+      "installation-plan-v3",
+      "marketing",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "ca27a67f-067c-4c03-9a55-f88a79491090",
+    "title": "Implement hero section with CTAs",
+    "track": "track-b",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "marketing",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "6ee35123-8390-4065-a1b2-bb7b6d110260",
+    "title": "Implement persona and features sections",
+    "track": "track-b",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "marketing",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "020a47f7-f84b-4924-9f37-08cb55de0bb8",
+    "title": "Implement How it Works section",
+    "track": "track-b",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "marketing",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "4adab6a9-5335-4c39-b57e-3fd9d34d8fd3",
+    "title": "Implement pricing tiers section",
+    "track": "track-b",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "marketing",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "746b18c6-22be-4931-9cc6-a065ca3a9eec",
+    "title": "Configure routing: landing vs authenticated console",
+    "track": "track-b",
+    "labels": [
+      "config",
+      "frontend",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "2e9a7d36-f153-4ef0-a5a2-c8e811504c7b",
+    "title": "Verify landing page SEO and performance",
+    "track": "track-b",
+    "labels": [
+      "installation-plan-v3",
+      "performance",
+      "track-b",
+      "verification"
+    ]
+  },
+  {
+    "item_id": "6c29c3d1-475c-4ecc-9a32-17ac5a7be9cd",
+    "title": "Design MCP WebSocket proxy architecture",
+    "track": "track-b",
+    "labels": [
+      "architecture",
+      "design",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "bff7625c-33a2-4d0b-8b7d-bcb601ce77c0",
+    "title": "Implement WebSocket-to-stdio bridge",
+    "track": "track-b",
+    "labels": [
+      "backend",
+      "installation-plan-v3",
+      "mcp",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "40c8ff13-bbc5-4336-be7b-7e9ddea130f6",
+    "title": "Add Bearer token authentication to proxy",
+    "track": "track-b",
+    "labels": [
+      "auth",
+      "installation-plan-v3",
+      "security",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "07481725-6ea6-4ee9-ba63-37541a5a8584",
+    "title": "Create MCP proxy Dockerfile and deploy",
+    "track": "track-b",
+    "labels": [
+      "docker",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "ba7e3543-1343-48af-93a6-213b60775216",
+    "title": "Implement amprealize init --cloud config writer",
+    "track": "track-b",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "1162d1a6-8abe-414f-890e-52e4fc27ca41",
+    "title": "Verify MCP proxy with VS Code and Claude Desktop",
+    "track": "track-b",
+    "labels": [
+      "installation-plan-v3",
+      "track-b",
+      "verification"
+    ]
+  },
+  {
+    "item_id": "5e7b84ee-85a7-4a95-8a84-15e8432fa798",
+    "title": "Configure Stripe products and pricing",
+    "track": "track-b",
+    "labels": [
+      "billing",
+      "config",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "054669e5-f174-41b3-a3ef-f36bdff00406",
+    "title": "Implement tier enforcement middleware",
+    "track": "track-b",
+    "labels": [
+      "backend",
+      "billing",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "d9de5153-c47a-46fd-a043-5d2925bf080c",
+    "title": "Implement usage tracking for metered billing",
+    "track": "track-b",
+    "labels": [
+      "backend",
+      "billing",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "6a8cd947-3de0-452f-99e8-55b7660cf5f4",
+    "title": "Configure Stripe webhook endpoint for production",
+    "track": "track-b",
+    "labels": [
+      "billing",
+      "infrastructure",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "3dde2c9c-1962-4a13-8ee5-20d8bbaf2bd6",
+    "title": "Add upgrade/downgrade flow in web console",
+    "track": "track-b",
+    "labels": [
+      "billing",
+      "frontend",
+      "installation-plan-v3",
+      "track-b"
+    ]
+  },
+  {
+    "item_id": "b79d4363-3b0d-4eb3-b4f2-6fad64daa8fb",
+    "title": "Verify billing flow end-to-end",
+    "track": "track-b",
+    "labels": [
+      "billing",
+      "installation-plan-v3",
+      "track-b",
+      "verification"
+    ]
+  },
+  {
+    "item_id": "13df27b4-5d7e-4edb-baac-2b11ef506ec8",
+    "title": "Create WelcomePage route and component shell",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "95d2802c-eb45-45f9-8901-cc2cc8439d81",
+    "title": "Implement role selection card grid",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "ecb6c37f-e519-4fb7-813a-dd17e05273e0",
+    "title": "Add \"change later\" reassurance and continue button",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c",
+      "ux"
+    ]
+  },
+  {
+    "item_id": "f7a9cdc7-ec78-43e7-9f4e-b9df8e4e2e07",
+    "title": "Wire role selection to user profile API",
+    "track": "track-c",
+    "labels": [
+      "backend",
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "3e65644c-4e3d-444d-9a68-ffe843a7f17c",
+    "title": "Add welcome page responsive design and accessibility",
+    "track": "track-c",
+    "labels": [
+      "accessibility",
+      "frontend",
+      "installation-plan-v3",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "92811831-e7f3-4020-b8fd-a2c2442b2ef6",
+    "title": "Create QuickStartWizard component with step framework",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "227648cb-16f1-4663-9705-eb0208bc7618",
+    "title": "Implement Developer quick start path",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "1e3fc6c4-d022-41a0-927a-7065e6a1c914",
+    "title": "Implement Project Manager quick start path",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "c258a510-3883-4542-92ab-222ba03a297e",
+    "title": "Implement Business Analyst quick start path",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "bb2de6a1-3d25-46dd-9039-ea7c89a5f539",
+    "title": "Implement DevOps quick start path",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "a03d9e94-f731-4bcb-8b6b-c998be6d39ad",
+    "title": "Implement \"Other\" role quick start path",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "5a53cb14-d639-4e97-8ef4-0f9c8b9d5d09",
+    "title": "Add skip wizard option and mark onboarding complete",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "8326dfdd-d161-4285-bca8-075d70ba5b64",
+    "title": "Create POST /v1/users/me/onboarding endpoint",
+    "track": "track-c",
+    "labels": [
+      "api",
+      "backend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "bce22592-1f3c-4d54-8175-235f2582ad77",
+    "title": "Create GET /v1/users/me/onboarding endpoint",
+    "track": "track-c",
+    "labels": [
+      "api",
+      "backend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "a62ef67c-30ec-4f98-8792-45aea43f3edc",
+    "title": "Add hasCompletedOnboarding flag to authStore",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "state",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "a2cdd78c-0f06-45b1-9c9a-fb8c5646df6d",
+    "title": "Implement onboarding route guard in App.tsx",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "routing",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "97cf14b3-4b90-4f9a-bb45-324eaaa4d383",
+    "title": "Add database migration for onboarding fields",
+    "track": "track-c",
+    "labels": [
+      "backend",
+      "database",
+      "installation-plan-v3",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "e1177e84-2233-418e-8f8e-3e0c1a7c9e8c",
+    "title": "Write unit and integration tests for onboarding API",
+    "track": "track-c",
+    "labels": [
+      "installation-plan-v3",
+      "onboarding",
+      "testing",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "691577e1-35dd-480b-9785-93a16fcbea38",
+    "title": "Create HelpTooltip reusable component",
+    "track": "track-c",
+    "labels": [
+      "component",
+      "frontend",
+      "installation-plan-v3",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "fde2891e-7dfa-43f3-bb7e-0e422bac33ca",
+    "title": "Create glossary data file with term definitions",
+    "track": "track-c",
+    "labels": [
+      "content",
+      "frontend",
+      "installation-plan-v3",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "33a72520-bf54-4b2c-9b83-9dd97700195c",
+    "title": "Add HelpTooltips to key UI elements across web console",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "track-c",
+      "ux"
+    ]
+  },
+  {
+    "item_id": "57df00b5-08f1-4686-92a5-ae9cf4dd6b0f",
+    "title": "Add keyboard and screen reader support to tooltips",
+    "track": "track-c",
+    "labels": [
+      "accessibility",
+      "frontend",
+      "installation-plan-v3",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "9fc199e4-b60c-4587-b0d3-ce05f80ff499",
+    "title": "Add user preference to show/hide tooltips",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "settings",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "e08f84ee-a559-4569-8636-398717382320",
+    "title": "Create HelpCenter slide-out panel component",
+    "track": "track-c",
+    "labels": [
+      "component",
+      "frontend",
+      "installation-plan-v3",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "65fb9e13-6ff2-4436-bba0-530eb8d93e92",
+    "title": "Implement searchable glossary tab",
+    "track": "track-c",
+    "labels": [
+      "content",
+      "frontend",
+      "installation-plan-v3",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "8a9e518c-5806-4f90-a0a1-4696249a1fb4",
+    "title": "Implement role-specific getting started guides tab",
+    "track": "track-c",
+    "labels": [
+      "content",
+      "frontend",
+      "installation-plan-v3",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "ace3aaf7-ef20-4419-88dd-e12f21598195",
+    "title": "Implement keyboard shortcuts reference tab",
+    "track": "track-c",
+    "labels": [
+      "content",
+      "frontend",
+      "installation-plan-v3",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "4aac1a82-2f05-4a1a-9459-add23ba5ef86",
+    "title": "Add contact support and feedback tab",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "support",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "203e3dd5-e9b9-495f-b75d-ba14cb6840bd",
+    "title": "Integrate react-joyride or equivalent tour library",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "e01cfe26-6336-48b2-b77a-cddf83c3b4bd",
+    "title": "Define tour steps for main dashboard elements",
+    "track": "track-c",
+    "labels": [
+      "content",
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "a9076b17-3924-4a42-9370-2726a59043b7",
+    "title": "Add tour trigger after onboarding completion",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "onboarding",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "3d124da3-85a4-472f-89e2-0cf9bd5d321a",
+    "title": "Add \"Restart Tour\" option in Help Center and Settings",
+    "track": "track-c",
+    "labels": [
+      "frontend",
+      "installation-plan-v3",
+      "settings",
+      "track-c"
+    ]
+  },
+  {
+    "item_id": "9831734b-417b-41fc-840c-0d8833b19678",
+    "title": "Create config.yaml Pydantic schema model",
+    "track": "track-d",
+    "labels": [
+      "backend",
+      "config",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "c76f99c2-578d-4eab-99f7-5cf3300e13a8",
+    "title": "Implement config file discovery logic",
+    "track": "track-d",
+    "labels": [
+      "backend",
+      "config",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "70b61f55-395e-494d-9c62-c4da0eee857c",
+    "title": "Add YAML read/write and bridge to Settings",
+    "track": "track-d",
+    "labels": [
+      "backend",
+      "config",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "b885f433-5733-46f1-9f84-e0d5d7358c3e",
+    "title": "Add config validation with user-friendly errors",
+    "track": "track-d",
+    "labels": [
+      "backend",
+      "config",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "9a672ee1-e1e6-4c61-82a0-e43e53dcfb93",
+    "title": "Write unit tests for config loader",
+    "track": "track-d",
+    "labels": [
+      "backend",
+      "installation-plan-v3",
+      "testing",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "a6c6671c-34bf-4311-92c0-58efd5304126",
+    "title": "Create SQLitePool class matching PostgresPool interface",
+    "track": "track-d",
+    "labels": [
+      "backend",
+      "installation-plan-v3",
+      "storage",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "044b62e2-6f93-4988-988d-be29902405fd",
+    "title": "Implement SQLite schema initialization DDL",
+    "track": "track-d",
+    "labels": [
+      "backend",
+      "installation-plan-v3",
+      "storage",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "b92aaa31-4188-4af8-8678-39414ddab1a3",
+    "title": "Add BehaviorService, ActionService, RunService SQLite support",
+    "track": "track-d",
+    "labels": [
+      "backend",
+      "installation-plan-v3",
+      "storage",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "5cb3f23b-298f-49eb-82f0-175715798719",
+    "title": "Add ComplianceService partial SQLite support with fallback",
+    "track": "track-d",
+    "labels": [
+      "backend",
+      "installation-plan-v3",
+      "storage",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "9f32c37e-82cf-4750-986f-b06cb0fb893f",
+    "title": "Implement automatic storage backend selection from config",
+    "track": "track-d",
+    "labels": [
+      "backend",
+      "installation-plan-v3",
+      "storage",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "48437ca3-1689-4c8f-abde-4ac238123408",
+    "title": "Write integration tests for SQLite adapter",
+    "track": "track-d",
+    "labels": [
+      "backend",
+      "installation-plan-v3",
+      "testing",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "97dade58-a611-4e2f-b52e-02b965339cb5",
+    "title": "Add mcp-server subcommand with --transport and --port flags",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "installation-plan-v3",
+      "mcp",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "5de923b4-bfbb-44c7-ae6d-a5233cffff3f",
+    "title": "Wire mcp-server to config.yaml for startup",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "installation-plan-v3",
+      "mcp",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "dcb577ee-2fcb-4588-95d9-9d5156981d51",
+    "title": "Add --verbose flag and --print-config for IDE setup",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "mcp",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "946be851-2b93-4c78-9178-fe4116f447b9",
+    "title": "Write tests for mcp-server CLI command",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "installation-plan-v3",
+      "mcp",
+      "testing",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "8079b95e-563e-4331-b6cb-8c3e468d4c2c",
+    "title": "Add init subcommand with system detection",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "31d968de-b412-40d3-8fd0-b55f38167cee",
+    "title": "Implement storage backend selection step",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "18eeab33-8795-4c68-9d8a-3669ee5d47a8",
+    "title": "Implement infrastructure provisioning step",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "infra",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "aa30c0f3-1020-437b-aff9-524868acd780",
+    "title": "Implement IDE integration step",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "mcp",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "2fdfb2a0-c5aa-4463-a108-e1936582c9a9",
+    "title": "Implement auth mode selection step",
+    "track": "track-d",
+    "labels": [
+      "auth",
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "95d01fde-240c-463c-87f5-19baf92656a0",
+    "title": "Add --non-interactive mode with CLI flags",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "692c157a-3744-4a71-bb4d-553cfa2d1cda",
+    "title": "Add post-init verification and write tests",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "testing",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "0bb69644-f094-4a3d-8da2-2b332c6a45ec",
+    "title": "Add open subcommand that detects/starts FastAPI",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "e3597be9-eeef-44ad-a00d-800efa5724cb",
+    "title": "Implement browser auto-launch with --cloud flag",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "57a88411-06b2-4990-a9c3-21fe670f01e1",
+    "title": "Write tests for open command",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "installation-plan-v3",
+      "testing",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "4e77fc41-9208-482f-bd14-03d5df13e593",
+    "title": "Add infra subcommand group shell",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "infra",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "03e81861-a6a9-437d-9db3-f84c60f706f5",
+    "title": "Implement infra up and infra down",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "infra",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "7fd60b4a-dc08-4d30-9ebb-f917a08f5bc5",
+    "title": "Implement infra status with service health",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "infra",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "066f56f0-ac88-451a-b646-2c55b88d4b49",
+    "title": "Implement infra logs and infra reset",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "infra",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "35266bcc-095e-43be-b2c6-67e464028cad",
+    "title": "Write tests for all infra subcommands",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "infra",
+      "installation-plan-v3",
+      "testing",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "6d4edcdd-5217-47ac-bcc8-efc9921e6fd4",
+    "title": "Add doctor subcommand with pluggable check framework",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "df3212f1-39db-426a-85a0-83e1d9603788",
+    "title": "Implement environment checks",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "be14b4b9-d80a-4ac3-b8b1-5ec16a5a991a",
+    "title": "Implement connectivity checks",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "de62c796-b690-4ce7-bcba-91f279fc7037",
+    "title": "Implement infrastructure checks with fix suggestions",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "infra",
+      "installation-plan-v3",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "8429a70f-5a95-4fd1-b64d-99bddb70cd70",
+    "title": "Write tests for doctor command",
+    "track": "track-d",
+    "labels": [
+      "cli",
+      "dx",
+      "installation-plan-v3",
+      "testing",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "2ab930bd-6d73-41db-b55a-24a77316b779",
+    "title": "Refactor pyproject.toml with lite/full dependency groups",
+    "track": "track-d",
+    "labels": [
+      "installation-plan-v3",
+      "packaging",
+      "pypi",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "9ee190e9-4f77-4c5e-8448-a21b6c77b01d",
+    "title": "Add amprealize-mcp entry point to pyproject.toml",
+    "track": "track-d",
+    "labels": [
+      "installation-plan-v3",
+      "mcp",
+      "packaging",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "34cb0023-0710-4d5d-b462-bcd5999b9235",
+    "title": "Create release workflow for PyPI and GitHub Releases",
+    "track": "track-d",
+    "labels": [
+      "ci",
+      "installation-plan-v3",
+      "packaging",
+      "pypi",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "603b2a4d-ac61-42d4-9ccb-426bc670e033",
+    "title": "Add semver version bumping and CHANGELOG automation",
+    "track": "track-d",
+    "labels": [
+      "ci",
+      "installation-plan-v3",
+      "packaging",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "0c5c4365-0348-4885-8388-c2906ebcd75a",
+    "title": "Write CI smoke tests for pip install",
+    "track": "track-d",
+    "labels": [
+      "ci",
+      "installation-plan-v3",
+      "packaging",
+      "testing",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "d3f3f199-b569-4e70-8be3-bf9c42039bb9",
+    "title": "Create homebrew-amprealize tap repository structure",
+    "track": "track-d",
+    "labels": [
+      "homebrew",
+      "installation-plan-v3",
+      "packaging",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "b0c458e7-1516-4177-910d-3955a059d00f",
+    "title": "Write Homebrew formula with deps and test block",
+    "track": "track-d",
+    "labels": [
+      "homebrew",
+      "installation-plan-v3",
+      "packaging",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "3d30a6c3-e64e-45b5-95e7-7a1313de8492",
+    "title": "Add CI workflow to auto-update formula on release",
+    "track": "track-d",
+    "labels": [
+      "ci",
+      "homebrew",
+      "installation-plan-v3",
+      "packaging",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "762d65b1-53df-48ce-bfec-1db8eb757a68",
+    "title": "Create packages/amprealize-npm/ package structure",
+    "track": "track-d",
+    "labels": [
+      "installation-plan-v3",
+      "npm",
+      "packaging",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "d67bb31d-19e7-4ac3-8f37-222f1692e9ce",
+    "title": "Implement wrapper script for Python/pipx delegation",
+    "track": "track-d",
+    "labels": [
+      "installation-plan-v3",
+      "npm",
+      "packaging",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "f24363fb-8819-4440-80a9-d651979d5b50",
+    "title": "Add npx support and write integration tests",
+    "track": "track-d",
+    "labels": [
+      "installation-plan-v3",
+      "npm",
+      "packaging",
+      "testing",
+      "track-d"
+    ]
+  },
+  {
+    "item_id": "a3814f19-f303-402c-855e-687437dd6a60",
+    "title": "Initialize packages/desktop/ with package.json and TypeScript config",
+    "track": "track-e",
+    "labels": [
+      "electron",
+      "installation-plan-v3",
+      "scaffold",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "7e5d6607-60a9-4c52-b989-4ceea7686bdb",
+    "title": "Configure electron-builder.yml for all platforms",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "electron",
+      "installation-plan-v3",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "363cd97f-efdf-4603-bcc8-5d0d5fc09e6d",
+    "title": "Create main process entry point skeleton",
+    "track": "track-e",
+    "labels": [
+      "electron",
+      "installation-plan-v3",
+      "scaffold",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "5f09234f-7a89-45fb-b2f5-4cb8aab88686",
+    "title": "Add app icons and resources for all platforms",
+    "track": "track-e",
+    "labels": [
+      "assets",
+      "electron",
+      "installation-plan-v3",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "a3999bbb-0819-4a8b-b7cf-f1cfd09b7d9b",
+    "title": "Add dev and build npm scripts",
+    "track": "track-e",
+    "labels": [
+      "dx",
+      "electron",
+      "installation-plan-v3",
+      "scaffold",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "b5ebdda7-2a2a-4e0d-ac4d-02ef97ed9512",
+    "title": "Create PyInstaller spec file for amprealize-server",
+    "track": "track-e",
+    "labels": [
+      "bundling",
+      "installation-plan-v3",
+      "pyinstaller",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "7387de49-ca99-4352-be3b-6fed2df8c542",
+    "title": "Implement bundle-python.sh build script",
+    "track": "track-e",
+    "labels": [
+      "bundling",
+      "installation-plan-v3",
+      "scripting",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "29e88a06-cc68-4796-9537-7e6fdfff8a14",
+    "title": "Add hidden-import discovery and validation",
+    "track": "track-e",
+    "labels": [
+      "bundling",
+      "installation-plan-v3",
+      "testing",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "d0ce9917-c156-49c2-8182-4e2652fafa17",
+    "title": "Implement cross-platform binary build matrix",
+    "track": "track-e",
+    "labels": [
+      "bundling",
+      "ci",
+      "installation-plan-v3",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "1763a053-68e1-4e58-b9b8-818cc3980e75",
+    "title": "Write smoke tests for bundled binary",
+    "track": "track-e",
+    "labels": [
+      "bundling",
+      "installation-plan-v3",
+      "testing",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "f3b5f3b1-9421-4519-98b8-acce67dc7111",
+    "title": "Implement FastAPI process manager",
+    "track": "track-e",
+    "labels": [
+      "backend",
+      "electron",
+      "installation-plan-v3",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "affd21ed-1de6-4fa2-943e-11990c18ae9a",
+    "title": "Implement window manager with web console loading",
+    "track": "track-e",
+    "labels": [
+      "electron",
+      "frontend",
+      "installation-plan-v3",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "80a771de-d78f-495f-a726-7065905b4f6f",
+    "title": "Implement system tray with context menu",
+    "track": "track-e",
+    "labels": [
+      "electron",
+      "installation-plan-v3",
+      "track-e",
+      "ux"
+    ]
+  },
+  {
+    "item_id": "5dfee065-7ea8-4198-ba7a-4bf0b0d54b5d",
+    "title": "Implement first-launch and splash screen flow",
+    "track": "track-e",
+    "labels": [
+      "electron",
+      "installation-plan-v3",
+      "track-e",
+      "ux"
+    ]
+  },
+  {
+    "item_id": "69342973-0917-471c-bfa3-e42da50ec736",
+    "title": "Implement preload bridge and IPC channels",
+    "track": "track-e",
+    "labels": [
+      "electron",
+      "installation-plan-v3",
+      "security",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "8e6a021f-a5fb-4a0e-acd4-83e5c481521e",
+    "title": "Write tests for main process modules",
+    "track": "track-e",
+    "labels": [
+      "electron",
+      "installation-plan-v3",
+      "testing",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "91c3e243-90ce-418a-8f6e-e6f70a539555",
+    "title": "Configure electron-builder macOS targets",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "installation-plan-v3",
+      "macos",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "a0bbef72-8084-4957-bf48-5e8894625a33",
+    "title": "Implement Apple code signing in CI",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "ci",
+      "installation-plan-v3",
+      "macos",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "25b4d36a-3170-468d-b664-e3bb7125f660",
+    "title": "Implement Apple notarization",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "ci",
+      "installation-plan-v3",
+      "macos",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "88efa4ea-a2da-4c1e-b7b5-c1835bc886b8",
+    "title": "Add universal binary support (arm64 + x86_64)",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "installation-plan-v3",
+      "macos",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "3e3a0c50-9b69-44aa-acd0-c71d238ae960",
+    "title": "Write macOS build verification tests",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "installation-plan-v3",
+      "macos",
+      "testing",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "4a74e649-8864-4f9a-a7a0-690fcaa5728e",
+    "title": "Configure electron-builder Windows targets",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "installation-plan-v3",
+      "track-e",
+      "windows"
+    ]
+  },
+  {
+    "item_id": "12b4c040-9800-4b3a-9d81-2a09cae97fc2",
+    "title": "Implement Windows code signing in CI",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "ci",
+      "installation-plan-v3",
+      "track-e",
+      "windows"
+    ]
+  },
+  {
+    "item_id": "554c7aa7-2a4f-46af-88bf-a55756f91367",
+    "title": "Add Windows-specific features",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "installation-plan-v3",
+      "track-e",
+      "ux",
+      "windows"
+    ]
+  },
+  {
+    "item_id": "600eed15-7ca9-4b63-a14e-cc443fd1096c",
+    "title": "Write Windows build verification tests",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "installation-plan-v3",
+      "testing",
+      "track-e",
+      "windows"
+    ]
+  },
+  {
+    "item_id": "d8e98e3f-adf7-4d9a-a49f-b827e64ec99b",
+    "title": "Configure electron-builder Linux targets",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "installation-plan-v3",
+      "linux",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "6e6d5146-82c0-40db-8218-99214b29a978",
+    "title": "Add Linux desktop integration files",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "installation-plan-v3",
+      "linux",
+      "track-e",
+      "ux"
+    ]
+  },
+  {
+    "item_id": "e58a2bf7-4a81-4982-bc3e-899c513b2167",
+    "title": "Configure AppImage auto-update mechanism",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "installation-plan-v3",
+      "linux",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "269e2da7-0e77-4d2c-8b9b-2b02078b6fc8",
+    "title": "Write Linux build verification tests",
+    "track": "track-e",
+    "labels": [
+      "build",
+      "installation-plan-v3",
+      "linux",
+      "testing",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "948f5c4f-900e-45de-84a5-7f4cb5efb474",
+    "title": "Implement auto-updater with electron-updater",
+    "track": "track-e",
+    "labels": [
+      "electron",
+      "installation-plan-v3",
+      "track-e",
+      "updates"
+    ]
+  },
+  {
+    "item_id": "391e50a0-97af-492a-949a-85c97d9da2e0",
+    "title": "Create update notification UX in renderer",
+    "track": "track-e",
+    "labels": [
+      "electron",
+      "installation-plan-v3",
+      "track-e",
+      "updates",
+      "ux"
+    ]
+  },
+  {
+    "item_id": "f698d82d-31b4-423b-b88b-9d4665a9f001",
+    "title": "Configure GitHub Releases as auto-update feed",
+    "track": "track-e",
+    "labels": [
+      "ci",
+      "installation-plan-v3",
+      "track-e",
+      "updates"
+    ]
+  },
+  {
+    "item_id": "1aa535d3-e3c5-4ed4-a70c-637272b0c408",
+    "title": "Create breakeramp.ai/download page",
+    "track": "track-e",
+    "labels": [
+      "distribution",
+      "installation-plan-v3",
+      "track-e",
+      "web"
+    ]
+  },
+  {
+    "item_id": "b1858a33-3cc2-4dc1-a9b4-ceca8ecd1385",
+    "title": "Create Homebrew Cask formula for macOS app",
+    "track": "track-e",
+    "labels": [
+      "distribution",
+      "homebrew",
+      "installation-plan-v3",
+      "track-e"
+    ]
+  },
+  {
+    "item_id": "aab5ccec-a410-466f-8191-496e917a5551",
+    "title": "Write end-to-end update flow tests",
+    "track": "track-e",
+    "labels": [
+      "installation-plan-v3",
+      "testing",
+      "track-e",
+      "updates"
+    ]
+  },
+  {
+    "item_id": "0da5fbe6-11f8-4bd0-bd54-b443fb31e61c",
+    "title": "Create GetStartedPanel.ts scaffold",
+    "track": "track-f",
+    "labels": [
+      "extension",
+      "installation-plan-v3",
+      "onboarding",
+      "track-f",
+      "webview"
+    ]
+  },
+  {
+    "item_id": "5d7eb229-dd50-4848-ac30-f45ee1fd1e15",
+    "title": "Build Getting Started webview HTML/CSS",
+    "track": "track-f",
+    "labels": [
+      "extension",
+      "installation-plan-v3",
+      "onboarding",
+      "track-f",
+      "ux",
+      "webview"
+    ]
+  },
+  {
+    "item_id": "6a2b0805-faf7-4337-83a9-160a893634f1",
+    "title": "Implement first-run detection logic",
+    "track": "track-f",
+    "labels": [
+      "extension",
+      "installation-plan-v3",
+      "onboarding",
+      "track-f"
+    ]
+  },
+  {
+    "item_id": "cba44ce0-c9f9-48f0-b117-ddc14206cdbe",
+    "title": "Wire connection status indicator",
+    "track": "track-f",
+    "labels": [
+      "extension",
+      "installation-plan-v3",
+      "mcp",
+      "track-f",
+      "webview"
+    ]
+  },
+  {
+    "item_id": "a1fff815-8ed0-4a6b-a228-1ee0e7fe7fca",
+    "title": "Implement diagnostics and dismiss actions",
+    "track": "track-f",
+    "labels": [
+      "extension",
+      "installation-plan-v3",
+      "onboarding",
+      "track-f"
+    ]
+  },
+  {
+    "item_id": "49b16034-0330-4339-939c-b29f199846e1",
+    "title": "Write GetStartedPanel tests",
+    "track": "track-f",
+    "labels": [
+      "extension",
+      "installation-plan-v3",
+      "onboarding",
+      "testing",
+      "track-f"
+    ]
+  },
+  {
+    "item_id": "780f87c2-64b6-4d28-b0d5-ca52f098d281",
+    "title": "Implement CLI detection utility",
+    "track": "track-f",
+    "labels": [
+      "configuration",
+      "extension",
+      "installation-plan-v3",
+      "mcp",
+      "track-f"
+    ]
+  },
+  {
+    "item_id": "8e1ea63f-f9f4-4bc0-b614-e6a352da2647",
+    "title": "Build auto-configuration prompt flow",
+    "track": "track-f",
+    "labels": [
+      "configuration",
+      "extension",
+      "installation-plan-v3",
+      "mcp",
+      "track-f",
+      "ux"
+    ]
+  },
+  {
+    "item_id": "e8fcba7f-7b51-4f5a-9e99-9620c94c1511",
+    "title": "Generate portable .vscode/mcp.json",
+    "track": "track-f",
+    "labels": [
+      "configuration",
+      "extension",
+      "installation-plan-v3",
+      "mcp",
+      "track-f"
+    ]
+  },
+  {
+    "item_id": "d878f7a5-7290-41a5-a103-4cf6cb82d5af",
+    "title": "Integrate with GetStartedPanel and McpClient",
+    "track": "track-f",
+    "labels": [
+      "extension",
+      "installation-plan-v3",
+      "mcp",
+      "onboarding",
+      "track-f"
+    ]
+  },
+  {
+    "item_id": "0320edd6-578c-4814-94dc-309ffa148807",
+    "title": "Write auto-configuration tests",
+    "track": "track-f",
+    "labels": [
+      "configuration",
+      "extension",
+      "installation-plan-v3",
+      "mcp",
+      "testing",
+      "track-f"
+    ]
+  },
+  {
+    "item_id": "9a5843f3-3755-49ad-9b7e-c92c65e177cd",
+    "title": "Create .vscodeignore and verify package contents",
+    "track": "track-f",
+    "labels": [
+      "extension",
+      "installation-plan-v3",
+      "marketplace",
+      "packaging",
+      "track-f"
+    ]
+  },
+  {
+    "item_id": "c1f556ab-9e9b-4262-bbf6-d48378a07dfd",
+    "title": "Polish marketplace listing metadata",
+    "track": "track-f",
+    "labels": [
+      "extension",
+      "installation-plan-v3",
+      "marketplace",
+      "track-f",
+      "ux"
+    ]
+  },
+  {
+    "item_id": "ff8ef6a7-88a6-46ef-b80e-dc53b91c867d",
+    "title": "Register VS Code Marketplace publisher",
+    "track": "track-f",
+    "labels": [
+      "ci",
+      "extension",
+      "installation-plan-v3",
+      "marketplace",
+      "track-f"
+    ]
+  },
+  {
+    "item_id": "d5c2f65d-84e5-4438-aa19-94d27582756b",
+    "title": "Create CI workflow for automated publishing",
+    "track": "track-f",
+    "labels": [
+      "ci",
+      "extension",
+      "installation-plan-v3",
+      "marketplace",
+      "track-f"
+    ]
+  },
+  {
+    "item_id": "8e148893-7b4a-4fa9-8d3e-e7495b916a04",
+    "title": "Add version bump and changelog automation",
+    "track": "track-f",
+    "labels": [
+      "ci",
+      "extension",
+      "installation-plan-v3",
+      "marketplace",
+      "track-f"
+    ]
+  },
+  {
+    "item_id": "9f7413ea-a3f8-44c5-b9ca-afcb98b9d35b",
+    "title": "Write marketplace publication smoke tests",
+    "track": "track-f",
+    "labels": [
+      "extension",
+      "installation-plan-v3",
+      "marketplace",
+      "testing",
+      "track-f"
+    ]
+  }
+]

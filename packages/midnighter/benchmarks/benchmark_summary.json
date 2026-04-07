@@ -1,0 +1,43 @@
+{
+  "total_behaviors": 23,
+  "total_cases": 123,
+  "by_category": {
+    "direct_query": 23,
+    "help_request": 23,
+    "best_practice": 23,
+    "guided_workflow": 23,
+    "standardization": 23,
+    "cross_behavior_selection": 5,
+    "negative": 3
+  },
+  "by_difficulty": {
+    "easy": 49,
+    "medium": 46,
+    "hard": 28
+  },
+  "behaviors": [
+    "behavior_prefer_mcp_tools",
+    "behavior_use_raze_for_logging",
+    "behavior_use_breakeramp_for_environments",
+    "behavior_extract_standalone_package",
+    "behavior_prevent_secret_leaks",
+    "behavior_rotate_leaked_credentials",
+    "behavior_unify_execution_records",
+    "behavior_align_storage_layers",
+    "behavior_externalize_configuration",
+    "behavior_harden_service_boundaries",
+    "behavior_curate_behavior_handbook",
+    "behavior_sanitize_action_registry",
+    "behavior_instrument_metrics_pipeline",
+    "behavior_wire_cli_to_orchestrator",
+    "behavior_lock_down_security_surface",
+    "behavior_update_docs_after_changes",
+    "behavior_prototype_consent_ux",
+    "behavior_handbook_compliance_prompt",
+    "behavior_git_governance",
+    "behavior_orchestrate_cicd",
+    "behavior_validate_financial_impact",
+    "behavior_plan_go_to_market",
+    "behavior_validate_accessibility"
+  ]
+}

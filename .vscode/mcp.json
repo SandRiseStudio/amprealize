@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "amprealize": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["scripts/start_amprealize_mcp.py"],
+      "cwd": "/Users/nick/amprealize",
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}

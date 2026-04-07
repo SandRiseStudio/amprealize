@@ -1,0 +1,68 @@
+{
+  "name": "breakeramp.configure",
+  "description": "Configure BreakerAmp in a directory. Creates environments.yaml and optionally copies packaged blueprints.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "config_dir": {
+        "type": "string",
+        "description": "Target directory for configuration (defaults to ./config/breakeramp)."
+      },
+      "include_blueprints": {
+        "type": "boolean",
+        "description": "Whether to copy packaged blueprints to the config directory.",
+        "default": false
+      },
+      "blueprints": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Specific blueprint IDs to copy (or all if omitted)."
+      },
+      "force": {
+        "type": "boolean",
+        "description": "Overwrite existing files.",
+        "default": false
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "environment_file": {
+        "type": "string",
+        "description": "Path to the created/updated environments.yaml file"
+      },
+      "environment_status": {
+        "type": "string",
+        "enum": ["created", "overwritten", "skipped"],
+        "description": "What happened to the environment file"
+      },
+      "blueprints_dir": {
+        "type": "string",
+        "description": "Path to blueprints directory (if include_blueprints=true)"
+      },
+      "blueprints": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "blueprint": { "type": "string" },
+            "status": { "type": "string", "enum": ["copied", "overwritten", "skipped", "missing"] },
+            "path": { "type": "string" },
+            "reason": { "type": "string" }
+          },
+          "required": ["blueprint", "status"]
+        },
+        "description": "Status of each blueprint copy operation"
+      },
+      "_links": {
+        "type": "object",
+        "properties": {
+          "list_blueprints": { "type": "string" },
+          "plan": { "type": "string" }
+        }
+      }
+    },
+    "required": ["environment_file", "environment_status"]
+  }
+}

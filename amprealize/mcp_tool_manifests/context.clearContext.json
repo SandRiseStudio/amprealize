@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "context.clearContext",
+  "description": "Clear the current org and project context. Returns the session to a state with no active tenant scope, useful for switching back to a 'global' view or when operating without org context.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the context was cleared"
+      },
+      "message": {
+        "type": "string",
+        "description": "Confirmation message"
+      }
+    }
+  },
+  "required_scopes": ["context.switch"],
+  "category": "context",
+  "surface_parity": ["CLI", "MCP", "API"]
+}

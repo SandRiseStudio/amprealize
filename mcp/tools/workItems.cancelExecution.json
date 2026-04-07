@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workItems.cancelExecution",
+  "description": "Cancel an active work item execution. This immediately stops the execution loop and marks the run as CANCELLED.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "work_item_id": {
+        "type": "string",
+        "description": "ID or display ID (e.g. 'myproject-42') of the work item (required)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID (optional)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID (required)"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Reason for cancellation (optional)"
+      }
+    },
+    "required": ["work_item_id", "project_id"]
+  },
+  "output": {
+    "description": "Returns cancellation confirmation",
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "message": {
+        "type": "string"
+      },
+      "run_id": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["CANCELLED"]
+      }
+    }
+  }
+}

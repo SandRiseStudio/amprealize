@@ -1,0 +1,63 @@
+{
+  "name": "ratelimit_getusage",
+  "description": "Get current rate limit usage statistics for an organization or user. Shows requests in the last minute, daily usage, and remaining quota.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to get usage for"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "User ID to get usage for (if no org_id provided)"
+      }
+    },
+    "oneOf": [
+      { "required": ["org_id"] },
+      { "required": ["user_id"] }
+    ]
+  },
+  "required_scopes": [],
+  "category": "rate_limiting",
+  "examples": [
+    {
+      "description": "Get org rate limit usage",
+      "params": {
+        "org_id": "org-abc123"
+      }
+    },
+    {
+      "description": "Get user rate limit usage",
+      "params": {
+        "user_id": "user-xyz789"
+      }
+    }
+  ],
+  "response_schema": {
+    "type": "object",
+    "properties": {
+      "identifier": {
+        "type": "string",
+        "description": "Identifier checked (org:xxx or user:xxx)"
+      },
+      "requests_last_minute": {
+        "type": "integer",
+        "description": "Number of requests in the last 60 seconds"
+      },
+      "requests_today": {
+        "type": "integer",
+        "description": "Number of requests today (UTC)"
+      },
+      "timestamp": {
+        "type": "integer",
+        "description": "Unix timestamp of the check"
+      },
+      "backend": {
+        "type": "string",
+        "enum": ["redis", "memory"],
+        "description": "Storage backend used"
+      }
+    }
+  }
+}

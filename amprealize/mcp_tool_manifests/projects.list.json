@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "projects.list",
+  "description": "List all projects the user has access to. If org_id is provided, lists organization projects. Otherwise lists projects owned by the user.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to list projects from (optional - omit for user-owned projects)"
+      },
+      "visibility": {
+        "type": "string",
+        "enum": ["public", "internal", "private"],
+        "description": "Filter by visibility level"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["active", "archived", "deleted"],
+        "description": "Filter by status"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 50,
+        "description": "Maximum number of projects to return"
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Number of projects to skip for pagination"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "projects": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "slug": { "type": "string" },
+            "description": { "type": "string" },
+            "visibility": { "type": "string" },
+            "status": { "type": "string" },
+            "created_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
+      "total": { "type": "integer" },
+      "limit": { "type": "integer" },
+      "offset": { "type": "integer" }
+    }
+  },
+  "required_scopes": ["projects.read"],
+  "category": "projects"
+}

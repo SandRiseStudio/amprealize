@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bci.generate",
+  "description": "Generate a behavior-conditioned LLM response using retrieved behaviors as context. Automatically retrieves relevant behaviors if not explicitly provided, composes a BCI prompt, and generates a response using the configured LLM provider (OpenAI, Anthropic, OpenRouter, Ollama, etc.). Emits telemetry to Raze for token savings accounting.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "The user query or task to solve"
+      },
+      "behaviors": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional explicit behavior names to use. If not provided, retrieves top_k behaviors automatically."
+      },
+      "top_k": {
+        "type": "integer",
+        "default": 5,
+        "description": "Number of behaviors to retrieve if behaviors not explicitly provided"
+      },
+      "provider": {
+        "type": "string",
+        "enum": ["openai", "anthropic", "openrouter", "ollama", "together", "groq", "fireworks"],
+        "description": "LLM provider to use. If not provided, loads from AMPREALIZE_LLM_PROVIDER environment variable."
+      },
+      "model": {
+        "type": "string",
+        "description": "Model name to use (e.g., gpt-4o, claude-3-5-sonnet). If not provided, uses provider default."
+      },
+      "temperature": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 2.0,
+        "description": "Sampling temperature for response generation"
+      },
+      "role_focus": {
+        "type": "string",
+        "enum": ["student", "teacher", "strategist"],
+        "description": "Role focus for behavior retrieval (filters behaviors by role)"
+      }
+    },
+    "required": ["query"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "response": {
+        "type": "object",
+        "description": "LLMResponse object with generated content",
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "The generated response text"
+          },
+          "model": {
+            "type": "string",
+            "description": "Model identifier used for generation"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider that generated the response"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "description": "Number of tokens in the input"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "description": "Number of tokens in the output"
+          },
+          "total_tokens": {
+            "type": "integer",
+            "description": "Total tokens used (input + output)"
+          },
+          "latency_ms": {
+            "type": "number",
+            "description": "LLM API latency in milliseconds"
+          },
+          "finish_reason": {
+            "type": "string",
+            "description": "Reason the generation stopped"
+          }
+        }
+      },
+      "behaviors_used": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "List of behavior names prepended to the prompt"
+      },
+      "token_savings": {
+        "type": "object",
+        "description": "Estimated token savings from BCI",
+        "properties": {
+          "input_saved": {
+            "type": "integer",
+            "description": "Estimated input tokens saved"
+          },
+          "output_saved": {
+            "type": "integer",
+            "description": "Estimated output tokens saved"
+          },
+          "total_saved": {
+            "type": "integer",
+            "description": "Total estimated tokens saved"
+          }
+        }
+      },
+      "latency_ms": {
+        "type": "number",
+        "description": "Total end-to-end latency including retrieval and generation"
+      }
+    }
+  }
+}

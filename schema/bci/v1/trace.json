@@ -1,0 +1,163 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schema.amprealize.dev/bci/v1/trace.json",
+  "title": "Behavior-Conditioned Inference Trace Analysis Schemas",
+  "type": "object",
+  "description": "JSON schema definitions for trace segmentation, pattern detection, and reusability scoring APIs.",
+  "definitions": {
+    "TraceFormat": {
+      "type": "string",
+      "enum": ["chain_of_thought", "json_steps", "plan_markdown"]
+    },
+    "TraceStep": {
+      "type": "object",
+      "required": ["index", "text"],
+      "properties": {
+        "index": {"type": "integer", "minimum": 0},
+        "text": {"type": "string"},
+        "role": {"type": "string", "enum": ["STRATEGIST", "TEACHER", "STUDENT", "SYSTEM", "MODEL"]},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "SegmentTraceRequest": {
+      "type": "object",
+      "required": ["trace_text"],
+      "properties": {
+        "trace_text": {"type": "string", "minLength": 1},
+        "format": {"$ref": "#/definitions/TraceFormat", "default": "chain_of_thought"},
+        "language": {"type": "string", "description": "Language code (e.g., en, es) hint for segmentation."}
+      },
+      "additionalProperties": false
+    },
+    "SegmentTraceResponse": {
+      "type": "object",
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/TraceStep"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "DetectPatternsRequest": {
+      "type": "object",
+      "required": ["traces"],
+      "properties": {
+        "traces": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "required": ["trace_text"],
+            "properties": {
+              "trace_text": {"type": "string", "minLength": 1},
+              "format": {"$ref": "#/definitions/TraceFormat"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "min_occurrences": {"type": "integer", "minimum": 2, "default": 2},
+        "window_size": {"type": "integer", "minimum": 1, "description": "Number of steps to include when forming candidate patterns."}
+      },
+      "additionalProperties": false
+    },
+    "Pattern": {
+      "type": "object",
+      "required": ["pattern_id", "description", "occurrence_count"],
+      "properties": {
+        "pattern_id": {"type": "string"},
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "occurrence_count": {"type": "integer", "minimum": 1},
+        "candidate_behavior": {
+          "type": "object",
+          "properties": {
+            "name": {"type": "string"},
+            "instruction": {"type": "string"},
+            "supporting_traces": {
+              "type": "array",
+              "items": {"type": "string"},
+              "maxItems": 10
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "DetectPatternsResponse": {
+      "type": "object",
+      "required": ["patterns", "total_traces"],
+      "properties": {
+        "patterns": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/Pattern"}
+        },
+        "total_traces": {"type": "integer", "minimum": 1},
+        "latency_ms": {"type": "number", "minimum": 0.0}
+      },
+      "additionalProperties": false
+    },
+    "ScoreDimension": {
+      "type": "object",
+      "required": ["name", "weight", "score"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": ["clarity", "generality", "reusability", "correctness", "custom"]
+        },
+        "weight": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "score": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "rationale": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "ScoreReusabilityRequest": {
+      "type": "object",
+      "required": ["candidate_behavior"],
+      "properties": {
+        "candidate_behavior": {
+          "type": "object",
+          "required": ["name", "instruction"],
+          "properties": {
+            "name": {"type": "string"},
+            "instruction": {"type": "string"},
+            "evidence_count": {"type": "integer", "minimum": 0},
+            "domains": {
+              "type": "array",
+              "items": {"type": "string"},
+              "maxItems": 10
+            }
+          },
+          "additionalProperties": false
+        },
+        "override_weights": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/ScoreDimension"},
+          "maxItems": 5,
+          "description": "Optional custom weights; weight totals must sum to 1.0."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScoreReusabilityResponse": {
+      "type": "object",
+      "required": ["score", "dimensions"],
+      "properties": {
+        "score": {"type": "number", "minimum": 0.0, "maximum": 100.0},
+        "dimensions": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/ScoreDimension"}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

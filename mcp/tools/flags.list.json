@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "flags.list",
+  "description": "List all registered feature flags with their current state, type, and configuration.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (auto-injected from session if authenticated)"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "flags": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "flag_type": { "type": "string", "enum": ["boolean", "percentage", "user_list"] },
+            "enabled": { "type": "boolean" },
+            "percentage": { "type": "integer" },
+            "user_list": { "type": "array", "items": { "type": "string" } },
+            "description": { "type": "string" },
+            "metadata": { "type": "object" }
+          }
+        }
+      },
+      "count": { "type": "integer" }
+    }
+  }
+}

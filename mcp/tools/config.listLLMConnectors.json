@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "config.listLLMConnectors",
+  "version": "1.0.0",
+  "description": "List configured LLM connectors/providers. Returns summary of configured providers at platform, organization, and project levels with their credential sources and BYOK status. Use this to understand which LLM providers are available and how they are configured.",
+  "category": "config",
+  "tags": ["config", "connectors", "llm", "providers", "byok", "credentials"],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_id": {
+        "type": "string",
+        "description": "Project ID to check connector configuration for. If provided, includes project-level credentials in resolution."
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID. If provided, includes org-level credentials in resolution."
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "connectors": {
+        "type": "array",
+        "description": "List of LLM connectors grouped by provider",
+        "items": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": ["anthropic", "openai", "openrouter", "local"],
+              "description": "LLM provider name"
+            },
+            "credential_source": {
+              "type": "string",
+              "enum": ["platform", "org", "project"],
+              "description": "Where the credential for this connector comes from"
+            },
+            "is_byok": {
+              "type": "boolean",
+              "description": "Whether this uses Bring Your Own Key (org or project level)"
+            },
+            "model_count": {
+              "type": "integer",
+              "description": "Number of models available through this connector"
+            },
+            "models": {
+              "type": "array",
+              "description": "List of model IDs available through this connector",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": ["provider", "credential_source", "is_byok", "model_count", "models"]
+        }
+      },
+      "total_count": {
+        "type": "integer",
+        "description": "Total number of connectors"
+      },
+      "project_id": {
+        "type": ["string", "null"],
+        "description": "The project ID used for resolution (if provided)"
+      },
+      "org_id": {
+        "type": ["string", "null"],
+        "description": "The organization ID used for resolution (if provided)"
+      }
+    },
+    "required": ["connectors", "total_count"]
+  },
+  "examples": [
+    {
+      "description": "List all available LLM connectors",
+      "input": {},
+      "output": {
+        "connectors": [
+          {
+            "provider": "anthropic",
+            "credential_source": "platform",
+            "is_byok": false,
+            "model_count": 3,
+            "models": ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-3-5"]
+          },
+          {
+            "provider": "openai",
+            "credential_source": "org",
+            "is_byok": true,
+            "model_count": 2,
+            "models": ["gpt-4o", "gpt-4o-mini"]
+          }
+        ],
+        "total_count": 2,
+        "project_id": null,
+        "org_id": null
+      }
+    },
+    {
+      "description": "List connectors for a specific project",
+      "input": {
+        "project_id": "proj_abc123",
+        "org_id": "org_xyz789"
+      },
+      "output": {
+        "connectors": [
+          {
+            "provider": "anthropic",
+            "credential_source": "project",
+            "is_byok": true,
+            "model_count": 1,
+            "models": ["claude-opus-4-5"]
+          }
+        ],
+        "total_count": 1,
+        "project_id": "proj_abc123",
+        "org_id": "org_xyz789"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "CREDENTIAL_STORE_UNAVAILABLE",
+      "description": "The credential store service is not available"
+    }
+  ],
+  "rateLimiting": {
+    "requestsPerMinute": 60,
+    "burstLimit": 10
+  },
+  "audit": {
+    "logged": true,
+    "sensitiveFields": []
+  }
+}

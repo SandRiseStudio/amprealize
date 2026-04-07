@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "auth.authStatus",
+  "description": "Check current authentication status, including token validity, granted scopes, and expiry information. Validates stored tokens against the authorization server.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "client_id": {
+        "type": "string",
+        "description": "OAuth client identifier to check tokens for. Defaults to amprealize-mcp-client.",
+        "default": "amprealize-mcp-client"
+      },
+      "validate_remote": {
+        "type": "boolean",
+        "description": "Whether to validate access token with authorization server (vs. checking local expiry only).",
+        "default": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["is_authenticated"],
+    "properties": {
+      "is_authenticated": {
+        "type": "boolean",
+        "description": "True if valid access token exists and is not expired."
+      },
+      "access_token_valid": {
+        "type": "boolean",
+        "description": "Whether access token is present and valid (not expired)."
+      },
+      "refresh_token_valid": {
+        "type": "boolean",
+        "description": "Whether refresh token is present and valid (not expired)."
+      },
+      "client_id": {
+        "type": "string",
+        "description": "Client identifier for which tokens are stored."
+      },
+      "scopes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "OAuth scopes granted to the stored access token."
+      },
+      "expires_in": {
+        "type": "integer",
+        "description": "Seconds until access token expires (negative if already expired)."
+      },
+      "expires_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp when access token expires."
+      },
+      "refresh_expires_in": {
+        "type": "integer",
+        "description": "Seconds until refresh token expires (negative if already expired)."
+      },
+      "refresh_expires_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp when refresh token expires."
+      },
+      "token_storage_type": {
+        "type": "string",
+        "enum": ["keychain", "file"],
+        "description": "Storage backend used for tokens (keychain preferred, file fallback)."
+      },
+      "token_storage_path": {
+        "type": "string",
+        "description": "Keychain service name or file path where tokens are stored."
+      },
+      "needs_refresh": {
+        "type": "boolean",
+        "description": "True if access token is expired but refresh token is valid (should call auth.refreshToken)."
+      },
+      "needs_login": {
+        "type": "boolean",
+        "description": "True if no valid tokens exist (should call auth.deviceLogin)."
+      },
+      "last_validated": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp of last remote validation (if validate_remote was true)."
+      }
+    },
+    "additionalProperties": false
+  }
+}

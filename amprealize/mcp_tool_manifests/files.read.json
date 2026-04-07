@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "files.read",
+  "description": "Read file contents from the local filesystem. Supports reading entire files or specific line ranges. Returns file content with metadata including line count and encoding.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Absolute or workspace-relative path to the file to read (required)"
+      },
+      "start_line": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "1-based starting line number for partial reads (optional)"
+      },
+      "end_line": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "1-based ending line number (inclusive) for partial reads (optional)"
+      },
+      "encoding": {
+        "type": "string",
+        "default": "utf-8",
+        "description": "File encoding (default: utf-8)"
+      }
+    },
+    "required": ["path"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the operation succeeded"
+      },
+      "content": {
+        "type": "string",
+        "description": "File contents (full or partial)"
+      },
+      "path": {
+        "type": "string",
+        "description": "Normalized absolute path"
+      },
+      "line_count": {
+        "type": "integer",
+        "description": "Total number of lines in the file"
+      },
+      "lines_read": {
+        "type": "object",
+        "properties": {
+          "start": { "type": "integer" },
+          "end": { "type": "integer" }
+        },
+        "description": "Line range returned (if partial read)"
+      },
+      "encoding": {
+        "type": "string",
+        "description": "Encoding used to read the file"
+      },
+      "size_bytes": {
+        "type": "integer",
+        "description": "File size in bytes"
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if success is false"
+      }
+    },
+    "required": ["success"]
+  }
+}

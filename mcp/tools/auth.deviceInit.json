@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "auth.deviceInit",
+  "description": "Initiate device authorization flow (non-blocking). Alias for compatibility with VS Code extension. Returns device_code and user_code for browser verification, but does not poll automatically.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "client_id": {
+        "type": "string",
+        "description": "OAuth client identifier for the requesting application.",
+        "default": "amprealize-vscode"
+      },
+      "scopes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Requested OAuth scopes.",
+        "default": ["actions:read", "actions:write", "behaviors:read"]
+      },
+      "poll_interval": {
+        "type": "integer",
+        "description": "Suggested polling interval in seconds.",
+        "minimum": 1,
+        "maximum": 60,
+        "default": 5
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["device_code", "user_code", "verification_uri", "expires_in", "interval"],
+    "properties": {
+      "device_code": {
+        "type": "string",
+        "description": "Device authorization code to poll with."
+      },
+      "user_code": {
+        "type": "string",
+        "description": "User-friendly code to display (e.g., ABCD-EFGH)."
+      },
+      "verification_uri": {
+        "type": "string",
+        "description": "URL where user should authorize."
+      },
+      "verification_uri_complete": {
+        "type": "string",
+        "description": "URL with user_code pre-filled (optional)."
+      },
+      "expires_in": {
+        "type": "integer",
+        "description": "Seconds until device_code expires."
+      },
+      "interval": {
+        "type": "integer",
+        "description": "Minimum seconds between poll requests."
+      }
+    }
+  }
+}

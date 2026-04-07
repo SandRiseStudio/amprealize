@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workItems.create",
+  "description": "Create a new work item (goal, feature, task, or bug). Legacy values 'epic' and 'story' are accepted for backward compatibility.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "item_type": {
+        "type": "string",
+        "enum": ["goal", "feature", "task", "bug", "epic", "story"],
+        "description": "Type of work item to create. Use goal/feature/task/bug. Legacy values epic/story are accepted (required)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID (required)"
+      },
+      "board_id": {
+        "type": "string",
+        "description": "Board ID to place the item on"
+      },
+      "column_id": {
+        "type": "string",
+        "description": "Column ID for initial placement"
+      },
+      "parent_id": {
+        "type": "string",
+        "description": "Parent work item ID or display ID (e.g. 'AMPREALIZE-42') for features under goals, or tasks under features"
+      },
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500,
+        "description": "Work item title (required)"
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 10000,
+        "description": "Detailed description in markdown"
+      },
+      "priority": {
+        "type": "string",
+        "enum": ["critical", "high", "medium", "low"],
+        "default": "medium",
+        "description": "Priority level"
+      },
+      "labels": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Labels/tags for categorization"
+      },
+      "points": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "description": "Point estimate for this work item"
+      },
+      "story_points": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "description": "Deprecated alias for 'points'. Use 'points' instead."
+      },
+      "estimated_hours": {
+        "type": "number",
+        "minimum": 0,
+        "description": "Estimated hours of work"
+      },
+      "start_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Planned start date"
+      },
+      "target_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Target completion date"
+      },
+      "due_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Hard deadline"
+      },
+      "behavior_id": {
+        "type": "string",
+        "description": "Associated behavior ID from Amprealize"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Associated run ID from Amprealize"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Additional metadata"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user creating the item"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": ["item_type", "project_id", "title"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "item": {
+        "type": "object",
+        "properties": {
+          "item_id": { "type": "string" },
+          "item_type": { "type": "string" },
+          "project_id": { "type": "string" },
+          "board_id": { "type": "string" },
+          "column_id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "status": { "type": "string" },
+          "priority": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" },
+      "error": { "type": "string" }
+    }
+  }
+}

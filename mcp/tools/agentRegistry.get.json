@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agentRegistry.get",
+  "description": "Retrieve a specific agent by ID with full details including mission, capabilities, behaviors, and metadata. Optionally specify a version or include version history.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Unique agent identifier (agt-<12-char-hex>)"
+      },
+      "version": {
+        "type": "integer",
+        "description": "Optional version number (defaults to latest)"
+      },
+      "include_history": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include version history in response"
+      }
+    },
+    "required": ["agent_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "mission": {
+        "type": "string",
+        "description": "The agent's mission statement"
+      },
+      "role_alignment": {
+        "type": "string",
+        "enum": ["STRATEGIST", "TEACHER", "STUDENT"]
+      },
+      "status": {
+        "type": "string",
+        "enum": ["DRAFT", "PUBLISHED", "DEPRECATED"]
+      },
+      "visibility": {
+        "type": "string",
+        "enum": ["PRIVATE", "TEAM", "ORG", "PUBLIC"]
+      },
+      "version": {
+        "type": "integer"
+      },
+      "capabilities": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "List of agent capabilities"
+      },
+      "default_behaviors": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Default behavior IDs for this agent"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "builtin": {
+        "type": "boolean"
+      },
+      "playbook_source": {
+        "type": "string",
+        "description": "Source playbook file for builtin agents"
+      },
+      "owner_id": {
+        "type": "string"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "published_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "deprecated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "version_history": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "integer"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "created_from": {
+              "type": "integer"
+            },
+            "deprecated_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "deprecated_reason": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "Version history (only included if include_history=true)"
+      }
+    },
+    "required": ["agent_id", "name", "status", "version"]
+  }
+}

@@ -1,0 +1,24 @@
+Hi{% if recipient_name %} {{ recipient_name }}{% endif %},
+
+{{ inviter_name }} has invited you to join {{ org_name }}{% if role %} as a {{ role }}{% endif %}.
+
+{% if message %}
+Personal message from {{ inviter_name }}:
+"{{ message }}"
+
+{% endif %}
+To accept this invitation, click the link below:
+
+{{ invite_link }}
+
+This invitation will expire on {{ expires_at }}.
+
+If you did not expect this invitation, you can safely ignore this email.
+
+{% if org_description %}
+About {{ org_name }}:
+{{ org_description }}
+{% endif %}
+
+Best regards,
+The {{ app_name | default("Amprealize") }} Team

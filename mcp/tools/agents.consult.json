@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agents.consult",
+  "description": "Get lightweight advisory input from another agent without creating a full run. Useful for quick questions, second opinions, or specialized knowledge queries. Maximum consultation depth of 3 prevents infinite recursion.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Target agent ID to consult (e.g., 'compliance', 'security', 'finance')"
+      },
+      "question": {
+        "type": "string",
+        "description": "Question to ask the agent"
+      },
+      "context": {
+        "type": "object",
+        "description": "Supporting context for the consultation",
+        "properties": {
+          "background": {
+            "type": "string",
+            "description": "Background information relevant to the question"
+          },
+          "current_approach": {
+            "type": "string",
+            "description": "Current approach being considered"
+          },
+          "constraints": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Constraints that should be considered"
+          },
+          "related_behaviors": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Behavior IDs relevant to the question"
+          }
+        },
+        "additionalProperties": true
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Current run ID for tracking (auto-filled if in run context)"
+      },
+      "max_tokens": {
+        "type": "integer",
+        "default": 2000,
+        "minimum": 100,
+        "maximum": 8000,
+        "description": "Maximum tokens for the agent's response"
+      }
+    },
+    "required": ["agent_id", "question"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "consultation_id": {
+        "type": "string",
+        "description": "Unique identifier for this consultation"
+      },
+      "requesting_run_id": {
+        "type": "string",
+        "description": "Run ID that requested the consultation"
+      },
+      "target_agent_id": {
+        "type": "string",
+        "description": "Agent ID that provided the response"
+      },
+      "question": {
+        "type": "string",
+        "description": "The question that was asked"
+      },
+      "response": {
+        "type": "string",
+        "description": "The agent's advisory response"
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "description": "Confidence score (0.0-1.0) for the response"
+      },
+      "depth": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 3,
+        "description": "Recursion depth at which this consultation occurred"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Additional metadata about the consultation",
+        "properties": {
+          "agent_capabilities": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Capabilities of the consulted agent"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "Token limit used for the response"
+          }
+        }
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp when consultation was created"
+      }
+    },
+    "required": ["consultation_id", "response", "confidence"]
+  }
+}

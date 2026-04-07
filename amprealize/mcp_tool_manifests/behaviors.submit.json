@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "behaviors.submit",
+  "description": "Submit a behavior draft for review. Changes status from DRAFT to PENDING_REVIEW. Returns the updated behavior.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string",
+        "description": "Behavior ID to submit"
+      },
+      "version": {
+        "type": "string",
+        "description": "Version to submit (must be DRAFT)"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"]
+      }
+    },
+    "required": ["behavior_id", "version", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING_REVIEW"]
+      },
+      "version": {
+        "type": "string"
+      },
+      "submitted_at": {
+        "type": "string",
+        "description": "ISO8601 timestamp when submitted for review"
+      }
+    },
+    "required": ["behavior_id", "status", "version", "submitted_at"]
+  }
+}

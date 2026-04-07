@@ -1,0 +1,49 @@
+{
+  "name": "ratelimit_getmetrics",
+  "description": "Get rate limiter metrics and health status. Shows check counts, denial counts, Redis availability, and tier configurations.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  },
+  "required_scopes": [],
+  "category": "rate_limiting",
+  "examples": [
+    {
+      "description": "Get rate limiter metrics",
+      "params": {}
+    }
+  ],
+  "response_schema": {
+    "type": "object",
+    "properties": {
+      "checks_total": {
+        "type": "integer",
+        "description": "Total number of rate limit checks"
+      },
+      "redis_checks": {
+        "type": "integer",
+        "description": "Checks performed using Redis"
+      },
+      "memory_checks": {
+        "type": "integer",
+        "description": "Checks performed using in-memory fallback"
+      },
+      "denies_total": {
+        "type": "integer",
+        "description": "Total number of denied requests"
+      },
+      "redis_errors": {
+        "type": "integer",
+        "description": "Redis operation errors"
+      },
+      "redis_available": {
+        "type": "boolean",
+        "description": "Whether Redis is currently available"
+      },
+      "tier_limits": {
+        "type": "object",
+        "description": "Rate limit configuration per tier"
+      }
+    }
+  }
+}

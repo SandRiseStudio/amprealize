@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "github.createPR",
+  "description": "Create a GitHub Pull Request with file changes. Creates a new branch from base, commits changes, and opens a PR. Uses project-level GitHub tokens from CredentialStore.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_id": {
+        "type": "string",
+        "description": "Amprealize project ID for credential resolution (required)"
+      },
+      "repo": {
+        "type": "string",
+        "description": "Repository in owner/repo format (required, e.g., 'octocat/Hello-World')"
+      },
+      "title": {
+        "type": "string",
+        "maxLength": 256,
+        "description": "Pull request title (required)"
+      },
+      "body": {
+        "type": "string",
+        "maxLength": 65536,
+        "description": "Pull request description in markdown (optional)"
+      },
+      "base_branch": {
+        "type": "string",
+        "default": "main",
+        "description": "Base branch to merge into (default: main)"
+      },
+      "head_branch": {
+        "type": "string",
+        "description": "New branch name for changes (required)"
+      },
+      "files": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path relative to repo root"
+            },
+            "content": {
+              "type": "string",
+              "description": "File content (base64 encoded if binary)"
+            },
+            "encoding": {
+              "type": "string",
+              "enum": ["utf-8", "base64"],
+              "default": "utf-8",
+              "description": "Content encoding"
+            },
+            "action": {
+              "type": "string",
+              "enum": ["create", "update", "delete"],
+              "default": "update",
+              "description": "File operation type"
+            }
+          },
+          "required": ["path"]
+        },
+        "description": "Files to include in the PR (required)"
+      },
+      "commit_message": {
+        "type": "string",
+        "description": "Commit message for the changes (optional, defaults to PR title)"
+      },
+      "draft": {
+        "type": "boolean",
+        "default": false,
+        "description": "Create as draft PR (default: false)"
+      },
+      "labels": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Labels to add to the PR (optional)"
+      },
+      "reviewers": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "GitHub usernames to request review from (optional)"
+      }
+    },
+    "required": ["project_id", "repo", "title", "head_branch", "files"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the operation succeeded"
+      },
+      "pr_number": {
+        "type": "integer",
+        "description": "Pull request number"
+      },
+      "pr_url": {
+        "type": "string",
+        "description": "URL to the pull request"
+      },
+      "head_branch": {
+        "type": "string",
+        "description": "Branch name containing the changes"
+      },
+      "commit_sha": {
+        "type": "string",
+        "description": "SHA of the commit with changes"
+      },
+      "files_changed": {
+        "type": "integer",
+        "description": "Number of files changed"
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if success is false"
+      }
+    },
+    "required": ["success"]
+  }
+}

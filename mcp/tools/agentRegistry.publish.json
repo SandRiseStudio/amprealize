@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agentRegistry.publish",
+  "description": "Publish an agent, changing its status from DRAFT to PUBLISHED. Only the owner can publish an agent.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Unique agent identifier"
+      },
+      "visibility": {
+        "type": "string",
+        "enum": ["PRIVATE", "TEAM", "ORG", "PUBLIC"],
+        "description": "Optional: change visibility at publish time"
+      },
+      "actor_id": {
+        "type": "string",
+        "description": "User ID performing the publish (must be owner)"
+      }
+    },
+    "required": ["agent_id", "actor_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "mission": {
+        "type": "string"
+      },
+      "role_alignment": {
+        "type": "string",
+        "enum": ["STRATEGIST", "TEACHER", "STUDENT"]
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PUBLISHED"],
+        "description": "Always PUBLISHED after successful publish"
+      },
+      "visibility": {
+        "type": "string",
+        "enum": ["PRIVATE", "TEAM", "ORG", "PUBLIC"]
+      },
+      "version": {
+        "type": "integer"
+      },
+      "capabilities": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "default_behaviors": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "builtin": {
+        "type": "boolean"
+      },
+      "owner_id": {
+        "type": "string"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "published_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Timestamp when the agent was published"
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "required": ["agent_id", "name", "status", "published_at"]
+  }
+}

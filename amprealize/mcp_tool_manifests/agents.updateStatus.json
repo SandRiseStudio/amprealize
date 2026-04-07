@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agents.updateStatus",
+  "description": "Update an agent's status with full audit trail. Validates the transition is allowed, records it in the audit table, and emits Raze telemetry. Requires agents.manage scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization identifier for security validation"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["active", "busy", "idle", "paused", "disabled", "archived"],
+        "description": "Target status"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Optional reason for the status change",
+        "maxLength": 500
+      },
+      "trigger": {
+        "type": "string",
+        "enum": ["manual", "task_start", "task_complete", "task_error", "scheduled", "api", "timeout", "system"],
+        "default": "manual",
+        "description": "What triggered this change"
+      },
+      "task_id": {
+        "type": "string",
+        "description": "Associated task ID (required for task-related triggers)"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Additional metadata to include with the status change"
+      }
+    },
+    "required": ["agent_id", "status"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the status change succeeded"
+      },
+      "event_id": {
+        "type": "string",
+        "description": "Status change event identifier"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier"
+      },
+      "from_status": {
+        "type": "string",
+        "description": "Previous status"
+      },
+      "to_status": {
+        "type": "string",
+        "description": "New status"
+      },
+      "triggered_by": {
+        "type": "string",
+        "description": "User ID who triggered the change"
+      },
+      "notification_channel": {
+        "type": "string",
+        "description": "Channel for real-time notifications (SSE/WebSocket)"
+      }
+    },
+    "required": ["success", "event_id", "agent_id", "from_status", "to_status"]
+  },
+  "examples": [
+    {
+      "description": "Pause an agent",
+      "input": {
+        "agent_id": "agent-abc123",
+        "org_id": "org-xyz789",
+        "status": "paused",
+        "reason": "Scheduled maintenance"
+      }
+    },
+    {
+      "description": "Mark agent busy when starting a task",
+      "input": {
+        "agent_id": "agent-abc123",
+        "org_id": "org-xyz789",
+        "status": "busy",
+        "trigger": "task_start",
+        "task_id": "task-001"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "INVALID_TRANSITION",
+      "description": "The requested status transition is not allowed"
+    },
+    {
+      "code": "AGENT_NOT_FOUND",
+      "description": "Agent not found or not accessible"
+    },
+    {
+      "code": "MISSING_TASK_ID",
+      "description": "task_id is required when trigger is task-related"
+    }
+  ]
+}

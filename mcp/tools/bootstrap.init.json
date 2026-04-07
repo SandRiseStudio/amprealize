@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bootstrap.init",
+  "description": "Initialize a workspace with Amprealize. Detects project type, selects appropriate knowledge pack, and generates scaffolding files including AGENTS.md primer.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workspace_path": {
+        "type": "string",
+        "description": "Path to the workspace to initialize. Uses current directory if not provided."
+      },
+      "profile": {
+        "type": "string",
+        "enum": ["solo-dev", "amprealize-platform", "team-collab", "extension-dev", "api-backend", "compliance-sensitive"],
+        "description": "Override auto-detected profile"
+      },
+      "skip_primer": {
+        "type": "boolean",
+        "default": false,
+        "description": "Skip AGENTS.md generation"
+      },
+      "skip_pack": {
+        "type": "boolean",
+        "default": false,
+        "description": "Skip knowledge pack activation"
+      },
+      "force": {
+        "type": "boolean",
+        "default": false,
+        "description": "Overwrite existing files if present"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether initialization completed successfully"
+      },
+      "profile": {
+        "type": "string",
+        "description": "Profile used for initialization"
+      },
+      "detection": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "is_ambiguous": {
+            "type": "boolean"
+          }
+        },
+        "description": "Detection result if auto-detected"
+      },
+      "pack_id": {
+        "type": "string",
+        "description": "Activated knowledge pack ID"
+      },
+      "pack_version": {
+        "type": "string",
+        "description": "Knowledge pack version"
+      },
+      "files_written": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "List of files created"
+      },
+      "notes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Notes and warnings from the bootstrap process"
+      }
+    },
+    "required": ["success", "profile"]
+  }
+}

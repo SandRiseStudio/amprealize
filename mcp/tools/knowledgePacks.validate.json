@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "knowledgePacks.validate",
+  "description": "Validate a knowledge pack manifest against the schema and business rules. Returns validation issues with severity levels.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "manifest": {
+        "type": "object",
+        "description": "The knowledge pack manifest object to validate"
+      },
+      "manifest_path": {
+        "type": "string",
+        "description": "Path to a manifest JSON file to validate (alternative to inline manifest)"
+      },
+      "strict": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, treat warnings as errors"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"]
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "valid": {
+        "type": "boolean",
+        "description": "True if the manifest passes validation (respecting strict mode)"
+      },
+      "error_count": {
+        "type": "integer",
+        "description": "Number of ERROR severity issues"
+      },
+      "warning_count": {
+        "type": "integer",
+        "description": "Number of WARNING severity issues"
+      },
+      "issues": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "severity": {
+              "type": "string",
+              "enum": ["error", "warning", "info"]
+            },
+            "code": {
+              "type": "string",
+              "description": "Machine-readable issue code"
+            },
+            "message": {
+              "type": "string",
+              "description": "Human-readable issue description"
+            },
+            "path": {
+              "type": "string",
+              "description": "JSON path to the problematic field"
+            }
+          }
+        },
+        "description": "List of validation issues found"
+      }
+    }
+  }
+}

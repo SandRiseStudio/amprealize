@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgs.acceptInvitation",
+  "description": "Accept an organization invitation using the invitation token.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user accepting the invitation"
+      },
+      "token": {
+        "type": "string",
+        "description": "Invitation token from the invite link"
+      }
+    },
+    "required": ["user_id", "token"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "membership": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "org_id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "role": { "type": "string" }
+        }
+      },
+      "organization": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "slug": { "type": "string" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

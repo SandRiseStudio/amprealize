@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "runs.complete",
+  "description": "Complete a run with final status, outputs, and results. Returns completed run.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "Run identifier"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["COMPLETED", "FAILED"],
+        "description": "Final run status"
+      },
+      "outputs": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Run outputs and results"
+      },
+      "message": {
+        "type": "string",
+        "description": "Completion message"
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message (for FAILED status)"
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Final metadata updates"
+      }
+    },
+    "required": ["run_id", "status"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      },
+      "completed_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "duration_ms": {
+        "type": "integer"
+      },
+      "outputs": {
+        "type": "object"
+      },
+      "message": {
+        "type": "string"
+      },
+      "error": {
+        "type": "string"
+      },
+      "progress_pct": {
+        "type": "number"
+      },
+      "metadata": {
+        "type": "object"
+      }
+    },
+    "required": ["run_id", "status", "completed_at", "duration_ms"]
+  }
+}

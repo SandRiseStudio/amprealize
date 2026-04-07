@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "consent.deny",
+  "description": "Deny a consent request. Alias for auth.consentDeny for VS Code extension compatibility.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["user_code", "approver"],
+    "properties": {
+      "user_code": {
+        "type": "string",
+        "description": "User code from device authorization flow."
+      },
+      "approver": {
+        "type": "string",
+        "description": "ID of user denying the consent."
+      },
+      "reason": {
+        "type": "string",
+        "description": "Optional reason for denial."
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["success"],
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether denial succeeded."
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if failed."
+      }
+    }
+  }
+}

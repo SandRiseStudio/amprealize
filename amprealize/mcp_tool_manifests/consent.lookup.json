@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "consent.lookup",
+  "description": "Look up consent request details by user code. Alias for auth.consentLookup for VS Code extension compatibility.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["user_code"],
+    "properties": {
+      "user_code": {
+        "type": "string",
+        "description": "User code from device authorization flow."
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "user_code": {
+        "type": "string",
+        "description": "The user code."
+      },
+      "status": {
+        "type": "string",
+        "enum": ["pending", "approved", "denied", "expired"],
+        "description": "Consent request status."
+      },
+      "scopes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Requested scopes."
+      },
+      "granted_at": {
+        "type": "string",
+        "description": "ISO timestamp when approved (if applicable)."
+      },
+      "expires_at": {
+        "type": "string",
+        "description": "ISO timestamp when expires."
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if lookup failed."
+      }
+    }
+  }
+}

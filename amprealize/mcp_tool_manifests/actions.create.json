@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "actions.create",
+  "description": "Record a new build action for reproducibility tracking. Automatically calculates artifact checksum if not provided and creates an immutable audit log entry.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "artifact_path": {
+        "type": "string",
+        "description": "Path or URI of the artifact impacted (file, directory, deployment URL)"
+      },
+      "summary": {
+        "type": "string",
+        "maxLength": 160,
+        "description": "Human-readable action summary (e.g., 'Refactored BehaviorService to add versioning')"
+      },
+      "behaviors_cited": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "description": "Behavior IDs referenced during this action (enables behavior reuse tracking)"
+      },
+      "metadata": {
+        "type": "object",
+        "properties": {
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Commands executed to produce the artifact"
+          },
+          "validation_output": {
+            "type": "string",
+            "description": "Test or validation command output"
+          },
+          "related_links": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "Links to related resources (PRs, docs, issues)"
+          }
+        },
+        "additionalProperties": true,
+        "description": "Additional action metadata"
+      },
+      "related_run_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Optional RunService workflow run association"
+      },
+      "checksum": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$",
+        "description": "SHA-256 checksum of artifact (calculated by server if omitted)"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT", "ADMIN"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB", "VSCODE"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor recording the action"
+      },
+      "tier": {
+        "type": "string",
+        "enum": ["hot", "warm", "cold"],
+        "default": "hot",
+        "description": "Storage tier for the action. hot=recent/frequent access, warm=moderate retention, cold=archive/long-term"
+      }
+    },
+    "required": ["artifact_path", "summary", "behaviors_cited", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "action_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "artifact_path": {
+        "type": "string"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "behaviors_cited": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "timestamp": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "checksum": {
+        "type": "string",
+        "description": "SHA-256 checksum of artifact"
+      },
+      "audit_log_event_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Link to immutable audit log entry"
+      },
+      "replay_status": {
+        "type": "string",
+        "enum": ["NOT_STARTED"],
+        "description": "Initial status before replay"
+      }
+    },
+    "required": ["action_id", "artifact_path", "summary", "behaviors_cited", "timestamp", "checksum", "replay_status"]
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "billing.getLimits",
+  "description": "Get the current plan limits for an organization.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to get limits for"
+      }
+    },
+    "required": ["user_id", "org_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "limits": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "plan": { "type": "string" },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "max_members": { "type": "integer" },
+              "max_projects": { "type": "integer" },
+              "max_agents": { "type": "integer" },
+              "max_runs_per_day": { "type": "integer" },
+              "max_tokens_per_month": { "type": "integer" },
+              "max_api_calls_per_month": { "type": "integer" },
+              "max_storage_gb": { "type": "number" },
+              "retention_days": { "type": "integer" }
+            }
+          },
+          "features": {
+            "type": "object",
+            "properties": {
+              "sso_enabled": { "type": "boolean" },
+              "audit_logs": { "type": "boolean" },
+              "priority_support": { "type": "boolean" },
+              "custom_models": { "type": "boolean" },
+              "advanced_analytics": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "tools.listGroups",
+  "description": "List all available MCP tool groups and their activation status. Amprealize organizes 230+ tools into focused groups that can be activated on demand to stay under model context limits. Use this to discover available capabilities.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "include_keywords": {
+        "type": "boolean",
+        "description": "Include activation keywords for each group",
+        "default": false
+      }
+    },
+    "required": []
+  }
+}

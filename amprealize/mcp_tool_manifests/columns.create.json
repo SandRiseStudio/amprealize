@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "columns.create",
+  "description": "Add a column to an existing board. Use this to progressively add workflow stages (e.g. Backlog, In Review) as your team grows.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "board_id": {
+        "type": "string",
+        "description": "Board UUID to add the column to (required)"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "description": "Column display name, e.g. 'Backlog' or 'In Review' (required)"
+      },
+      "status_mapping": {
+        "type": "string",
+        "enum": ["backlog", "in_progress", "in_review", "done"],
+        "description": "Which work item status this column represents (required)"
+      },
+      "position": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Column position (0-based). Columns at or after this position shift right."
+      },
+      "wip_limit": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Optional work-in-progress limit for this column"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user adding the column"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "column": {
+        "type": "object",
+        "properties": {
+          "column_id": { "type": "string" },
+          "board_id": { "type": "string" },
+          "name": { "type": "string" },
+          "position": { "type": "integer" },
+          "status_mapping": { "type": "string" },
+          "wip_limit": { "type": "integer" }
+        }
+      },
+      "message": { "type": "string" },
+      "error": { "type": "string" }
+    }
+  }
+}

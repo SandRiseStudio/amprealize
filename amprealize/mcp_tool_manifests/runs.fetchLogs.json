@@ -1,0 +1,167 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "runs.fetchLogs",
+  "description": "Fetch execution logs for a run from the Raze logging system. Supports cursor-based pagination and filtering by log level and time range. Returns full structured logs associated with the run.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "Run identifier to fetch logs for"
+      },
+      "level": {
+        "type": "string",
+        "enum": ["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        "description": "Minimum log level to include (e.g., 'WARNING' includes WARNING, ERROR, CRITICAL). Defaults to INFO."
+      },
+      "start_time": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Start of time range (ISO 8601). Defaults to run creation time."
+      },
+      "end_time": {
+        "type": "string",
+        "format": "date-time",
+        "description": "End of time range (ISO 8601). Defaults to now."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "default": 100,
+        "description": "Maximum number of log entries to return (1-1000, defaults to 100)"
+      },
+      "after": {
+        "type": "string",
+        "description": "Cursor for pagination - log_id of the last log entry from previous page. Pass the last log_id from previous response to get next page."
+      },
+      "search": {
+        "type": "string",
+        "description": "Full-text search in log message field"
+      },
+      "include_steps": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to include structured RunSteps alongside Raze logs. Defaults to true."
+      }
+    },
+    "required": ["run_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "The run ID these logs belong to"
+      },
+      "logs": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "log_id": {
+              "type": "string",
+              "description": "Unique log entry identifier (use as cursor for pagination)"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the log was recorded"
+            },
+            "level": {
+              "type": "string",
+              "enum": ["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+            },
+            "service": {
+              "type": "string",
+              "description": "Service/component that generated the log"
+            },
+            "message": {
+              "type": "string",
+              "description": "Log message"
+            },
+            "action_id": {
+              "type": ["string", "null"],
+              "description": "Associated action ID if applicable"
+            },
+            "session_id": {
+              "type": ["string", "null"],
+              "description": "Session ID if applicable"
+            },
+            "actor_surface": {
+              "type": ["string", "null"],
+              "description": "Actor surface (api, cli, mcp, web, etc.)"
+            },
+            "context": {
+              "type": "object",
+              "description": "Additional structured context data"
+            }
+          },
+          "required": ["log_id", "timestamp", "level", "service", "message"]
+        },
+        "description": "Log entries from Raze logging system"
+      },
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "step_id": { "type": "string" },
+            "name": { "type": "string" },
+            "status": { "type": "string" },
+            "started_at": { "type": ["string", "null"] },
+            "completed_at": { "type": ["string", "null"] },
+            "progress_pct": { "type": ["number", "null"] },
+            "metadata": { "type": "object" }
+          }
+        },
+        "description": "Structured RunSteps from the run (if include_steps is true)"
+      },
+      "total": {
+        "type": "integer",
+        "description": "Total number of matching log entries (for this run and filters)"
+      },
+      "has_more": {
+        "type": "boolean",
+        "description": "Whether there are more logs available after this page"
+      },
+      "next_cursor": {
+        "type": ["string", "null"],
+        "description": "Cursor to use in 'after' parameter for next page. Null if no more pages."
+      }
+    },
+    "required": ["run_id", "logs", "total", "has_more"]
+  },
+  "examples": [
+    {
+      "name": "Fetch all logs for a run",
+      "input": {
+        "run_id": "550e8400-e29b-41d4-a716-446655440000"
+      }
+    },
+    {
+      "name": "Fetch only error logs with pagination",
+      "input": {
+        "run_id": "550e8400-e29b-41d4-a716-446655440000",
+        "level": "ERROR",
+        "limit": 50
+      }
+    },
+    {
+      "name": "Fetch next page using cursor",
+      "input": {
+        "run_id": "550e8400-e29b-41d4-a716-446655440000",
+        "after": "log-uuid-from-previous-page",
+        "limit": 100
+      }
+    },
+    {
+      "name": "Search logs for specific term",
+      "input": {
+        "run_id": "550e8400-e29b-41d4-a716-446655440000",
+        "search": "timeout",
+        "level": "WARNING"
+      }
+    }
+  ]
+}

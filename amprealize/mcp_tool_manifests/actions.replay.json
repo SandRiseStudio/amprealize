@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "actions.replay",
+  "description": "Launch a replay job to reproduce one or more actions sequentially or in parallel. Requires action.replay RBAC scope. Returns a replay_id for status tracking.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action_ids": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "minItems": 1,
+        "description": "Action IDs to replay"
+      },
+      "strategy": {
+        "type": "string",
+        "enum": ["SEQUENTIAL", "PARALLEL"],
+        "default": "SEQUENTIAL",
+        "description": "Replay execution strategy (SEQUENTIAL = one at a time, PARALLEL = concurrent)"
+      },
+      "options": {
+        "type": "object",
+        "properties": {
+          "skip_existing": {
+            "type": "boolean",
+            "default": false,
+            "description": "Skip actions where artifact checksum matches current state"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": false,
+            "description": "Simulate replay without executing commands (validation only)"
+          }
+        },
+        "description": "Replay execution options"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "ADMIN"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB", "VSCODE"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor launching replay (requires action.replay scope)"
+      },
+      "tier": {
+        "type": "string",
+        "enum": ["hot", "warm", "cold"],
+        "default": "hot",
+        "description": "Preferred storage tier for replayed actions. Determines data retrieval speed and retention policy."
+      }
+    },
+    "required": ["action_ids", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "replay_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Replay job identifier for status tracking"
+      },
+      "action_ids": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Actions included in replay job"
+      },
+      "strategy": {
+        "type": "string",
+        "enum": ["SEQUENTIAL", "PARALLEL"]
+      },
+      "status": {
+        "type": "string",
+        "enum": ["QUEUED"],
+        "description": "Initial status after job creation"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      }
+    },
+    "required": ["replay_id", "action_ids", "strategy", "status", "created_at"]
+  }
+}

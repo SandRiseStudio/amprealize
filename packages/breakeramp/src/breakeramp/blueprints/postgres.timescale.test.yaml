@@ -1,0 +1,9 @@
+name: postgres.timescale.test
+version: 1.0.0
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: "password"

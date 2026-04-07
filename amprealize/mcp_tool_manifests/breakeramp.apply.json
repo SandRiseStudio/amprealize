@@ -1,0 +1,40 @@
+{
+  "name": "breakeramp.apply",
+  "description": "Apply a planned deployment to create resources. Use plan_id from breakeramp.plan or provide a manifest file.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "plan_id": {
+        "type": "string",
+        "description": "Plan ID from breakeramp.plan (amp_run_id)."
+      },
+      "manifest_file": {
+        "type": "string",
+        "description": "Path to manifest JSON file (alternative to plan_id)."
+      },
+      "watch": {
+        "type": "boolean",
+        "description": "Wait for completion and stream status updates.",
+        "default": false
+      },
+      "resume": {
+        "type": "boolean",
+        "description": "Resume a previously failed apply.",
+        "default": false
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "amp_run_id": { "type": "string", "description": "Run ID for tracking the deployment" },
+      "status": { "type": "string", "enum": ["pending", "running", "completed", "failed"] },
+      "started_at": { "type": "string", "format": "date-time" },
+      "completed_at": { "type": "string", "format": "date-time" },
+      "resources_created": { "type": "array", "items": { "type": "string" } },
+      "errors": { "type": "array", "items": { "type": "string" } },
+      "_links": { "type": "object", "description": "HATEOAS links - use run_detail for full execution record" }
+    },
+    "required": ["amp_run_id", "status"]
+  }
+}

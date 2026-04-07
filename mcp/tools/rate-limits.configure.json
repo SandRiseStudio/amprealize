@@ -1,0 +1,117 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "rate-limits.configure",
+  "description": "Configure rate limiting policies with token bucket algorithm for users and tenants.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "scope": {
+        "type": "string",
+        "enum": ["GLOBAL", "TENANT", "USER", "API_KEY", "IP_ADDRESS"],
+        "description": "Scope of the rate limit policy"
+      },
+      "target_id": {
+        "type": "string",
+        "description": "Target identifier (tenant_id, user_id, etc.)"
+      },
+      "policies": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "endpoint_pattern": {
+              "type": "string",
+              "description": "API endpoint pattern to apply rate limit"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Number of requests allowed"
+            },
+            "window_seconds": {
+              "type": "integer",
+              "description": "Time window in seconds"
+            },
+            "burst_limit": {
+              "type": "integer",
+              "description": "Burst capacity (token bucket size)"
+            },
+            "priority": {
+              "type": "integer",
+              "default": 0,
+              "description": "Policy priority (higher = more specific)"
+            }
+          },
+          "required": ["endpoint_pattern", "limit", "window_seconds"]
+        }
+      },
+      "exemptions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "description": "Reason for exemption"
+            },
+            "admin_user_id": {
+              "type": "string",
+              "description": "Admin user who granted exemption"
+            },
+            "expires_at": {
+              "type": "string",
+              "description": "ISO8601 timestamp when exemption expires"
+            }
+          },
+          "required": ["reason", "admin_user_id"]
+        }
+      }
+    },
+    "required": ["scope", "policies"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "policy_id": {
+        "type": "string",
+        "description": "Unique policy identifier (rlp-<12-char-hex>)"
+      },
+      "scope": {
+        "type": "string"
+      },
+      "target_id": {
+        "type": "string"
+      },
+      "policies": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "endpoint_pattern": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer"
+            },
+            "window_seconds": {
+              "type": "integer"
+            },
+            "burst_limit": {
+              "type": "integer"
+            },
+            "priority": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "exemptions": {
+        "type": "array"
+      },
+      "created_at": {
+        "type": "string",
+        "description": "ISO8601 timestamp"
+      }
+    },
+    "required": ["policy_id", "scope", "policies", "created_at"]
+  }
+}

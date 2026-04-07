@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "projects.switch",
+  "description": "Switch the user's current working project context. Persists preference for the session.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID to switch to"
+      }
+    },
+    "required": ["user_id", "project_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "current_project": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "org_id": { "type": "string" },
+          "org_name": { "type": "string" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

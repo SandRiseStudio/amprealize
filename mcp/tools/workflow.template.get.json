@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workflow.template.get",
+  "description": "Retrieve a workflow template by ID with full step definitions.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["template_id"],
+    "properties": {
+      "template_id": {
+        "type": "string",
+        "description": "Template identifier (e.g., wf-<12-char-hex>)"
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["template_id", "name", "role_focus", "steps"],
+    "properties": {
+      "template_id": {"type": "string"},
+      "name": {"type": "string"},
+      "description": {"type": "string"},
+      "role_focus": {"type": "string"},
+      "version": {"type": "string"},
+      "created_at": {"type": "string", "format": "date-time"},
+      "created_by": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "role": {"type": "string"},
+          "surface": {"type": "string"}
+        }
+      },
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "step_id": {"type": "string"},
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+            "prompt_template": {"type": "string"},
+            "behavior_injection_point": {"type": "string"},
+            "required_behaviors": {"type": "array", "items": {"type": "string"}},
+            "validation_rules": {"type": "object"},
+            "metadata": {"type": "object"}
+          }
+        }
+      },
+      "tags": {"type": "array", "items": {"type": "string"}},
+      "metadata": {"type": "object"}
+    }
+  }
+}

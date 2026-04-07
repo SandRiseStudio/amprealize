@@ -1,0 +1,85 @@
+{
+  "name": "analytics.behaviorUsage",
+  "description": "Query behavior usage facts from analytics warehouse showing per-run behavior citations, token counts, and actor context.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results from this date forward"
+      },
+      "end_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results up to this date"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of records to return (1-1000, default: 100)",
+        "minimum": 1,
+        "maximum": 1000,
+        "default": 100
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "records": {
+        "type": "array",
+        "description": "List of behavior usage facts",
+        "items": {
+          "type": "object",
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "description": "Unique workflow run identifier"
+            },
+            "template_id": {
+              "type": "string",
+              "description": "Workflow template identifier"
+            },
+            "template_name": {
+              "type": "string",
+              "description": "Human-readable workflow template name"
+            },
+            "behavior_ids": {
+              "type": "string",
+              "description": "JSON array string of behavior IDs cited in the run"
+            },
+            "behavior_count": {
+              "type": "integer",
+              "description": "Number of behaviors cited"
+            },
+            "has_behaviors": {
+              "type": "boolean",
+              "description": "Whether the run cited any behaviors"
+            },
+            "baseline_tokens": {
+              "type": "integer",
+              "description": "Baseline token count for comparison"
+            },
+            "actor_surface": {
+              "type": "string",
+              "description": "Surface where run was initiated (CLI, Web, VSCode, API, MCP)"
+            },
+            "actor_role": {
+              "type": "string",
+              "description": "Agent role (STRATEGIST, TEACHER, STUDENT)"
+            },
+            "first_plan_timestamp": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Timestamp when the run plan was created"
+            }
+          },
+          "required": ["run_id", "behavior_count", "has_behaviors"]
+        }
+      },
+      "count": {
+        "type": "integer",
+        "description": "Number of records returned"
+      }
+    },
+    "required": ["records", "count"]
+  }
+}

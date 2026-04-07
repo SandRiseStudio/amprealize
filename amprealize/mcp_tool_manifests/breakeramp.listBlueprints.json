@@ -1,0 +1,44 @@
+{
+  "name": "breakeramp.listBlueprints",
+  "description": "List all available blueprints from packaged and user directories.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "source": {
+        "type": "string",
+        "enum": ["all", "package", "user"],
+        "description": "Filter by blueprint source.",
+        "default": "all"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "blueprints": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "description": "Blueprint ID (filename without extension)" },
+            "path": { "type": "string", "description": "Absolute path to blueprint file" },
+            "source": { "type": "string", "enum": ["package", "user"], "description": "Blueprint source" }
+          },
+          "required": ["id", "path", "source"]
+        },
+        "description": "List of available blueprints"
+      },
+      "count": {
+        "type": "integer",
+        "description": "Total number of blueprints"
+      },
+      "_links": {
+        "type": "object",
+        "properties": {
+          "plan": { "type": "string", "description": "Link to plan endpoint" }
+        }
+      }
+    },
+    "required": ["blueprints", "count"]
+  }
+}

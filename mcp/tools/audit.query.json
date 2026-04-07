@@ -1,0 +1,83 @@
+{
+  "name": "audit.query",
+  "description": "Query audit events from the compliance-grade audit log. Supports filtering by event type, actor, run ID, time range, and action ID. Returns events with full metadata including hash chain verification status.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "event_type": {
+        "type": "string",
+        "description": "Filter by event type (e.g., 'run.started', 'behavior.applied', 'compliance.violation')"
+      },
+      "actor_id": {
+        "type": "string",
+        "description": "Filter by actor ID (user or system)"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Filter by run ID"
+      },
+      "action_id": {
+        "type": "string",
+        "description": "Filter by action ID"
+      },
+      "start_time": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Start of time range (ISO 8601)"
+      },
+      "end_time": {
+        "type": "string",
+        "format": "date-time",
+        "description": "End of time range (ISO 8601)"
+      },
+      "limit": {
+        "type": "integer",
+        "default": 100,
+        "description": "Maximum number of events to return"
+      },
+      "offset": {
+        "type": "integer",
+        "default": 0,
+        "description": "Offset for pagination"
+      },
+      "include_archived": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include events from S3 WORM archive"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "events": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "event_type": { "type": "string" },
+            "actor_id": { "type": "string" },
+            "run_id": { "type": "string" },
+            "action_id": { "type": "string" },
+            "timestamp": { "type": "string" },
+            "payload": { "type": "object" },
+            "hash": { "type": "string" },
+            "signature": { "type": "string" }
+          }
+        }
+      },
+      "count": { "type": "integer" },
+      "total_count": { "type": "integer" },
+      "_links": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "verify": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    }
+  }
+}

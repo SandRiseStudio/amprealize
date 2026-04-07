@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "compliance/create-policy",
+  "description": "Create a new compliance policy with scope (global, org, or project), enforcement level, and required behaviors. Requires compliance.policy.write RBAC scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Policy name (unique within scope)"
+      },
+      "description": {
+        "type": "string",
+        "description": "Policy description"
+      },
+      "policy_type": {
+        "type": "string",
+        "enum": ["AUDIT", "SECURITY", "COMPLIANCE", "GOVERNANCE", "CUSTOM"],
+        "description": "Category of the policy"
+      },
+      "enforcement_level": {
+        "type": "string",
+        "enum": ["ADVISORY", "WARNING", "BLOCKING"],
+        "description": "How strictly the policy is enforced"
+      },
+      "org_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Organization ID for org/project scope (null for global)"
+      },
+      "project_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Project ID for project scope (requires org_id)"
+      },
+      "version": {
+        "type": "string",
+        "pattern": "^\\d+\\.\\d+\\.\\d+$",
+        "default": "1.0.0",
+        "description": "Semantic version string"
+      },
+      "rules": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        },
+        "description": "Policy rule definitions"
+      },
+      "required_behaviors": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of behavior IDs required for compliance"
+      },
+      "compliance_categories": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Compliance categories (SOC2, GDPR, etc.)"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Additional metadata"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT", "ADMIN", "COMPLIANCE"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor creating the policy"
+      }
+    },
+    "required": ["name", "policy_type", "enforcement_level", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "policy_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "name": { "type": "string" },
+      "description": { "type": "string" },
+      "version": { "type": "string" },
+      "org_id": { "type": ["string", "null"] },
+      "project_id": { "type": ["string", "null"] },
+      "policy_type": { "type": "string" },
+      "enforcement_level": { "type": "string" },
+      "rules": { "type": "array" },
+      "required_behaviors": { "type": "array" },
+      "compliance_categories": { "type": "array" },
+      "is_active": { "type": "boolean" },
+      "scope": { "type": "string", "enum": ["global", "org", "project"] },
+      "created_at": { "type": "string", "format": "date-time" },
+      "updated_at": { "type": "string", "format": "date-time" }
+    },
+    "required": ["policy_id", "name", "policy_type", "enforcement_level", "is_active", "scope"]
+  },
+  "examples": [
+    {
+      "description": "Create a global security policy",
+      "input": {
+        "name": "Secret Detection Policy",
+        "description": "Ensure no secrets are committed to repositories",
+        "policy_type": "SECURITY",
+        "enforcement_level": "BLOCKING",
+        "required_behaviors": ["behavior_prevent_secret_leaks"],
+        "compliance_categories": ["SOC2", "INTERNAL"],
+        "actor": {
+          "id": "admin-001",
+          "role": "ADMIN",
+          "surface": "MCP"
+        }
+      }
+    }
+  ],
+  "rbac": {
+    "required_scopes": ["compliance.policy.write"],
+    "surface_restrictions": ["MCP", "CLI", "REST_API"]
+  }
+}

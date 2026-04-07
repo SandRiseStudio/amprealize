@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bci.parseCitations",
+  "description": "Extract behavior citations from model output to support compliance validation.",
+  "inputSchema": {
+    "$ref": "../../schema/bci/v1/citation.json#/definitions/ParseCitationsRequest"
+  },
+  "outputSchema": {
+    "$ref": "../../schema/bci/v1/citation.json#/definitions/ParseCitationsResponse"
+  }
+}

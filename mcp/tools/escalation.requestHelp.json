@@ -1,0 +1,152 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "escalation.requestHelp",
+  "description": "Request non-blocking human guidance. The agent can continue execution while awaiting input. Use this when you need clarification, advice, or additional context from a human but can make reasonable progress in the meantime.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "reason": {
+        "type": "string",
+        "description": "Clear explanation of why help is needed"
+      },
+      "context": {
+        "type": "object",
+        "description": "Additional context to help the human understand the situation",
+        "properties": {
+          "current_approach": {
+            "type": "string",
+            "description": "What approach is currently being taken"
+          },
+          "alternatives_considered": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Other approaches that were considered"
+          },
+          "specific_questions": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Specific questions for the human"
+          },
+          "relevant_files": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Files relevant to the question"
+          },
+          "error_details": {
+            "type": "object",
+            "description": "Details about any error encountered"
+          }
+        },
+        "additionalProperties": true
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Current run ID for tracking (auto-filled if in run context)"
+      },
+      "work_item_id": {
+        "type": "string",
+        "description": "Associated work item ID if applicable"
+      },
+      "urgency": {
+        "type": "string",
+        "enum": ["low", "normal", "high", "urgent"],
+        "default": "normal",
+        "description": "How urgently the help is needed"
+      }
+    },
+    "required": ["reason"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "escalation_id": {
+        "type": "string",
+        "description": "Unique identifier for this help request"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Associated run ID"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["pending", "resolved"],
+        "description": "Current status of the help request"
+      },
+      "reason": {
+        "type": "string",
+        "description": "The reason help was requested"
+      },
+      "guidance": {
+        "type": "string",
+        "description": "Human's guidance (populated when resolved)"
+      },
+      "resolved_by": {
+        "type": "string",
+        "description": "User who provided guidance (when resolved)"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the request was created"
+      },
+      "resolved_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When guidance was provided"
+      },
+      "notification_sent": {
+        "type": "boolean",
+        "description": "Whether a notification was dispatched"
+      }
+    },
+    "required": ["escalation_id", "run_id", "status", "reason"]
+  },
+  "examples": [
+    {
+      "name": "Request clarification on requirements",
+      "input": {
+        "reason": "The requirements mention 'standard security practices' but don't specify which standards apply",
+        "context": {
+          "current_approach": "Implementing OWASP Top 10 mitigations",
+          "specific_questions": [
+            "Should we also implement SOC2 controls?",
+            "Are there specific compliance frameworks required?"
+          ]
+        },
+        "urgency": "normal"
+      },
+      "output": {
+        "escalation_id": "esc_help_abc123",
+        "run_id": "run_xyz789",
+        "status": "pending",
+        "reason": "The requirements mention 'standard security practices' but don't specify which standards apply",
+        "notification_sent": true,
+        "created_at": "2024-01-15T10:30:00Z"
+      }
+    },
+    {
+      "name": "Request advice on architecture decision",
+      "input": {
+        "reason": "Need input on database choice for the new analytics feature",
+        "context": {
+          "alternatives_considered": ["PostgreSQL with TimescaleDB", "ClickHouse", "BigQuery"],
+          "specific_questions": [
+            "What are the expected query patterns?",
+            "Is there a budget constraint for database hosting?"
+          ]
+        },
+        "urgency": "high"
+      },
+      "output": {
+        "escalation_id": "esc_help_def456",
+        "run_id": "run_abc123",
+        "status": "pending",
+        "reason": "Need input on database choice for the new analytics feature",
+        "notification_sent": true,
+        "created_at": "2024-01-15T11:00:00Z"
+      }
+    }
+  ],
+  "tags": ["escalation", "human-in-the-loop", "guidance", "non-blocking"],
+  "category": "escalation"
+}

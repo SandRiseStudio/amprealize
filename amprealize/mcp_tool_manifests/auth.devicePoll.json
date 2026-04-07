@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "auth.devicePoll",
+  "description": "Poll device authorization status. Alias for compatibility with VS Code extension. Use after auth.deviceInit to check if user has authorized.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["device_code"],
+    "properties": {
+      "device_code": {
+        "type": "string",
+        "description": "Device code from auth.deviceInit."
+      },
+      "client_id": {
+        "type": "string",
+        "description": "OAuth client identifier.",
+        "default": "amprealize-vscode"
+      },
+      "store_tokens": {
+        "type": "boolean",
+        "description": "Whether to persist tokens on success.",
+        "default": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["status"],
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": ["pending", "authorized", "denied", "expired", "error"],
+        "description": "Authorization status."
+      },
+      "access_token": {
+        "type": "string",
+        "description": "Access token (if authorized)."
+      },
+      "refresh_token": {
+        "type": "string",
+        "description": "Refresh token (if authorized)."
+      },
+      "token_type": {
+        "type": "string",
+        "description": "Token type (usually 'Bearer')."
+      },
+      "expires_in": {
+        "type": "integer",
+        "description": "Seconds until access token expires."
+      },
+      "scopes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Granted scopes."
+      },
+      "error": {
+        "type": "string",
+        "description": "Error code if failed."
+      },
+      "error_description": {
+        "type": "string",
+        "description": "Human-readable error description."
+      },
+      "oauth_tokens_redacted": {
+        "type": "boolean",
+        "description": "True when raw tokens were omitted from this response (default). Set MCP_EXPOSE_AUTH_TOKENS=1 to include tokens (debug only)."
+      },
+      "oauth_tokens_note": {
+        "type": "string",
+        "description": "Explains token redaction when oauth_tokens_redacted is true."
+      }
+    }
+  }
+}

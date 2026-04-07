@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "behaviors.create",
+  "description": "Create a new behavior draft in the handbook. Returns the created behavior with status=DRAFT and version=0.1.0.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Behavior name (concise, action-oriented)"
+      },
+      "description": {
+        "type": "string",
+        "description": "Brief description of what the behavior does"
+      },
+      "instruction": {
+        "type": "string",
+        "description": "Procedural instruction defining how to apply the behavior"
+      },
+      "role_focus": {
+        "type": "string",
+        "enum": ["STRATEGIST", "TEACHER", "STUDENT"],
+        "description": "Primary role that uses this behavior"
+      },
+      "trigger_keywords": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Keywords that suggest when this behavior applies"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Tags for categorization and filtering"
+      },
+      "examples": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "scenario": {
+              "type": "string"
+            },
+            "application": {
+              "type": "string"
+            }
+          },
+          "required": ["scenario", "application"]
+        },
+        "description": "Usage examples demonstrating the behavior"
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Additional metadata (source, references, etc.)"
+      },
+      "embedding": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        },
+        "description": "Optional pre-computed embedding vector for semantic search"
+      },
+      "base_version": {
+        "type": "string",
+        "description": "Optional base version if creating a revision of an existing behavior"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"]
+      }
+    },
+    "required": ["name", "description", "instruction", "role_focus", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "instruction": {
+        "type": "string"
+      },
+      "role_focus": {
+        "type": "string",
+        "enum": ["STRATEGIST", "TEACHER", "STUDENT"]
+      },
+      "status": {
+        "type": "string",
+        "enum": ["DRAFT"]
+      },
+      "version": {
+        "type": "string",
+        "description": "Initial version (0.1.0)"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "trigger_keywords": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "created_at": {
+        "type": "string"
+      },
+      "created_by": {
+        "type": "object"
+      }
+    },
+    "required": ["behavior_id", "name", "status", "version"]
+  }
+}

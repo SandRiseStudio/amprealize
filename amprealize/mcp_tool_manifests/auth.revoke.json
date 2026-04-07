@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "auth.revoke",
+  "description": "Revoke an existing grant and invalidate cached credentials for an agent/user/tool combination.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["grant_id", "revoked_by"],
+    "properties": {
+      "grant_id": {"type": "string", "description": "Identifier of the grant to revoke."},
+      "revoked_by": {"type": "string", "description": "Actor (user id or system principal) performing the revocation."},
+      "reason": {"type": "string", "description": "Optional explanation logged to audit trail."}
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["grant_id", "success"],
+    "properties": {
+      "grant_id": {"type": "string"},
+      "success": {"type": "boolean"},
+      "reason": {"type": "string", "description": "Failure reason when success is false."}
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    {
+      "code": "grant-not-found",
+      "description": "Requested grant_id does not exist or has already been revoked.",
+      "httpStatus": 404
+    },
+    {
+      "code": "policy-blocked",
+      "description": "Attempted revocation violates policy restrictions (e.g., insufficient role).",
+      "httpStatus": 403
+    }
+  ]
+}

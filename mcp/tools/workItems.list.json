@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workItems.list",
+  "description": "List work items with optional filters for board, project, type, and status.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "board_id": {
+        "type": "string",
+        "description": "Filter by board ID"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Filter by project ID"
+      },
+      "item_type": {
+        "type": "string",
+        "enum": ["goal", "feature", "task", "bug", "epic", "story"],
+        "description": "Filter by work item type. Use goal/feature/task/bug. Legacy values epic/story are accepted"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["backlog", "in_progress", "in_review", "done"],
+        "description": "Filter by status"
+      },
+      "parent_id": {
+        "type": "string",
+        "description": "Filter by parent work item ID or display ID (e.g. 'AMPREALIZE-42'). Returns direct children of this item"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      },
+      "limit": {
+        "type": "integer",
+        "default": 100,
+        "minimum": 1,
+        "maximum": 500,
+        "description": "Maximum number of items to return"
+      },
+      "offset": {
+        "type": "integer",
+        "default": 0,
+        "minimum": 0,
+        "description": "Number of items to skip for pagination"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_id": { "type": "string" },
+            "item_type": { "type": "string" },
+            "project_id": { "type": "string" },
+            "board_id": { "type": "string" },
+            "column_id": { "type": "string" },
+            "title": { "type": "string" },
+            "description": { "type": "string" },
+            "status": { "type": "string" },
+            "priority": { "type": "string" },
+            "created_at": { "type": "string", "format": "date-time" },
+            "updated_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
+      "total": { "type": "integer" },
+      "limit": { "type": "integer" },
+      "offset": { "type": "integer" }
+    }
+  }
+}

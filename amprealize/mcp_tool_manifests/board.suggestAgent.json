@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "board.suggestAgent",
+  "description": "Suggest best agents for a board item (feature or task) based on behavior requirements and current workload. Returns ranked suggestions with scoring rationale.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["assignable_id", "assignable_type"],
+    "properties": {
+      "assignable_id": {
+        "type": "string",
+        "description": "ID of the feature or task to get agent suggestions for"
+      },
+      "assignable_type": {
+        "type": "string",
+        "enum": ["feature", "task"],
+        "description": "Type of the assignable item (feature or task)"
+      },
+      "required_behaviors": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional list of behavior IDs that agents must support",
+        "default": []
+      },
+      "max_suggestions": {
+        "type": "integer",
+        "description": "Maximum number of suggestions to return (1-10)",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 10
+      },
+      "exclude_agent_ids": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional list of agent IDs to exclude from suggestions",
+        "default": []
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      },
+      "actor": {
+        "type": "object",
+        "description": "Optional actor context for audit logging",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Actor's user or agent ID"
+          },
+          "role": {
+            "type": "string",
+            "description": "Actor's role (e.g., USER, AGENT, SYSTEM)"
+          }
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["suggestions", "assignable_id", "assignable_type", "required_behaviors", "total_eligible_agents"],
+    "properties": {
+      "suggestions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["agent_id", "agent_name", "score", "behavior_match_score", "workload_score", "current_workload", "matched_behaviors", "reason"],
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "Unique identifier of the suggested agent"
+            },
+            "agent_name": {
+              "type": "string",
+              "description": "Display name of the agent"
+            },
+            "score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Composite score (0-1) combining behavior match and workload"
+            },
+            "behavior_match_score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "How well agent's allowed behaviors match requirements"
+            },
+            "workload_score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Workload availability score (higher = more available)"
+            },
+            "current_workload": {
+              "type": "object",
+              "description": "Agent's current workload metrics",
+              "properties": {
+                "agent_id": { "type": "string" },
+                "agent_name": { "type": "string" },
+                "active_items": { "type": "integer" },
+                "in_progress_count": { "type": "integer" },
+                "completed_count": { "type": "integer" },
+                "total_points": { "type": "integer" },
+                "allowed_behaviors": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "max_concurrent_items": { "type": ["integer", "null"] },
+                "utilization_percent": { "type": ["number", "null"] }
+              }
+            },
+            "matched_behaviors": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Behaviors that matched between requirements and agent capabilities"
+            },
+            "reason": {
+              "type": "string",
+              "description": "Human-readable explanation for this suggestion"
+            }
+          }
+        }
+      },
+      "assignable_id": {
+        "type": "string",
+        "description": "The requested assignable item ID"
+      },
+      "assignable_type": {
+        "type": "string",
+        "enum": ["feature", "task"],
+        "description": "The requested assignable type"
+      },
+      "required_behaviors": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "The requested behavior requirements"
+      },
+      "total_eligible_agents": {
+        "type": "integer",
+        "description": "Total number of agents that met the criteria before limiting"
+      }
+    }
+  }
+}

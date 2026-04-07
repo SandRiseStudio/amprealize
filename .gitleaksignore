@@ -1,0 +1,35 @@
+# Gitleaks false positive allowlist
+# Each line is a fingerprint from gitleaks output
+
+# nginx config - env var references used with envsubst (not actual secrets)
+config/nginx/docker-entrypoint.sh:env-var-references:10
+config/nginx/nginx.conf:env-var-references:55
+config/nginx/nginx.conf:env-var-references:57
+
+# Model catalog - api_name is the Anthropic model identifier, not an API key
+guideai/work_item_execution_contracts.py:generic-api-key:110
+
+# MCP auth tool schema - client_secret env var placeholders (not actual secrets)
+mcp/tools/auth.clientCredentials.json:env-var-references:79
+mcp/tools/auth.clientCredentials.json:env-var-references:95
+mcp/tools/auth.clientCredentials.json:env-var-references:124
+
+# Test script - dummy test token, not a real credential
+scripts/test_phase8_token_vault.py:generic-api-key:169
+
+# npm wrapper - version string interpolation, not a secret
+packages/npm/bin/amprealize.js:env-var-references:120
+
+# Config schema - env var interpolation patterns (${PGUSER}, ${PGPASSWORD}, etc.)
+amprealize/config/schema.py:env-var-references:40
+amprealize/config/schema.py:env-var-references:46
+amprealize/config/schema.py:env-var-references:50
+amprealize/config/schema.py:env-var-references:68
+amprealize/config/schema.py:env-var-references:72
+amprealize/config/schema.py:env-var-references:73
+amprealize/config/schema.py:env-var-references:299
+amprealize/config/schema.py:env-var-references:345
+
+# Model catalog - api_name is the Anthropic model identifier, not an API key
+amprealize/llm/types.py:generic-api-key:52
+amprealize/work_item_execution_contracts.py:generic-api-key:110

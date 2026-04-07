@@ -1,0 +1,15 @@
+{
+  "name": "tools.deactivateGroup",
+  "description": "Deactivate a tool group to free up context space. Removes tools from the active set. Core tools cannot be deactivated.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "group_name": {
+        "type": "string",
+        "description": "Name of the tool group to deactivate",
+        "enum": ["analytics", "admin", "agents", "compliance", "development", "execution", "bci", "fine_tuning", "github", "infrastructure", "billing"]
+      }
+    },
+    "required": ["group_name"]
+  }
+}

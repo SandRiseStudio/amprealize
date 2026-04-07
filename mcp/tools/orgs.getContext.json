@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgs.getContext",
+  "description": "Get the user's context within an organization including role, plan, and settings.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID"
+      }
+    },
+    "required": ["user_id", "org_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "context": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "role": { "type": "string", "enum": ["owner", "admin", "member", "viewer"] },
+          "plan": { "type": "string" },
+          "settings": { "type": "object" }
+        }
+      }
+    }
+  }
+}

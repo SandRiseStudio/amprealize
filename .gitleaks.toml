@@ -1,0 +1,197 @@
+# Amprealize Gitleaks Configuration
+# Baseline secret scanning rules with suppression allowlist
+# Last updated: 2025-11-24
+#
+# Suppression Rules Compliance:
+# - All suppressions require Compliance approval per SECRETS_MANAGEMENT_PLAN.md
+# - Each entry must reference a remediation action logged via ActionService
+# - Patterns must be as specific as possible to avoid masking real leaks
+#
+# Usage:
+#   gitleaks detect --config .gitleaks.toml
+#   gitleaks detect --config .gitleaks.toml --report-path security/scan_reports/latest.json
+
+title = "Amprealize Secret Scanning Configuration"
+
+# =============================================================================
+# Global Allowlist - Paths that are always allowed
+# =============================================================================
+[allowlist]
+description = "Global allowlist for documented false positives"
+
+# Paths containing example/template files (not real secrets)
+paths = [
+    # Environment example templates (contain placeholders, not real secrets)
+    '''\.env\.example$''',
+    '''\.env\.sample$''',
+    '''\.env\.template$''',
+
+    # Test fixtures with mock/fake secrets
+    '''tests?/.*fixtures?/.*\.json$''',
+    '''tests?/.*mocks?/.*\.json$''',
+    '''test_github_device_flow\.py$''',
+    '''test_github_credentials\.py$''',  # Contains dummy GitHub token prefixes for testing
+
+    # Gitleaks ignore file itself
+    '''\.gitleaksignore$''',
+
+    # Secrets baseline file (contains hashed values, not real secrets)
+    '''\.secrets\.baseline$''',
+
+    # BreakerAmp blueprints (env-var interpolation templates, not real secrets)
+    '''config/breakeramp/blueprints/.*\.yaml$''',
+
+    # Nginx container config (env-var defaults, not real secrets)
+    '''config/nginx/.*''',
+
+    # Documentation (may contain example secret patterns for illustration)
+    '''docs/.*\.md$''',
+    '''\.md$''',
+
+    # Generated scan reports (contain redacted findings, not real secrets)
+    '''security/scan_reports/.*''',
+
+    # Lock files (no secrets, but may trigger false positives)
+    '''package-lock\.json$''',
+    '''poetry\.lock$''',
+    '''Pipfile\.lock$''',
+
+    # Agent skill definitions (third-party, contain env-var references not real secrets)
+    '''\.agents/skills/.*''',
+    '''\.claude/skills/.*''',
+    '''\.cline/skills/.*''',
+
+    # MCP tool manifests (JSON schemas + examples; placeholders not live secrets)
+    '''mcp/tools/.*\.json$''',
+    '''amprealize/mcp_tool_manifests/.*\.json$''',
+]
+
+# Commits known to contain resolved false positives
+# Format: commit SHA (full or short)
+commits = [
+    # Add specific commit SHAs here if needed after reviewing git history
+]
+
+# Regex patterns that are known false positives across entire repo
+regexes = [
+    # Example placeholder patterns used in documentation
+    '''change_me_in_production''',
+    '''placeholder_.*_secret''',
+    '''your_.*_here''',
+    '''<.*_API_KEY>''',
+    '''<.*_SECRET>''',
+    '''<INSERT_.*>''',
+    '''REPLACE_WITH_.*''',
+
+    # Anthropic model names (not secrets)
+    '''claude-opus-4-20250514''',
+
+    # Test token patterns with all x's (dummy tokens)
+    '''gh[ps]_x+''',
+    '''github_pat_x+''',
+]
+
+# =============================================================================
+# Rule-specific Allowlists
+# =============================================================================
+
+# Allow test database passwords in docker-compose.test.yml and CI workflows
+# Compliance Approval: DEV-001 (2025-11-24) - Test environment isolation confirmed
+[[rules]]
+id = "test-postgres-passwords"
+description = "Test database passwords in isolated CI containers"
+regex = '''(?i)POSTGRES_PASSWORD\s*[:=]\s*["']?[\w_]+_test_pass["']?'''
+allowlist.paths = [
+    '''docker-compose\.test\.yml$''',
+    '''\.github/workflows/.*\.yml$''',
+    '''packages/breakeramp/src/breakeramp/blueprints/.*\.yaml$''',
+]
+
+# Allow dev database passwords in docker-compose files
+# Compliance Approval: DEV-002 (2025-11-24) - Development environment only
+[[rules]]
+id = "dev-postgres-passwords"
+description = "Development database passwords in local dev containers"
+regex = '''(?i)POSTGRES_PASSWORD\s*[:=]\s*["']?(?:dev_[\w_]+_pass|local_[\w_]+_pw)["']?'''
+allowlist.paths = [
+    '''docker-compose.*\.yml$''',
+    '''packages/breakeramp/src/breakeramp/blueprints/.*\.yaml$''',
+    '''deployment/.*\.yml$''',
+]
+
+# Allow environment variable references (not actual secrets)
+[[rules]]
+id = "env-var-references"
+description = "Environment variable interpolation patterns (not actual secrets)"
+regex = '''\$\{[A-Z_]+(?::-[^}]*)?\}'''
+allowlist.paths = [
+    '''docker-compose.*\.yml$''',
+    '''\.github/workflows/.*''',
+    '''scripts/.*\.sh$''',
+    '''web-console/src/.*\.(ts|tsx)$''',
+    '''packages/breakeramp/.*''',
+    '''deployment/.*''',
+    '''cloudbuild.*\.yaml$''',
+    '''web-console/dashboard/.*\.json$''',
+]
+
+# Allow JWT secret placeholders in environments.yaml
+# Compliance Approval: DEV-003 (2025-11-24) - Clearly marked as non-production
+[[rules]]
+id = "jwt-dev-placeholders"
+description = "JWT secret placeholders clearly marked for development"
+regex = '''(?i)jwt_secret.*(?:local_dev|not_for_production|change_me)'''
+allowlist.paths = [
+    '''environments\.yaml$''',
+    '''deployment/.*\.env$''',
+]
+
+# Disable hashicorp-tf-password rule completely - too many false positives
+# This rule catches code like "password: str" or "hashed_password" which are not secrets
+[[rules]]
+id = "hashicorp-tf-password"
+description = "DISABLED - Too many false positives on parameter names"
+regex = '''DISABLED_RULE_DO_NOT_MATCH_ANYTHING_12345'''
+
+# =============================================================================
+# Custom Detection Rules (extend default gitleaks rules)
+# =============================================================================
+
+# Detect hardcoded Firebase credentials
+[[rules]]
+id = "firebase-api-key"
+description = "Firebase API Key"
+regex = '''AIza[0-9A-Za-z\-_]{35}'''
+keywords = ["firebase", "apiKey"]
+tags = ["firebase", "google"]
+
+# Detect hardcoded Amplitude API keys
+[[rules]]
+id = "amplitude-api-key"
+description = "Amplitude API Key"
+regex = '''(?i)(?:amplitude[_-]?api[_-]?key|AMPLITUDE_KEY)\s*[:=]\s*["']?[a-f0-9]{32}["']?'''
+keywords = ["amplitude"]
+tags = ["amplitude", "analytics"]
+
+# Detect potential private keys in PEM format
+[[rules]]
+id = "private-key-pem"
+description = "Private Key (PEM format)"
+regex = '''-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'''
+keywords = ["BEGIN", "PRIVATE", "KEY"]
+tags = ["key", "private"]
+
+# =============================================================================
+# Extend Default Rules
+# =============================================================================
+[extend]
+# Use gitleaks default rules as baseline
+useDefault = true
+
+# =============================================================================
+# Output Configuration
+# =============================================================================
+
+# Redact secrets in output (recommended for CI logs)
+# Can be overridden via CLI: --redact
+# redact = true

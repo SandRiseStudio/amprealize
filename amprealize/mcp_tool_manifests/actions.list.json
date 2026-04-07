@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "actions.list",
+  "description": "List recorded build actions with optional filtering by artifact path, behaviors, or related workflow runs. Returns actions in reverse chronological order.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "artifact_path_filter": {
+        "type": "string",
+        "description": "Filter actions by artifact path prefix (e.g., 'amprealize/', 'docs/')"
+      },
+      "behavior_id": {
+        "type": "string",
+        "description": "Filter actions that cite a specific behavior ID"
+      },
+      "related_run_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Filter actions associated with a specific workflow run"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 20,
+        "description": "Maximum number of actions to return"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT", "ADMIN"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB", "VSCODE"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor requesting the list"
+      }
+    },
+    "required": ["actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "actions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "action_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "artifact_path": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "behaviors_cited": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "actor": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "surface": {
+                  "type": "string"
+                }
+              }
+            },
+            "related_run_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "replay_status": {
+              "type": "string",
+              "enum": ["NOT_STARTED", "QUEUED", "RUNNING", "SUCCEEDED", "FAILED"]
+            }
+          },
+          "required": ["action_id", "artifact_path", "summary", "behaviors_cited", "timestamp", "replay_status"]
+        }
+      },
+      "total": {
+        "type": "integer",
+        "description": "Total number of actions matching filters"
+      }
+    },
+    "required": ["actions", "total"]
+  }
+}

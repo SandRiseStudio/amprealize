@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bci.composeBatchPrompts",
+  "description": "Compose prompts for multiple query/behavior pairs in a single request to optimize batching.",
+  "inputSchema": {
+    "$ref": "../../schema/bci/v1/prompt.json#/definitions/BatchComposePromptRequest"
+  },
+  "outputSchema": {
+    "$ref": "../../schema/bci/v1/prompt.json#/definitions/BatchComposePromptResponse"
+  }
+}

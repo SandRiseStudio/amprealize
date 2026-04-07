@@ -1,0 +1,95 @@
+{
+  "name": "agentPerformance.getAlerts",
+  "description": "Get performance alerts for agents. Alerts are generated when metrics fall below configured thresholds.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Filter by agent ID (optional)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Filter by organization ID (optional)"
+      },
+      "severity": {
+        "type": "string",
+        "description": "Filter by severity level",
+        "enum": ["warning", "critical"]
+      },
+      "include_resolved": {
+        "type": "boolean",
+        "description": "Include resolved alerts (default: false)",
+        "default": false
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum alerts to return (default: 50)",
+        "default": 50,
+        "minimum": 1,
+        "maximum": 500
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "alerts": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "alert_id": {
+              "type": "string",
+              "description": "Unique alert identifier"
+            },
+            "agent_id": {
+              "type": "string",
+              "description": "Affected agent"
+            },
+            "metric": {
+              "type": "string",
+              "description": "Metric that triggered the alert"
+            },
+            "severity": {
+              "type": "string",
+              "description": "Alert severity: warning or critical"
+            },
+            "current_value": {
+              "type": "number",
+              "description": "Current metric value"
+            },
+            "threshold_value": {
+              "type": "number",
+              "description": "Threshold that was breached"
+            },
+            "message": {
+              "type": "string",
+              "description": "Human-readable alert message"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the alert was created"
+            },
+            "acknowledged_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the alert was acknowledged (if applicable)"
+            },
+            "resolved_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the alert was resolved (if applicable)"
+            }
+          }
+        },
+        "description": "List of performance alerts"
+      },
+      "total_count": {
+        "type": "integer",
+        "description": "Total number of alerts matching the filter"
+      }
+    }
+  }
+}

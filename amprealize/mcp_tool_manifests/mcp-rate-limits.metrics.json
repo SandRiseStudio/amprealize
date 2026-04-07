@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "mcp-rate-limits.metrics",
+  "description": "Get MCP rate limiter metrics including total checks, allows, denies, and active clients.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "checks_total": {
+        "type": "integer",
+        "description": "Total rate limit checks performed"
+      },
+      "allows_total": {
+        "type": "integer",
+        "description": "Total requests allowed"
+      },
+      "denies_total": {
+        "type": "integer",
+        "description": "Total requests denied"
+      },
+      "warnings_total": {
+        "type": "integer",
+        "description": "Total soft limit warnings issued"
+      },
+      "active_clients": {
+        "type": "integer",
+        "description": "Number of clients with active rate limit state"
+      },
+      "clients_seen": {
+        "type": "integer",
+        "description": "Total unique clients seen"
+      },
+      "enabled": {
+        "type": "boolean",
+        "description": "Whether rate limiting is enabled"
+      },
+      "config": {
+        "type": "object",
+        "description": "Current rate limit configuration"
+      }
+    }
+  }
+}

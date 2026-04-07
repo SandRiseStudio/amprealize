@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bci.rebuildIndex",
+  "description": "Rebuild the BehaviorRetriever semantic index from all approved behaviors. This creates fresh embeddings using the BGE-M3 model and updates the FAISS index for semantic retrieval. The index is automatically rebuilt when behaviors are approved, but this tool allows manual triggering for operational tasks.",
+  "inputSchema": {
+    "type": "object",
+    "description": "Optional parameters for rebuild control",
+    "properties": {
+      "force": {
+        "type": "boolean",
+        "description": "Force rebuild even if index is current (default: false)"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "description": "Rebuild status: 'ready' (semantic mode), 'degraded' (keyword-only mode), or 'error'",
+        "enum": ["ready", "degraded", "error"]
+      },
+      "mode": {
+        "type": "string",
+        "description": "Retriever operational mode: 'semantic' (embeddings+FAISS available) or 'keyword' (fallback)",
+        "enum": ["semantic", "keyword"]
+      },
+      "behavior_count": {
+        "type": "integer",
+        "description": "Number of approved behaviors indexed"
+      },
+      "model": {
+        "type": "string",
+        "description": "Embedding model name (e.g., 'BAAI/bge-m3'). Only present in semantic mode."
+      },
+      "timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp of rebuild completion"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Human-readable explanation if status is 'degraded' or 'error'"
+      }
+    },
+    "required": ["status", "mode", "behavior_count", "timestamp"]
+  }
+}

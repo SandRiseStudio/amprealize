@@ -1,0 +1,49 @@
+{
+  "name": "ratelimit_reset",
+  "description": "Reset rate limit counters for an organization or user. Admin operation that clears all rate limit state.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to reset limits for"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "User ID to reset limits for (if no org_id provided)"
+      }
+    },
+    "oneOf": [
+      { "required": ["org_id"] },
+      { "required": ["user_id"] }
+    ]
+  },
+  "required_scopes": ["admin.ratelimit"],
+  "category": "rate_limiting",
+  "examples": [
+    {
+      "description": "Reset org rate limits",
+      "params": {
+        "org_id": "org-abc123"
+      }
+    }
+  ],
+  "response_schema": {
+    "type": "object",
+    "properties": {
+      "reset": {
+        "type": "boolean",
+        "description": "Whether reset was successful"
+      },
+      "keys_deleted": {
+        "type": "integer",
+        "description": "Number of rate limit keys deleted"
+      },
+      "backend": {
+        "type": "string",
+        "enum": ["redis", "memory"],
+        "description": "Storage backend used"
+      }
+    }
+  }
+}

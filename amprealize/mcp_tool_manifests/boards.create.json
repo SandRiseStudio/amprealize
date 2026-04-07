@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "boards.create",
+  "description": "Create a new board within a project. Optionally creates default columns (Backlog, To Do, In Progress, In Review, Done).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_id": {
+        "type": "string",
+        "description": "Project ID to create the board in (required)"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Board name (required)"
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 1000,
+        "description": "Board description"
+      },
+      "is_default": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether this is the default board for the project"
+      },
+      "create_default_columns": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to create default columns based on the chosen template"
+      },
+      "template": {
+        "type": "string",
+        "enum": ["minimal", "standard", "full"],
+        "default": "minimal",
+        "description": "Column template: 'minimal' (To Do, In Progress, Done), 'standard' (adds Backlog + In Review), 'full' (all statuses). Default is minimal for progressive disclosure."
+      },
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user creating the board"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": ["project_id", "name"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "board": {
+        "type": "object",
+        "properties": {
+          "board_id": { "type": "string" },
+          "project_id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "is_default": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

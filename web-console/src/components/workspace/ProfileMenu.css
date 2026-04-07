@@ -1,0 +1,220 @@
+/**
+ * ProfileMenu Component Styles
+ *
+ * Supports full and compact (collapsed sidebar) modes.
+ * Dropdown position: top (sidebar) or bottom (header).
+ */
+
+.profile-menu-standalone {
+  position: relative;
+}
+
+/* --------------------------------------------------------------------------
+   Trigger Button
+   -------------------------------------------------------------------------- */
+
+.profile-menu-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  min-height: 32px;
+}
+
+.profile-menu-trigger:hover {
+  background-color: var(--surface-hover, rgba(255, 255, 255, 0.08));
+}
+
+.profile-menu-trigger:focus-visible {
+  outline: 2px solid var(--accent-blue, #0ea5e9);
+  outline-offset: 2px;
+}
+
+/* Compact mode: avatar only, centered */
+.profile-menu-compact .profile-menu-trigger {
+  padding: 6px;
+  justify-content: center;
+}
+
+/* --------------------------------------------------------------------------
+   Avatar
+   -------------------------------------------------------------------------- */
+
+.profile-menu-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gradient-accent-subtle, linear-gradient(135deg, #0ea5e9 0%, #14b8a6 100%));
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+}
+
+.profile-menu-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-menu-avatar-initials {
+  text-transform: uppercase;
+}
+
+/* --------------------------------------------------------------------------
+   Name & Chevron
+   -------------------------------------------------------------------------- */
+
+.profile-menu-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #f1f5f9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.profile-menu-chevron {
+  color: var(--text-secondary, #94a3b8);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.profile-menu-trigger[aria-expanded='true'] .profile-menu-chevron {
+  transform: rotate(180deg);
+}
+
+/* --------------------------------------------------------------------------
+   Dropdown
+   -------------------------------------------------------------------------- */
+
+.profile-menu-dropdown {
+  position: absolute;
+  right: 0;
+  min-width: 180px;
+  background: var(--surface-elevated, rgba(30, 41, 59, 0.98));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  padding: 4px;
+  z-index: 1000;
+}
+
+/* Position variants */
+.profile-menu-dropdown-top {
+  bottom: calc(100% + 8px);
+}
+
+.profile-menu-dropdown-bottom {
+  top: calc(100% + 8px);
+}
+
+/* Compact mode: align left */
+.profile-menu-compact .profile-menu-dropdown {
+  left: 0;
+  right: auto;
+}
+
+/* --------------------------------------------------------------------------
+   Dropdown Header
+   -------------------------------------------------------------------------- */
+
+.profile-menu-dropdown-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  margin-bottom: 4px;
+}
+
+.profile-menu-dropdown-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #f1f5f9);
+  margin-bottom: 2px;
+}
+
+.profile-menu-dropdown-subtitle {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
+}
+
+/* --------------------------------------------------------------------------
+   Menu Items
+   -------------------------------------------------------------------------- */
+
+.profile-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #f1f5f9);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.profile-menu-item:hover,
+.profile-menu-item:focus {
+  background-color: var(--surface-hover, rgba(255, 255, 255, 0.08));
+  outline: none;
+}
+
+.profile-menu-item-logout {
+  color: var(--status-error, #f87171);
+}
+
+.profile-menu-item-logout:hover,
+.profile-menu-item-logout:focus {
+  background-color: rgba(239, 68, 68, 0.12);
+}
+
+/* --------------------------------------------------------------------------
+   Animation
+   -------------------------------------------------------------------------- */
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-in {
+  animation: scale-in 0.15s ease-out forwards;
+  transform-origin: bottom right;
+}
+
+.profile-menu-dropdown-top {
+  transform-origin: bottom right;
+}
+
+.profile-menu-dropdown-bottom {
+  transform-origin: top right;
+}
+
+.profile-menu-compact .profile-menu-dropdown-top {
+  transform-origin: bottom left;
+}
+
+.profile-menu-compact .profile-menu-dropdown-bottom {
+  transform-origin: top left;
+}

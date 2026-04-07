@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "flags.set",
+  "description": "Update a feature flag's state. Can toggle enabled, adjust percentage rollout, or modify user allowlist. Creates the flag if it does not exist.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (auto-injected from session if authenticated)"
+      },
+      "flag_name": {
+        "type": "string",
+        "description": "Dotted flag name (e.g. feature.auto_reflection)"
+      },
+      "enabled": {
+        "type": "boolean",
+        "description": "Set the flag enabled/disabled state"
+      },
+      "percentage": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100,
+        "description": "Set rollout percentage (0-100). Automatically converts flag to percentage type."
+      },
+      "user_list": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Set user allowlist. Automatically converts flag to user_list type."
+      }
+    },
+    "required": ["flag_name"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "flag": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "flag_type": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "percentage": { "type": "integer" },
+          "user_list": { "type": "array", "items": { "type": "string" } },
+          "description": { "type": "string" },
+          "metadata": { "type": "object" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

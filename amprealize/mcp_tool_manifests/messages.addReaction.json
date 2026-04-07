@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "messages.addReaction",
+  "description": "Add an emoji reaction to a message. Each user can only add each emoji once per message.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "message_id": {
+        "type": "string",
+        "description": "Message ID to react to (required)"
+      },
+      "emoji": {
+        "type": "string",
+        "maxLength": 32,
+        "description": "Emoji reaction string, e.g. '👍' or ':thumbsup:' (required)"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user adding the reaction"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": ["message_id", "emoji"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "reaction": { "type": "object" }
+    }
+  }
+}

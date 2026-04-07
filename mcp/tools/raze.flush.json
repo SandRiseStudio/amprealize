@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "raze.flush",
+  "description": "Force flush any buffered log entries to the configured sink. Useful before shutdown or when immediate persistence is required.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "timeout_ms": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 30000,
+        "default": 5000,
+        "description": "Maximum time to wait for flush to complete (milliseconds)"
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "flushed": {
+        "type": "integer",
+        "description": "Number of log entries flushed"
+      },
+      "pending": {
+        "type": "integer",
+        "description": "Number of entries still pending (if timeout reached)"
+      },
+      "duration_ms": {
+        "type": "number",
+        "description": "Time taken to flush in milliseconds"
+      }
+    },
+    "required": ["flushed", "pending", "duration_ms"]
+  },
+  "examples": [
+    {
+      "input": {
+        "timeout_ms": 5000
+      },
+      "output": {
+        "flushed": 47,
+        "pending": 0,
+        "duration_ms": 23.5
+      }
+    }
+  ]
+}

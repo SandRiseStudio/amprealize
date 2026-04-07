@@ -1,0 +1,120 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "context.getContext",
+  "description": "Get the current tenant context including active org, project, authentication state, and knowledge pack. Returns identity info, available scopes, and active pack metadata. Useful for debugging and understanding the current session state.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workspace_id": {
+        "type": "string",
+        "description": "Optional workspace ID to check pack activation for. If not provided, uses the current session workspace."
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "Authenticated user ID (null if service principal auth)"
+      },
+      "service_principal_id": {
+        "type": "string",
+        "description": "Authenticated service principal ID (null if user auth)"
+      },
+      "email": {
+        "type": "string",
+        "description": "Email address of the authenticated user (null if not available)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Current organization context (null if not set — orgs are optional)"
+      },
+      "org_name": {
+        "type": "string",
+        "description": "Display name of the current organization (null if no org set or name unavailable)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Current project context (null if not set)"
+      },
+      "project_name": {
+        "type": "string",
+        "description": "Display name of the current project (null if no project set or name unavailable)"
+      },
+      "auth_method": {
+        "type": "string",
+        "enum": ["device_flow", "client_credentials", "none"],
+        "description": "Authentication method used"
+      },
+      "roles": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Roles assigned to the identity"
+      },
+      "scopes": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Granted scopes for this session"
+      },
+      "is_authenticated": {
+        "type": "boolean",
+        "description": "Whether the session is authenticated"
+      },
+      "is_admin": {
+        "type": "boolean",
+        "description": "Whether the identity has admin privileges"
+      },
+      "accessible_org_ids": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Organization IDs the identity can access (empty if orgs not used)"
+      },
+      "accessible_project_ids": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Project IDs the identity can access"
+      },
+      "authenticated_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the session was authenticated (null if not authenticated)"
+      },
+      "active_pack": {
+        "type": "object",
+        "description": "Active knowledge pack metadata for the workspace (null if no pack active)",
+        "properties": {
+          "pack_id": {
+            "type": "string",
+            "description": "Knowledge pack identifier"
+          },
+          "pack_version": {
+            "type": "string",
+            "description": "Active pack version"
+          },
+          "profile": {
+            "type": "string",
+            "description": "Activation profile (solo-dev, amprealize-platform, etc.)"
+          },
+          "activated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the pack was activated"
+          },
+          "activated_by": {
+            "type": "string",
+            "description": "Who activated the pack"
+          }
+        }
+      },
+      "workspace_id": {
+        "type": "string",
+        "description": "Workspace ID used for pack activation lookup"
+      }
+    }
+  },
+  "required_scopes": [],
+  "category": "context",
+  "surface_parity": ["CLI", "MCP", "API"]
+}

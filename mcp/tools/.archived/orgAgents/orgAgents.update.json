@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgAgents.update",
+  "description": "Update an agent's configuration, model, or system prompt.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent ID to update"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "New agent name"
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 1000,
+        "description": "New agent description"
+      },
+      "model": {
+        "type": "string",
+        "description": "New model identifier"
+      },
+      "system_prompt": {
+        "type": "string",
+        "description": "New system prompt"
+      },
+      "config": {
+        "type": "object",
+        "description": "Agent configuration to update"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Agent metadata to update"
+      }
+    },
+    "required": ["user_id", "agent_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "agent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "slug": { "type": "string" },
+          "model": { "type": "string" },
+          "status": { "type": "string" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

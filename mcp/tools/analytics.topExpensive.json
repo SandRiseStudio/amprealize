@@ -1,0 +1,66 @@
+{
+  "name": "analytics.topExpensive",
+  "description": "Query top expensive workflows from analytics warehouse. Identifies the most costly workflow templates for optimization opportunities.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "description": "Number of workflows to return (default: 10, max: 100)",
+        "default": 10
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "records": {
+        "type": "array",
+        "description": "List of top expensive workflows",
+        "items": {
+          "type": "object",
+          "properties": {
+            "template_id": {
+              "type": "string",
+              "description": "Workflow template identifier (null for ad-hoc runs)"
+            },
+            "total_cost_usd": {
+              "type": "number",
+              "description": "Total cost in USD for this workflow template"
+            },
+            "total_tokens": {
+              "type": "integer",
+              "description": "Total tokens used by this workflow"
+            },
+            "avg_cost_per_run": {
+              "type": "number",
+              "description": "Average cost per run for this workflow"
+            },
+            "run_count": {
+              "type": "integer",
+              "description": "Number of runs using this workflow"
+            },
+            "avg_tokens_per_run": {
+              "type": "integer",
+              "description": "Average tokens per run"
+            }
+          }
+        }
+      },
+      "count": {
+        "type": "integer",
+        "description": "Number of workflows returned"
+      }
+    }
+  },
+  "endpoint": {
+    "method": "GET",
+    "path": "/v1/analytics/top-expensive",
+    "queryParams": ["limit"]
+  },
+  "cli": {
+    "command": "amprealize analytics top-expensive",
+    "flags": ["--limit", "--format"]
+  },
+  "tags": ["analytics", "cost", "optimization", "workflows", "prd-8.17"]
+}

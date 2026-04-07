@@ -1,0 +1,45 @@
+{
+  "name": "@sandrisesf/amprealize",
+  "version": "0.1.0",
+  "description": "Amprealize developer tooling and task orchestration CLI",
+  "keywords": [
+    "amprealize",
+    "ai",
+    "developer-tools",
+    "cli",
+    "mcp",
+    "copilot"
+  ],
+  "homepage": "https://breakeramp.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SandRiseStudio/amprealize.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SandRiseStudio/amprealize/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "Amprealize Team",
+  "bin": {
+    "amprealize": "./bin/amprealize.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "test": "node bin/amprealize.js --version"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md",
+    "LICENSE"
+  ],
+  "preferGlobal": true
+}

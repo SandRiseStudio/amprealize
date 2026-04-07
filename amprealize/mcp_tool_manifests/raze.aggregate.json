@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "raze.aggregate",
+  "description": "Aggregate log events by dimensions such as level, service, or time buckets. Useful for dashboards, alerting thresholds, and understanding log volume patterns.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_time": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Start of time range (ISO 8601). Defaults to 24 hours ago."
+      },
+      "end_time": {
+        "type": "string",
+        "format": "date-time",
+        "description": "End of time range (ISO 8601). Defaults to now."
+      },
+      "group_by": {
+        "type": "string",
+        "enum": ["level", "service", "actor_surface", "time_bucket"],
+        "default": "level",
+        "description": "Dimension to group by"
+      },
+      "time_bucket": {
+        "type": "string",
+        "enum": ["1m", "5m", "15m", "1h", "6h", "1d"],
+        "default": "1h",
+        "description": "Time bucket size when group_by is 'time_bucket'"
+      },
+      "level": {
+        "type": "string",
+        "enum": ["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        "description": "Filter to minimum log level before aggregating"
+      },
+      "service": {
+        "type": "string",
+        "description": "Filter by service name before aggregating"
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "aggregations": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string",
+              "description": "Aggregation bucket key (level name, service name, or time bucket start)"
+            },
+            "count": {
+              "type": "integer",
+              "description": "Number of events in this bucket"
+            },
+            "first_seen": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Timestamp of earliest event in bucket"
+            },
+            "last_seen": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Timestamp of latest event in bucket"
+            }
+          },
+          "required": ["key", "count"]
+        },
+        "description": "Aggregation results"
+      },
+      "group_by": {
+        "type": "string",
+        "description": "Dimension used for grouping"
+      },
+      "time_bucket": {
+        "type": "string",
+        "description": "Time bucket size (if applicable)"
+      }
+    },
+    "required": ["aggregations", "group_by"]
+  },
+  "examples": [
+    {
+      "name": "Count by log level",
+      "input": {
+        "group_by": "level"
+      },
+      "output": {
+        "aggregations": [
+          {"key": "ERROR", "count": 15, "first_seen": "2024-01-15T08:00:00Z", "last_seen": "2024-01-15T10:30:00Z"},
+          {"key": "WARNING", "count": 42, "first_seen": "2024-01-15T00:00:00Z", "last_seen": "2024-01-15T10:45:00Z"},
+          {"key": "INFO", "count": 1250, "first_seen": "2024-01-15T00:00:00Z", "last_seen": "2024-01-15T10:59:00Z"},
+          {"key": "DEBUG", "count": 8500, "first_seen": "2024-01-15T00:00:00Z", "last_seen": "2024-01-15T10:59:30Z"}
+        ],
+        "group_by": "level",
+        "time_bucket": "1h"
+      }
+    },
+    {
+      "name": "Count by service",
+      "input": {
+        "group_by": "service",
+        "level": "WARNING"
+      },
+      "output": {
+        "aggregations": [
+          {"key": "behavior-service", "count": 25, "first_seen": "2024-01-15T06:00:00Z", "last_seen": "2024-01-15T10:30:00Z"},
+          {"key": "mcp-server", "count": 18, "first_seen": "2024-01-15T07:15:00Z", "last_seen": "2024-01-15T10:45:00Z"},
+          {"key": "api", "count": 14, "first_seen": "2024-01-15T08:00:00Z", "last_seen": "2024-01-15T10:50:00Z"}
+        ],
+        "group_by": "service",
+        "time_bucket": "1h"
+      }
+    },
+    {
+      "name": "Hourly error rate",
+      "input": {
+        "group_by": "time_bucket",
+        "time_bucket": "1h",
+        "level": "ERROR"
+      },
+      "output": {
+        "aggregations": [
+          {"key": "2024-01-15T08:00:00Z", "count": 3},
+          {"key": "2024-01-15T09:00:00Z", "count": 7},
+          {"key": "2024-01-15T10:00:00Z", "count": 5}
+        ],
+        "group_by": "time_bucket",
+        "time_bucket": "1h"
+      }
+    }
+  ]
+}

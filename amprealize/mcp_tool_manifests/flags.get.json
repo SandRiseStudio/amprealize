@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "flags.get",
+  "description": "Get a single feature flag by name, including its type, enabled state, and configuration.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (auto-injected from session if authenticated)"
+      },
+      "flag_name": {
+        "type": "string",
+        "description": "Dotted flag name (e.g. feature.auto_reflection)"
+      }
+    },
+    "required": ["flag_name"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "flag": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "flag_type": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "percentage": { "type": "integer" },
+          "user_list": { "type": "array", "items": { "type": "string" } },
+          "description": { "type": "string" },
+          "metadata": { "type": "object" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

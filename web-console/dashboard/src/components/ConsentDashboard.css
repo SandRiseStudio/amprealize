@@ -1,0 +1,89 @@
+.consent-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.consent-dashboard__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+}
+
+.consent-dashboard__table-wrapper {
+  overflow-x: auto;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.12);
+}
+
+body.dark .consent-dashboard__table-wrapper {
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow: 0 22px 44px rgba(15, 23, 42, 0.55);
+}
+
+.consent-dashboard__table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 680px;
+}
+
+.consent-dashboard__table th,
+.consent-dashboard__table td {
+  padding: 0.85rem 1rem;
+  text-align: center;
+  font-size: 0.95rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.consent-dashboard__table th:first-child,
+.consent-dashboard__table td:first-child {
+  text-align: left;
+  font-weight: 600;
+}
+
+body.dark .consent-dashboard__table th,
+body.dark .consent-dashboard__table td {
+  border-color: rgba(148, 163, 184, 0.12);
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.consent-dashboard__table thead {
+  background: rgba(76, 133, 255, 0.08);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+body.dark .consent-dashboard__table thead {
+  background: rgba(124, 92, 255, 0.16);
+  color: rgba(226, 232, 240, 0.75);
+}
+
+.consent-dashboard__table tbody tr:nth-child(odd) {
+  background: rgba(124, 92, 255, 0.04);
+}
+
+body.dark .consent-dashboard__table tbody tr:nth-child(odd) {
+  background: rgba(124, 92, 255, 0.08);
+}
+
+.consent-dashboard__table tbody tr:hover {
+  background: rgba(124, 92, 255, 0.08);
+}
+
+body.dark .consent-dashboard__table tbody tr:hover {
+  background: rgba(124, 92, 255, 0.16);
+}
+
+.consent-dashboard__footer {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+body.dark .consent-dashboard__footer {
+  color: rgba(226, 232, 240, 0.65);
+}

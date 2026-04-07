@@ -1,0 +1,93 @@
+{
+  "name": "metrics.getSummary",
+  "description": "Get real-time metrics summary with 30s cache TTL, providing PRD KPI targets: behavior reuse (70%), token savings (30%), task completion (80%), compliance coverage (95%). Faster than analytics.kpiSummary for dashboard updates.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results from this date forward"
+      },
+      "end_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results up to this date"
+      },
+      "use_cache": {
+        "type": "boolean",
+        "description": "Whether to use cached data (default: true). Set false to force fresh query.",
+        "default": true
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "snapshot_time": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO timestamp when metrics were captured"
+      },
+      "behavior_reuse_pct": {
+        "type": "number",
+        "description": "Percentage of runs citing ≥1 behavior (PRD target: 70%)"
+      },
+      "average_token_savings_pct": {
+        "type": "number",
+        "description": "Average token reduction via BCI (PRD target: 30%)"
+      },
+      "task_completion_rate_pct": {
+        "type": "number",
+        "description": "Percentage of runs completed successfully (PRD target: 80%)"
+      },
+      "average_compliance_coverage_pct": {
+        "type": "number",
+        "description": "Average checklist coverage (PRD target: 95%)"
+      },
+      "total_runs": {
+        "type": "integer",
+        "description": "Total number of runs in the period"
+      },
+      "runs_with_behaviors": {
+        "type": "integer",
+        "description": "Runs that cited at least one behavior"
+      },
+      "total_baseline_tokens": {
+        "type": "integer",
+        "description": "Sum of baseline token counts"
+      },
+      "total_output_tokens": {
+        "type": "integer",
+        "description": "Sum of actual output tokens consumed"
+      },
+      "completed_runs": {
+        "type": "integer",
+        "description": "Number of successfully completed runs"
+      },
+      "failed_runs": {
+        "type": "integer",
+        "description": "Number of failed runs"
+      },
+      "total_compliance_events": {
+        "type": "integer",
+        "description": "Total compliance events recorded"
+      },
+      "cache_hit": {
+        "type": "boolean",
+        "description": "Whether this result was served from cache"
+      },
+      "cache_age_seconds": {
+        "type": "number",
+        "description": "Age of cached data in seconds (0 if fresh)"
+      }
+    },
+    "required": [
+      "snapshot_time",
+      "behavior_reuse_pct",
+      "average_token_savings_pct",
+      "task_completion_rate_pct",
+      "average_compliance_coverage_pct",
+      "total_runs",
+      "cache_hit"
+    ]
+  }
+}

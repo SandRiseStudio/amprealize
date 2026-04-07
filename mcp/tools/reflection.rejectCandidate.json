@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "reflection.rejectCandidate",
+  "description": "Reject a behavior candidate with an optional reason.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "candidate_id": {
+        "type": "string",
+        "description": "The ID of the candidate to reject (e.g., cand_abc123)."
+      },
+      "reviewed_by": {
+        "type": "string",
+        "description": "User or agent ID performing the rejection."
+      },
+      "reason": {
+        "type": "string",
+        "description": "Reason for rejection (recorded for audit)."
+      }
+    },
+    "required": ["candidate_id", "reviewed_by"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "candidate_id": { "type": "string" },
+      "status": { "type": "string" },
+      "message": { "type": "string" }
+    }
+  }
+}

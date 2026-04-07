@@ -1,0 +1,530 @@
+# Production Blueprint - High Availability Amprealize Infrastructure
+# Monitoring is REQUIRED (not optional) for production deployments
+# Requires minimum 32GB RAM for full stack
+#
+# Usage:
+#   breakeramp plan --blueprint production --env production
+#   breakeramp apply --blueprint production --env production
+#
+# Port Conventions (production uses standard ports with load balancing):
+#   PostgreSQL: 5432-5438 (behind load balancer)
+#   Redis: 6379 (clustered)
+#   Kafka: 9092 (clustered)
+#   Prometheus: 9090
+#   Grafana: 3000
+#   Alertmanager: 9093
+
+version: "3.9"
+
+name: amprealize-production
+
+# =============================================================================
+# MODULES - Production requires monitoring, streaming optional
+# =============================================================================
+x-modules:
+  core: &core-module
+    enabled: true
+    description: "Core data plane services - REQUIRED"
+
+  streaming: &streaming-module
+    enabled: "${ENABLE_STREAMING:-false}"
+    description: "Kafka streaming pipeline - optional for event-driven workflows"
+
+  monitoring: &monitoring-module
+    enabled: true  # REQUIRED for production - not optional
+    description: "Prometheus/Grafana/Alertmanager monitoring stack"
+
+# =============================================================================
+# SHARED CONFIGURATIONS
+# =============================================================================
+x-postgres-common: &postgres-common
+  image: timescale/timescaledb:latest-pg15
+  restart: always
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U postgres"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 30s
+  deploy:
+    resources:
+      limits:
+        memory: 4G
+      reservations:
+        memory: 2G
+
+x-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "100m"
+    max-file: "5"
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  amprealize-production:
+    driver: bridge
+    name: amprealize-production-network
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  # Database volumes - persistent storage required
+  telemetry-db-data:
+    name: amprealize-prod-telemetry-db
+  behavior-db-data:
+    name: amprealize-prod-behavior-db
+  workflow-db-data:
+    name: amprealize-prod-workflow-db
+  action-db-data:
+    name: amprealize-prod-action-db
+  run-db-data:
+    name: amprealize-prod-run-db
+  compliance-db-data:
+    name: amprealize-prod-compliance-db
+  orchestrator-db-data:
+    name: amprealize-prod-orchestrator-db
+
+  # Redis volume
+  redis-data:
+    name: amprealize-prod-redis
+
+  # Application volumes
+  amprealize-api-data:
+    name: amprealize-prod-api-data
+
+  # Streaming volumes (conditional)
+  kafka-data:
+    name: amprealize-prod-kafka
+  zookeeper-data:
+    name: amprealize-prod-zookeeper
+  schema-registry-data:
+    name: amprealize-prod-schema-registry
+
+  # Monitoring volumes (required for production)
+  prometheus-data:
+    name: amprealize-prod-prometheus
+  grafana-data:
+    name: amprealize-prod-grafana
+  alertmanager-data:
+    name: amprealize-prod-alertmanager
+
+# =============================================================================
+# SERVICES
+# =============================================================================
+services:
+  # ---------------------------------------------------------------------------
+  # MODULE: CORE (Required)
+  # ---------------------------------------------------------------------------
+
+  # --- Telemetry Database (Port 5432) ---
+  telemetry-db:
+    <<: *postgres-common
+    container_name: amprealize-prod-telemetry-db
+    environment:
+      POSTGRES_USER: "${TELEMETRY_DB_USER:-telemetry}"
+      POSTGRES_PASSWORD: "${TELEMETRY_DB_PASSWORD}"
+      POSTGRES_DB: "${TELEMETRY_DB_NAME:-telemetry}"
+    ports:
+      - "${TELEMETRY_DB_PORT:-5432}:5432"
+    volumes:
+      - telemetry-db-data:/var/lib/postgresql/data
+    networks:
+      - amprealize-production
+    logging: *logging
+
+  # --- Behavior Database (Port 5433) ---
+  behavior-db:
+    <<: *postgres-common
+    container_name: amprealize-prod-behavior-db
+    environment:
+      POSTGRES_USER: "${BEHAVIOR_DB_USER:-behavior}"
+      POSTGRES_PASSWORD: "${BEHAVIOR_DB_PASSWORD}"
+      POSTGRES_DB: "${BEHAVIOR_DB_NAME:-behavior}"
+    ports:
+      - "${BEHAVIOR_DB_PORT:-5433}:5432"
+    volumes:
+      - behavior-db-data:/var/lib/postgresql/data
+    networks:
+      - amprealize-production
+    logging: *logging
+
+  # --- Workflow Database (Port 5434) ---
+  workflow-db:
+    <<: *postgres-common
+    container_name: amprealize-prod-workflow-db
+    environment:
+      POSTGRES_USER: "${WORKFLOW_DB_USER:-workflow}"
+      POSTGRES_PASSWORD: "${WORKFLOW_DB_PASSWORD}"
+      POSTGRES_DB: "${WORKFLOW_DB_NAME:-workflow}"
+    ports:
+      - "${WORKFLOW_DB_PORT:-5434}:5432"
+    volumes:
+      - workflow-db-data:/var/lib/postgresql/data
+    networks:
+      - amprealize-production
+    logging: *logging
+
+  # --- Action Database (Port 5435) ---
+  action-db:
+    <<: *postgres-common
+    container_name: amprealize-prod-action-db
+    environment:
+      POSTGRES_USER: "${ACTION_DB_USER:-action}"
+      POSTGRES_PASSWORD: "${ACTION_DB_PASSWORD}"
+      POSTGRES_DB: "${ACTION_DB_NAME:-action}"
+    ports:
+      - "${ACTION_DB_PORT:-5435}:5432"
+    volumes:
+      - action-db-data:/var/lib/postgresql/data
+    networks:
+      - amprealize-production
+    logging: *logging
+
+  # --- Run Database (Port 5436) ---
+  run-db:
+    <<: *postgres-common
+    container_name: amprealize-prod-run-db
+    environment:
+      POSTGRES_USER: "${RUN_DB_USER:-run}"
+      POSTGRES_PASSWORD: "${RUN_DB_PASSWORD}"
+      POSTGRES_DB: "${RUN_DB_NAME:-run}"
+    ports:
+      - "${RUN_DB_PORT:-5436}:5432"
+    volumes:
+      - run-db-data:/var/lib/postgresql/data
+    networks:
+      - amprealize-production
+    logging: *logging
+
+  # --- Compliance Database (Port 5437) ---
+  compliance-db:
+    <<: *postgres-common
+    container_name: amprealize-prod-compliance-db
+    environment:
+      POSTGRES_USER: "${COMPLIANCE_DB_USER:-compliance}"
+      POSTGRES_PASSWORD: "${COMPLIANCE_DB_PASSWORD}"
+      POSTGRES_DB: "${COMPLIANCE_DB_NAME:-compliance}"
+    ports:
+      - "${COMPLIANCE_DB_PORT:-5437}:5432"
+    volumes:
+      - compliance-db-data:/var/lib/postgresql/data
+    networks:
+      - amprealize-production
+    logging: *logging
+
+  # --- Agent Orchestrator Database (Port 5438) ---
+  orchestrator-db:
+    <<: *postgres-common
+    container_name: amprealize-prod-orchestrator-db
+    environment:
+      POSTGRES_USER: "${ORCHESTRATOR_DB_USER:-orchestrator}"
+      POSTGRES_PASSWORD: "${ORCHESTRATOR_DB_PASSWORD}"
+      POSTGRES_DB: "${ORCHESTRATOR_DB_NAME:-orchestrator}"
+    ports:
+      - "${ORCHESTRATOR_DB_PORT:-5438}:5432"
+    volumes:
+      - orchestrator-db-data:/var/lib/postgresql/data
+    networks:
+      - amprealize-production
+    logging: *logging
+
+  # --- Redis Cache ---
+  redis:
+    image: redis:7-alpine
+    container_name: amprealize-prod-redis
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - amprealize-production
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  # --- Amprealize API ---
+  amprealize-api:
+    image: "${AMPREALIZE_API_IMAGE:-ghcr.io/amprealize/api:latest}"
+    container_name: amprealize-prod-api
+    restart: always
+    depends_on:
+      telemetry-db:
+        condition: service_healthy
+      behavior-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://${BEHAVIOR_DB_USER:-behavior}:${BEHAVIOR_DB_PASSWORD}@behavior-db:5432/${BEHAVIOR_DB_NAME:-behavior}"
+      TELEMETRY_DATABASE_URL: "postgresql://${TELEMETRY_DB_USER:-telemetry}:${TELEMETRY_DB_PASSWORD}@telemetry-db:5432/${TELEMETRY_DB_NAME:-telemetry}"
+      REDIS_URL: "redis://redis:6379/0"
+      AMPREALIZE_AUTH_ENABLED: "true"
+      AMPREALIZE_CORS_ORIGINS: "${AMPREALIZE_CORS_ORIGINS:-}"
+      AMPREALIZE_LOG_LEVEL: "${AMPREALIZE_LOG_LEVEL:-info}"
+    networks:
+      - amprealize-production
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    logging: *logging
+
+  # --- Web Console (static production build) ---
+  web-console:
+    image: "${AMPREALIZE_WEB_CONSOLE_IMAGE:-ghcr.io/amprealize/web-console:latest}"
+    container_name: amprealize-prod-web-console
+    restart: always
+    environment:
+      VITE_API_BASE_URL: "${VITE_API_BASE_URL:-}"
+    networks:
+      - amprealize-production
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5173/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    logging: *logging
+
+  # --- Gateway (nginx reverse proxy / TLS termination) ---
+  gateway:
+    image: nginx:alpine
+    container_name: amprealize-prod-gateway
+    restart: always
+    depends_on:
+      amprealize-api:
+        condition: service_healthy
+      web-console:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_PORT:-80}:80"
+      - "${GATEWAY_TLS_PORT:-443}:443"
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - ./config/nginx/docker-entrypoint.sh:/docker-entrypoint-custom.sh:ro
+    environment:
+      NGINX_SSL_CERT: "${NGINX_SSL_CERT:-}"
+      NGINX_SSL_KEY: "${NGINX_SSL_KEY:-}"
+      NGINX_SSL_REDIRECT: "${NGINX_SSL_REDIRECT:-true}"
+    command: ["/bin/sh", "/docker-entrypoint-custom.sh"]
+    networks:
+      - amprealize-production
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/nginx-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    logging: *logging
+
+  # ---------------------------------------------------------------------------
+  # MODULE: STREAMING (Optional - enabled via ENABLE_STREAMING=true)
+  # ---------------------------------------------------------------------------
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: amprealize-prod-zookeeper
+    restart: always
+    profiles:
+      - streaming
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+    networks:
+      - amprealize-production
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: amprealize-prod-kafka
+    restart: always
+    profiles:
+      - streaming
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - amprealize-production
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    logging: *logging
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    container_name: amprealize-prod-schema-registry
+    restart: always
+    profiles:
+      - streaming
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    ports:
+      - "${SCHEMA_REGISTRY_PORT:-8081}:8081"
+    volumes:
+      - schema-registry-data:/var/lib/schema-registry
+    networks:
+      - amprealize-production
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  # ---------------------------------------------------------------------------
+  # MODULE: MONITORING (Required for Production)
+  # ---------------------------------------------------------------------------
+
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: amprealize-prod-prometheus
+    restart: always
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./config/prometheus:/etc/prometheus:ro
+    networks:
+      - amprealize-production
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: amprealize-prod-grafana
+    restart: always
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "${GRAFANA_ROOT_URL:-http://localhost:3000}"
+      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - amprealize-production
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: amprealize-prod-alertmanager
+    restart: always
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    volumes:
+      - alertmanager-data:/alertmanager
+      - ./config/alertmanager:/etc/alertmanager:ro
+    networks:
+      - amprealize-production
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+# =============================================================================
+# PRODUCTION DEPLOYMENT NOTES
+# =============================================================================
+#
+# Pre-deployment checklist:
+# 1. Set all *_PASSWORD environment variables (never use defaults in production)
+# 2. Configure external secrets manager integration
+# 3. Review memory limits for your infrastructure
+# 4. Set up proper backup procedures for all volumes
+# 5. Configure Prometheus alerting rules
+# 6. Set GRAFANA_ROOT_URL to your production domain
+#
+# Required environment variables:
+#   TELEMETRY_DB_PASSWORD, BEHAVIOR_DB_PASSWORD, WORKFLOW_DB_PASSWORD,
+#   ACTION_DB_PASSWORD, RUN_DB_PASSWORD, COMPLIANCE_DB_PASSWORD,
+#   ORCHESTRATOR_DB_PASSWORD, GRAFANA_ADMIN_PASSWORD
+#
+# Application images (override defaults):
+#   AMPREALIZE_API_IMAGE      - API server image (default: ghcr.io/amprealize/api:latest)
+#   AMPREALIZE_WEB_CONSOLE_IMAGE - Web console image (default: ghcr.io/amprealize/web-console:latest)
+#
+# TLS (strongly recommended for production):
+#   NGINX_SSL_CERT  - Path to TLS certificate inside the gateway container
+#   NGINX_SSL_KEY   - Path to TLS private key inside the gateway container
+#   NGINX_SSL_REDIRECT defaults to true in production (HTTP→HTTPS)
+#
+# Optional streaming (set ENABLE_STREAMING=true):
+#   podman-compose --profile streaming up -d
+#
+# Monitoring is always enabled in production - no profile needed

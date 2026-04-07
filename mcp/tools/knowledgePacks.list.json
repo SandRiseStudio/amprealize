@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "knowledgePacks.list",
+  "description": "List available knowledge packs with optional filtering by scope, profile, or status.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "scope": {
+        "type": "string",
+        "enum": ["org", "project", "user"],
+        "description": "Filter packs by scope"
+      },
+      "profile": {
+        "type": "string",
+        "enum": ["dev_local", "ci_ephemeral", "prod_collaborative"],
+        "description": "Filter packs by profile"
+      },
+      "include_versions": {
+        "type": "boolean",
+        "default": false,
+        "description": "Include version history for each pack"
+      },
+      "limit": {
+        "type": "integer",
+        "default": 50,
+        "description": "Maximum number of packs to return"
+      },
+      "offset": {
+        "type": "integer",
+        "default": 0,
+        "description": "Offset for pagination"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"]
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "packs": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "pack_id": {
+              "type": "string"
+            },
+            "latest_version": {
+              "type": "string"
+            },
+            "profile": {
+              "type": "string",
+              "enum": ["dev_local", "ci_ephemeral", "prod_collaborative"]
+            },
+            "scope": {
+              "type": "string",
+              "enum": ["org", "project", "user"]
+            },
+            "overlay_count": {
+              "type": "integer"
+            },
+            "source_count": {
+              "type": "integer"
+            },
+            "token_budget_used": {
+              "type": "integer"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "versions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "string"
+                  },
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "primer_hash": {
+                    "type": "string"
+                  }
+                }
+              },
+              "description": "Version history, only included if include_versions is true"
+            }
+          }
+        }
+      },
+      "total_count": {
+        "type": "integer",
+        "description": "Total number of packs matching the filter criteria"
+      },
+      "limit": {
+        "type": "integer"
+      },
+      "offset": {
+        "type": "integer"
+      }
+    }
+  }
+}

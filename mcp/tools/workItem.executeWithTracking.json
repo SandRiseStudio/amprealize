@@ -1,0 +1,23 @@
+{
+  "name": "workItem.executeWithTracking",
+  "description": "Execute a work item with full progress tracking and automatic status updates. This high-level tool combines workItems.execute, runs.updateProgress, runs.updateStatus, and workItems.moveToColumn into a single operation with keepalive support for long-running executions.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "work_item_id": {
+        "type": "string",
+        "description": "Work item ID to execute (required)"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Optional agent ID override. Uses assigned agent if not provided."
+      },
+      "notify_on_complete": {
+        "type": "boolean",
+        "description": "Whether to send notification on completion",
+        "default": true
+      }
+    },
+    "required": ["work_item_id"]
+  }
+}

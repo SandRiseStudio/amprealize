@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "messages.list",
+  "description": "List messages in a conversation with pagination. Optionally filter by parent message for thread replies.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "conversation_id": {
+        "type": "string",
+        "description": "Conversation ID to list messages from (required)"
+      },
+      "parent_id": {
+        "type": "string",
+        "description": "Optional parent message ID to list thread replies only"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "ID of the requesting user"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      },
+      "limit": {
+        "type": "integer",
+        "default": 50,
+        "minimum": 1,
+        "maximum": 100,
+        "description": "Maximum number of messages to return"
+      },
+      "offset": {
+        "type": "integer",
+        "default": 0,
+        "minimum": 0,
+        "description": "Number of messages to skip for pagination"
+      }
+    },
+    "required": ["conversation_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "messages": { "type": "array", "items": { "type": "object" } },
+      "total": { "type": "integer" },
+      "has_more": { "type": "boolean" }
+    }
+  }
+}

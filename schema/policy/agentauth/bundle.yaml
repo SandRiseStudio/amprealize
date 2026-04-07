@@ -1,0 +1,513 @@
+# Amprealize Agent Authorization Policy Bundle
+#
+# This is the production policy bundle for the MCP authentication system.
+# Changes to this file will be hot-reloaded on SIGHUP signal.
+#
+# References:
+# - docs/MCP_AUTH_IMPLEMENTATION_PLAN.md: Phase 7 specification
+# - docs/AGENT_AUTH_ARCHITECTURE.md: Authorization architecture
+# - AGENTS.md: Role definitions and behaviors
+
+bundle_version: "2.0.0"
+
+metadata:
+  description: "Production AgentAuth policy bundle with RBAC, MFA, and consent flows"
+  created_at: 2026-01-22T00:00:00Z
+  updated_at: 2026-01-22T00:00:00Z
+  reviewers:
+    - security@amprealize.dev
+    - product@amprealize.dev
+  changelog:
+    - "2.0.0: Phase 7 implementation - dynamic policy engine integration"
+    - "1.0.0: Initial contracts for EnsureGrant, RevokeGrant, PolicyPreview"
+
+# ============================================================================
+# Role Definitions (with inheritance)
+# ============================================================================
+# Roles follow the Agent Handbook (AGENTS.md):
+# - ADMIN: Full platform access
+# - STRATEGIST: Pattern analysis, behavior curation, architectural decisions
+# - TEACHER: Generate examples, documentation, behavior validation
+# - STUDENT: Consume behaviors, execute with guidance
+# - OBSERVER: Read-only access
+# - SERVICE_PRINCIPAL: Machine-to-machine access (no inheritance)
+
+roles:
+  ADMIN:
+    description: "Full platform access with all permissions"
+    inherits:
+      - STRATEGIST
+
+  STRATEGIST:
+    description: "Pattern analysis, behavior curation, architectural decisions"
+    inherits:
+      - TEACHER
+
+  TEACHER:
+    description: "Generate examples, documentation, behavior validation"
+    inherits:
+      - STUDENT
+
+  STUDENT:
+    description: "Consume behaviors, execute with guidance"
+    inherits:
+      - OBSERVER
+
+  OBSERVER:
+    description: "Read-only access to public resources"
+    inherits: []
+
+  SERVICE_PRINCIPAL:
+    description: "Machine-to-machine access for automated agents"
+    inherits: []
+
+# ============================================================================
+# Scope Catalog
+# ============================================================================
+# Defines all available scopes with risk levels and MFA requirements.
+# risk_level: low | medium | high
+# requires_mfa: true | false (high-risk scopes should require MFA)
+
+scope_catalog:
+  # --- Behavior Scopes ---
+  behaviors:read:
+    description: "Read behavior definitions and search behaviors"
+    risk_level: low
+    requires_mfa: false
+
+  behaviors:write:
+    description: "Create and update behavior definitions"
+    risk_level: medium
+    requires_mfa: false
+
+  behaviors:delete:
+    description: "Delete behavior definitions"
+    risk_level: high
+    requires_mfa: true
+
+  behaviors.getForTask:
+    description: "Retrieve relevant behaviors for a task"
+    risk_level: low
+    requires_mfa: false
+
+  behaviors.propose:
+    description: "Propose new behaviors for review"
+    risk_level: medium
+    requires_mfa: false
+
+  # --- Run Scopes ---
+  runs:read:
+    description: "View run history and status"
+    risk_level: low
+    requires_mfa: false
+
+  runs:execute:
+    description: "Execute workflow runs"
+    risk_level: medium
+    requires_mfa: false
+
+  runs:cancel:
+    description: "Cancel running workflows"
+    risk_level: medium
+    requires_mfa: false
+
+  # --- Action Scopes ---
+  actions:read:
+    description: "Read action timeline and history"
+    risk_level: low
+    requires_mfa: false
+
+  actions:create:
+    description: "Record new actions"
+    risk_level: medium
+    requires_mfa: false
+
+  actions.replay:
+    description: "Replay recorded actions (high-risk)"
+    risk_level: high
+    requires_mfa: true
+
+  # --- Project & Org Scopes ---
+  projects:read:
+    description: "Read project settings and metadata"
+    risk_level: low
+    requires_mfa: false
+
+  projects:write:
+    description: "Update project settings"
+    risk_level: medium
+    requires_mfa: false
+
+  projects:delete:
+    description: "Delete projects"
+    risk_level: high
+    requires_mfa: true
+
+  orgs:read:
+    description: "Read organization settings"
+    risk_level: low
+    requires_mfa: false
+
+  orgs:write:
+    description: "Update organization settings"
+    risk_level: medium
+    requires_mfa: false
+
+  orgs:manage:
+    description: "Manage organization members and billing"
+    risk_level: high
+    requires_mfa: true
+
+  # --- Compliance Scopes ---
+  compliance:read:
+    description: "Read compliance checklists and status"
+    risk_level: low
+    requires_mfa: false
+
+  compliance:write:
+    description: "Update compliance checklist items"
+    risk_level: medium
+    requires_mfa: false
+
+  compliance:validate:
+    description: "Validate compliance checklists"
+    risk_level: medium
+    requires_mfa: false
+
+  # --- Auth Scopes ---
+  agentauth.manage:
+    description: "Manage agent authentication and grants"
+    risk_level: high
+    requires_mfa: true
+
+  context.switch:
+    description: "Switch organization/project context"
+    risk_level: low
+    requires_mfa: false
+
+  # --- Analytics Scopes ---
+  analytics:read:
+    description: "Read analytics and metrics"
+    risk_level: low
+    requires_mfa: false
+
+  analytics:export:
+    description: "Export analytics data"
+    risk_level: medium
+    requires_mfa: false
+
+  # --- Agent Registry Scopes ---
+  agents:read:
+    description: "Read agent registry"
+    risk_level: low
+    requires_mfa: false
+
+  agents:write:
+    description: "Create and update agents"
+    risk_level: medium
+    requires_mfa: false
+
+  agents:publish:
+    description: "Publish agents to registry"
+    risk_level: medium
+    requires_mfa: false
+
+  agents:deprecate:
+    description: "Deprecate published agents"
+    risk_level: high
+    requires_mfa: true
+
+# ============================================================================
+# Authorization Rules (First Match Wins)
+# ============================================================================
+# Rules are evaluated in order. The first matching rule determines the decision.
+# Each rule has:
+# - id: Unique identifier for audit logging
+# - description: Human-readable explanation
+# - match: Conditions that must all be true for the rule to apply
+# - decision: ALLOW | DENY | CONSENT_REQUIRED
+# - reason: Structured reason code (optional)
+# - obligations: Actions to take when rule matches (optional)
+
+rules:
+  # --- Admin Full Access ---
+  - id: admin_full_access
+    description: "Administrators have full access to all operations"
+    match:
+      roles:
+        - Admin
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  # --- High-Risk: Require MFA ---
+  - id: require_mfa_for_high_risk
+    description: "High-risk operations require MFA verification"
+    match:
+      scopes:
+        - actions.replay
+        - agentauth.manage
+        - behaviors:delete
+        - projects:delete
+        - orgs:manage
+        - agents:deprecate
+      mfa_verified: false
+    decision: DENY
+    reason: SECURITY_HOLD
+
+  # --- High-Risk: Deny Non-Admin ---
+  - id: deny_high_risk_without_admin
+    description: "Only admins can perform high-risk operations"
+    match:
+      scopes:
+        - actions.replay
+        - agentauth.manage
+        - orgs:manage
+      roles_excluded:
+        - Admin
+    decision: DENY
+    reason: ROLE_NOT_AUTHORIZED
+
+  # --- Strategist: Behavior Management ---
+  - id: strategist_behavior_management
+    description: "Strategists can fully manage behaviors"
+    match:
+      roles:
+        - Strategist
+      scopes:
+        - behaviors:*
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  - id: strategist_agent_management
+    description: "Strategists can manage agent registry"
+    match:
+      roles:
+        - Strategist
+      scopes:
+        - agents:*
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  # --- Teacher: Create Examples and Validate ---
+  - id: teacher_behaviors
+    description: "Teachers can read and propose behaviors"
+    match:
+      roles:
+        - Teacher
+      scopes:
+        - behaviors:read
+        - behaviors:write
+        - behaviors.getForTask
+        - behaviors.propose
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  - id: teacher_compliance
+    description: "Teachers can validate compliance"
+    match:
+      roles:
+        - Teacher
+      scopes:
+        - compliance:*
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  - id: teacher_runs
+    description: "Teachers can execute and manage runs"
+    match:
+      roles:
+        - Teacher
+      scopes:
+        - runs:*
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  # --- Student: Read and Execute ---
+  - id: student_read_behaviors
+    description: "Students can read and search behaviors"
+    match:
+      roles:
+        - Student
+      scopes:
+        - behaviors:read
+        - behaviors.getForTask
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  - id: student_runs
+    description: "Students can view and execute runs"
+    match:
+      roles:
+        - Student
+      scopes:
+        - runs:read
+        - runs:execute
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  - id: student_actions
+    description: "Students can read and create actions"
+    match:
+      roles:
+        - Student
+      scopes:
+        - actions:read
+        - actions:create
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  - id: student_context
+    description: "Students can switch context"
+    match:
+      roles:
+        - Student
+      scopes:
+        - context.switch
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  # --- Observer: Read-Only ---
+  - id: observer_readonly
+    description: "Observers have read-only access"
+    match:
+      roles:
+        - Observer
+      scopes:
+        - behaviors:read
+        - behaviors.getForTask
+        - runs:read
+        - actions:read
+        - projects:read
+        - orgs:read
+        - compliance:read
+        - analytics:read
+        - agents:read
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  # --- Service Principal: Scoped Access ---
+  - id: service_principal_behaviors
+    description: "Service principals can access behaviors based on allowed_scopes"
+    match:
+      roles:
+        - Service_Principal
+      scopes:
+        - behaviors:*
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  - id: service_principal_runs
+    description: "Service principals can execute runs"
+    match:
+      roles:
+        - Service_Principal
+      scopes:
+        - runs:*
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  # --- Tool-Specific Rules ---
+  - id: allow_actions_list
+    description: "Allow action timeline queries for approved roles"
+    match:
+      tool_name: actions.list
+      roles:
+        - Strategist
+        - Teacher
+        - Student
+        - Admin
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  - id: require_consent_actions_create
+    description: "Require consent for action recording"
+    match:
+      tool_name: actions.create
+    decision: CONSENT_REQUIRED
+    reason: SCOPE_NOT_APPROVED
+    obligations:
+      - type: expiry
+        attributes:
+          ttl_minutes: "60"
+
+  - id: require_consent_reviews
+    description: "Require consent for cross-functional review scheduling"
+    match:
+      tool_name: reviews.run
+    decision: CONSENT_REQUIRED
+    reason: SCOPE_NOT_APPROVED
+    obligations:
+      - type: notification
+        attributes:
+          channel: "#agent-reviews"
+
+  - id: allow_analytics_metrics
+    description: "Allow analytics queries for approved teams"
+    match:
+      tool_name: analytics.metrics
+      roles:
+        - Product
+        - Analytics
+        - Compliance
+        - Admin
+    decision: ALLOW
+    reason: EXPLICIT_ALLOW
+
+  # --- Default Deny ---
+  - id: default_deny
+    description: "Default deny for any unmatched request"
+    match: {}
+    decision: DENY
+    reason: SCOPE_NOT_APPROVED
+
+# ============================================================================
+# Workflow Configuration
+# ============================================================================
+# GitOps workflow for policy bundle management
+
+workflow:
+  gitops:
+    repo: git@github.com:amprealize/policy-bundles.git
+    staging_branch: staging
+    production_branch: main
+  approvals:
+    required:
+      - Security
+      - Product
+    dry_run_tests:
+      - name: policy_contract_suite
+        command: "pytest tests/test_policy_engine.py"
+  rollout:
+    staging_window_minutes: 30
+    production_window_minutes: 60
+
+# ============================================================================
+# Rollback Configuration
+# ============================================================================
+
+rollback:
+  command: "amprealize auth policy rollback --bundle {previous_version}"
+  validation_tests:
+    - name: policy_regression_suite
+      command: "pytest tests/test_policy_regressions.py"
+
+# ============================================================================
+# Observability
+# ============================================================================
+
+observability:
+  telemetry_events:
+    - auth.policy.evaluate
+    - auth.policy.decision
+    - auth.policy.reload
+    - auth.policy.decision_latency_ms
+  dashboards:
+    - url: https://grafana.amprealize.dev/d/policy/auth
+      description: "Policy decision health metrics"
+  alerts:
+    - name: high_deny_rate
+      condition: "deny_rate > 0.3"
+      severity: warning
+    - name: policy_load_failure
+      condition: "reload_failed"
+      severity: critical

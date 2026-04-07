@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "compliance.listChecklists",
+  "description": "List compliance checklists with optional filtering by milestone, compliance category, and status. Returns all checklists accessible to the requesting actor.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "milestone": {
+        "type": "string",
+        "description": "Filter by milestone (e.g., 'Milestone 1')"
+      },
+      "compliance_category": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["SOC2", "GDPR", "HIPAA", "Internal", "Security", "Quality"]
+        },
+        "description": "Filter by compliance categories (OR match)"
+      },
+      "status_filter": {
+        "type": "string",
+        "enum": ["ACTIVE", "COMPLETED", "FAILED"],
+        "description": "Filter by checklist status (ACTIVE = has incomplete steps, COMPLETED = all steps done, FAILED = any step failed)"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT", "ADMIN", "COMPLIANCE"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor requesting the list"
+      }
+    },
+    "required": ["actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "checklists": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "checklist_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "title": {
+              "type": "string"
+            },
+            "milestone": {
+              "type": "string"
+            },
+            "compliance_category": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "step_count": {
+              "type": "integer",
+              "description": "Total number of steps"
+            },
+            "completed_steps": {
+              "type": "integer",
+              "description": "Number of steps with status COMPLETED"
+            },
+            "coverage_score": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "completed_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Present if all steps are COMPLETED or SKIPPED"
+            }
+          },
+          "required": ["checklist_id", "title", "compliance_category", "step_count", "completed_steps", "coverage_score", "created_at"]
+        }
+      },
+      "total": {
+        "type": "integer",
+        "description": "Total number of checklists matching filters"
+      }
+    },
+    "required": ["checklists", "total"]
+  }
+}

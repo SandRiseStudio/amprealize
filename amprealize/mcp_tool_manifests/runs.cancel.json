@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "runs.cancel",
+  "description": "Cancel a running job. Sets status to CANCELLED and records cancellation reason. Returns cancelled run.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "Run identifier"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Cancellation reason"
+      }
+    },
+    "required": ["run_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["CANCELLED"]
+      },
+      "completed_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "duration_ms": {
+        "type": "integer"
+      },
+      "message": {
+        "type": "string"
+      },
+      "progress_pct": {
+        "type": "number"
+      },
+      "metadata": {
+        "type": "object"
+      }
+    },
+    "required": ["run_id", "status", "completed_at"]
+  }
+}

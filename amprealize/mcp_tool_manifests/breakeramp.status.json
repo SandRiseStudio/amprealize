@@ -1,0 +1,31 @@
+{
+  "name": "breakeramp.status",
+  "description": "Get the status of an BreakerAmp deployment run.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "The amp_run_id from plan or apply."
+      }
+    },
+    "required": ["run_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "amp_run_id": { "type": "string" },
+      "phase": { "type": "string", "enum": ["planned", "applying", "running", "stopping", "stopped", "failed", "destroyed"] },
+      "progress_pct": { "type": "integer", "minimum": 0, "maximum": 100 },
+      "current_step": { "type": "string" },
+      "steps": { "type": "array", "items": { "type": "object" } },
+      "health_checks": { "type": "array", "items": { "type": "object" } },
+      "telemetry": { "type": "object" },
+      "started_at": { "type": "string", "format": "date-time" },
+      "updated_at": { "type": "string", "format": "date-time" },
+      "error": { "type": "string" },
+      "_links": { "type": "object", "description": "HATEOAS links - use run_detail for full execution record" }
+    },
+    "required": ["amp_run_id", "phase"]
+  }
+}

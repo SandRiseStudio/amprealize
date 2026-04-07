@@ -1,0 +1,98 @@
+{
+  "name": "agentPerformance.recordTask",
+  "description": "Record a task completion event with performance metrics for an agent. Tracks success/failure, duration, token usage, behavior citations, and compliance results.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Unique identifier of the agent"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Identifier of the run this task belongs to"
+      },
+      "task_id": {
+        "type": "string",
+        "description": "Optional identifier for the specific task"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Optional project identifier"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization identifier"
+      },
+      "success": {
+        "type": "boolean",
+        "description": "Whether the task completed successfully",
+        "default": true
+      },
+      "duration_ms": {
+        "type": "integer",
+        "description": "Task duration in milliseconds"
+      },
+      "tokens_used": {
+        "type": "integer",
+        "description": "Number of tokens consumed",
+        "default": 0
+      },
+      "baseline_tokens": {
+        "type": "integer",
+        "description": "Baseline token count for savings calculation",
+        "default": 0
+      },
+      "behaviors_cited": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of behavior names cited during task execution"
+      },
+      "compliance_passed": {
+        "type": "integer",
+        "description": "Number of compliance checks passed",
+        "default": 0
+      },
+      "compliance_total": {
+        "type": "integer",
+        "description": "Total compliance checks performed",
+        "default": 0
+      }
+    },
+    "required": ["agent_id", "run_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "snapshot_id": {
+        "type": "string",
+        "description": "Unique identifier of the created snapshot"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier"
+      },
+      "success_rate": {
+        "type": "number",
+        "description": "Running success rate percentage"
+      },
+      "token_savings_pct": {
+        "type": "number",
+        "description": "Token savings percentage"
+      },
+      "behavior_reuse_pct": {
+        "type": "number",
+        "description": "Behavior reuse percentage"
+      },
+      "compliance_coverage_pct": {
+        "type": "number",
+        "description": "Compliance coverage percentage"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the snapshot was created"
+      }
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgAgents.get",
+  "description": "Get details of a specific agent by ID.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent ID to retrieve"
+      }
+    },
+    "required": ["user_id", "agent_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "agent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "org_id": { "type": "string" },
+          "name": { "type": "string" },
+          "slug": { "type": "string" },
+          "description": { "type": "string" },
+          "agent_type": { "type": "string" },
+          "status": { "type": "string" },
+          "model": { "type": "string" },
+          "system_prompt": { "type": "string" },
+          "config": { "type": "object" },
+          "metadata": { "type": "object" },
+          "created_by": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "stats": {
+            "type": "object",
+            "properties": {
+              "total_runs": { "type": "integer" },
+              "successful_runs": { "type": "integer" },
+              "last_run_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

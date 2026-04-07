@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgAgents.delete",
+  "description": "Soft-delete an agent. Agent can be restored within retention period.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent ID to delete"
+      }
+    },
+    "required": ["user_id", "agent_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "agent_id": {
+        "type": "string"
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

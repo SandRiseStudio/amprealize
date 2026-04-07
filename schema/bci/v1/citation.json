@@ -1,0 +1,143 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schema.amprealize.dev/bci/v1/citation.json",
+  "title": "Behavior-Conditioned Inference Citation Schemas",
+  "type": "object",
+  "description": "JSON schema definitions for parsing and validating behavior citations as part of the BCI pipeline.",
+  "definitions": {
+    "CitationType": {
+      "type": "string",
+      "enum": ["explicit", "implicit", "inline"]
+    },
+    "Citation": {
+      "type": "object",
+      "required": ["text", "type", "start_index", "end_index"],
+      "properties": {
+        "behavior_name": {
+          "type": "string",
+          "description": "Behavior identifier (name or citation label) referenced in the output."
+        },
+        "behavior_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Optional canonical behavior identifier when resolvable."
+        },
+        "text": {"type": "string"},
+        "type": {"$ref": "#/definitions/CitationType"},
+        "start_index": {"type": "integer", "minimum": 0},
+        "end_index": {"type": "integer", "minimum": 0},
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      },
+      "additionalProperties": false
+    },
+    "ParseCitationsRequest": {
+      "type": "object",
+      "required": ["output_text"],
+      "properties": {
+        "output_text": {"type": "string", "minLength": 1},
+        "patterns": {
+          "type": "array",
+          "description": "Optional additional regex patterns to detect citations.",
+          "items": {"type": "string"},
+          "maxItems": 10
+        }
+      },
+      "additionalProperties": false
+    },
+    "ParseCitationsResponse": {
+      "type": "object",
+      "required": ["citations"],
+      "properties": {
+        "citations": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/Citation"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "PrependedBehavior": {
+      "type": "object",
+      "required": ["behavior_name"],
+      "properties": {
+        "behavior_name": {"type": "string"},
+        "behavior_id": {"type": "string", "format": "uuid"},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"}
+      },
+      "additionalProperties": false
+    },
+    "ValidateCitationsRequest": {
+      "type": "object",
+      "required": ["output_text", "prepended_behaviors"],
+      "properties": {
+        "output_text": {"type": "string", "minLength": 1},
+        "prepended_behaviors": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/PrependedBehavior"},
+          "minItems": 1,
+          "maxItems": 10
+        },
+        "minimum_citations": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1,
+          "description": "Minimum number of citations required for compliance."
+        },
+        "allow_unlisted_behaviors": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, citations not in prepended list are treated as warnings instead of failures."
+        }
+      },
+      "additionalProperties": false
+    },
+    "ValidateCitationsResponse": {
+      "type": "object",
+      "required": ["total_citations", "valid_citations", "invalid_citations", "compliance_rate", "is_compliant"],
+      "properties": {
+        "total_citations": {"type": "integer", "minimum": 0},
+        "valid_citations": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/Citation"}
+        },
+        "invalid_citations": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/Citation"}
+        },
+        "missing_behaviors": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "compliance_rate": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "is_compliant": {"type": "boolean"},
+        "warnings": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "ComputeTokenSavingsRequest": {
+      "type": "object",
+      "required": ["baseline_tokens", "bci_tokens"],
+      "properties": {
+        "baseline_tokens": {"type": "integer", "minimum": 1},
+        "bci_tokens": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "ComputeTokenSavingsResponse": {
+      "type": "object",
+      "required": ["token_savings", "token_savings_pct"],
+      "properties": {
+        "token_savings": {"type": "integer"},
+        "token_savings_pct": {
+          "type": "number",
+          "description": "(baseline_tokens - bci_tokens) / baseline_tokens",
+          "minimum": -1.0,
+          "maximum": 1.0
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "actions.replayStatus",
+  "description": "Check the status of a replay job including progress, logs, and failed action details. Use this to monitor long-running replays.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "replay_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Replay job identifier"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT", "ADMIN"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB", "VSCODE"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor requesting replay status"
+      }
+    },
+    "required": ["replay_id", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "replay_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"],
+        "description": "Current replay job status"
+      },
+      "progress": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "description": "Replay progress (0.0 = not started, 1.0 = complete)"
+      },
+      "action_ids": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "All actions in replay job"
+      },
+      "completed_action_ids": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Actions that completed successfully"
+      },
+      "failed_action_ids": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "Actions that failed during replay"
+      },
+      "logs": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "format": "uri"
+        },
+        "description": "URIs to immutable audit log payloads for replay execution"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "started_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Present when status transitions to RUNNING"
+      },
+      "completed_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Present when status is SUCCEEDED, FAILED, or CANCELLED"
+      }
+    },
+    "required": ["replay_id", "status", "progress", "action_ids", "completed_action_ids", "failed_action_ids", "logs", "created_at"]
+  }
+}

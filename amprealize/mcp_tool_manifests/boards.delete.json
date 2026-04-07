@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "boards.delete",
+  "description": "Delete a board. This will also delete all columns and may affect work items on the board.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "board_id": {
+        "type": "string",
+        "description": "Board ID to delete (required)"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user deleting the board"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": ["board_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "board_id": { "type": "string" },
+      "message": { "type": "string" },
+      "error": { "type": "string" }
+    }
+  }
+}

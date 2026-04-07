@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "auth.refresh",
+  "description": "Refresh expired access token. Alias for auth.refreshToken for VS Code extension compatibility.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "refresh_token": {
+        "type": "string",
+        "description": "Refresh token from previous authentication."
+      },
+      "client_id": {
+        "type": "string",
+        "description": "OAuth client identifier.",
+        "default": "amprealize-vscode"
+      },
+      "store_tokens": {
+        "type": "boolean",
+        "description": "Whether to persist refreshed tokens.",
+        "default": true
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["status"],
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": ["refreshed", "no_refresh_token", "invalid_token", "error"],
+        "description": "Refresh operation status."
+      },
+      "access_token": {
+        "type": "string",
+        "description": "New access token."
+      },
+      "refresh_token": {
+        "type": "string",
+        "description": "New refresh token."
+      },
+      "expires_in": {
+        "type": "integer",
+        "description": "Seconds until new access token expires."
+      },
+      "error": {
+        "type": "string",
+        "description": "Error description if failed."
+      }
+    }
+  }
+}

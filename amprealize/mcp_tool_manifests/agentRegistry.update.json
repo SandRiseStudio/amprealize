@@ -1,0 +1,136 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agentRegistry.update",
+  "description": "Update an existing agent. For DRAFT agents, updates in place. For PUBLISHED agents, creates a new version automatically.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Unique agent identifier"
+      },
+      "name": {
+        "type": "string",
+        "description": "Updated agent name"
+      },
+      "description": {
+        "type": "string",
+        "description": "Updated description"
+      },
+      "mission": {
+        "type": "string",
+        "description": "Updated mission statement"
+      },
+      "visibility": {
+        "type": "string",
+        "enum": ["PRIVATE", "TEAM", "ORG", "PUBLIC"],
+        "description": "Updated visibility level"
+      },
+      "capabilities": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Updated capabilities list"
+      },
+      "default_behaviors": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Updated default behavior IDs"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Updated tags"
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Updated metadata"
+      },
+      "actor_id": {
+        "type": "string",
+        "description": "User ID performing the update"
+      }
+    },
+    "required": ["agent_id", "actor_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "mission": {
+        "type": "string"
+      },
+      "role_alignment": {
+        "type": "string",
+        "enum": ["STRATEGIST", "TEACHER", "STUDENT"]
+      },
+      "status": {
+        "type": "string",
+        "enum": ["DRAFT", "PUBLISHED", "DEPRECATED"]
+      },
+      "visibility": {
+        "type": "string",
+        "enum": ["PRIVATE", "TEAM", "ORG", "PUBLIC"]
+      },
+      "version": {
+        "type": "integer",
+        "description": "May be incremented if agent was PUBLISHED"
+      },
+      "capabilities": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "default_behaviors": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "builtin": {
+        "type": "boolean"
+      },
+      "owner_id": {
+        "type": "string"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "new_version_created": {
+        "type": "boolean",
+        "description": "True if a new version was created (for PUBLISHED agents)"
+      }
+    },
+    "required": ["agent_id", "name", "status", "version", "updated_at"]
+  }
+}

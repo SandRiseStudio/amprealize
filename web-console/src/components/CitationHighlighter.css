@@ -1,0 +1,32 @@
+.citation-highlighter {
+  line-height: 1.6;
+}
+
+.citation-badge {
+  display: inline-flex;
+  align-items: center;
+  background: var(--color-accent, #2276d2);
+  color: white;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  font-size: 0.85em;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin: 0 2px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.citation-badge:hover {
+  transform: translateY(-1px);
+  background: var(--color-accent-hover, #1a63b5);
+}
+
+.citation-badge:active {
+  transform: translateY(0);
+}
+
+.citation-badge[role="button"]:focus {
+  outline: 2px solid var(--color-accent, #2276d2);
+  outline-offset: 2px;
+}

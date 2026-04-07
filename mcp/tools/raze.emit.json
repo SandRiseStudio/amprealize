@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "raze.emit",
+  "description": "Emit a single structured log entry to the Raze logging system. Provides immediate, synchronous logging with full context.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "level": {
+        "type": "string",
+        "enum": ["trace", "debug", "info", "warning", "error", "critical"],
+        "default": "info",
+        "description": "Log severity level"
+      },
+      "message": {
+        "type": "string",
+        "description": "Human-readable log message"
+      },
+      "context": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Additional structured context (key-value pairs)"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Execution run ID for correlation"
+      },
+      "behavior_id": {
+        "type": "string",
+        "description": "Behavior ID if this log relates to a specific behavior"
+      },
+      "tags": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Optional tags for categorization"
+      }
+    },
+    "required": ["message"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "log_id": {
+        "type": "string",
+        "description": "Unique identifier for the emitted log entry"
+      },
+      "timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Timestamp when the log was recorded"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["emitted", "buffered"],
+        "description": "Whether the log was immediately emitted or buffered"
+      }
+    },
+    "required": ["log_id", "timestamp", "status"]
+  },
+  "examples": [
+    {
+      "input": {
+        "level": "info",
+        "message": "Behavior execution started",
+        "run_id": "run_abc123",
+        "behavior_id": "behavior_unify_execution_records",
+        "context": {
+          "surface": "mcp",
+          "agent_role": "student"
+        }
+      },
+      "output": {
+        "log_id": "log_xyz789",
+        "timestamp": "2025-01-15T10:30:00Z",
+        "status": "emitted"
+      }
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "reflection.listCandidates",
+  "description": "List behavior candidates extracted from runs. Supports filtering by status, confidence, and role.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": ["proposed", "approved", "rejected", "merged"],
+        "description": "Filter by candidate status. Default: returns all statuses."
+      },
+      "role": {
+        "type": "string",
+        "enum": ["student", "teacher", "strategist"],
+        "description": "Filter by proposed role."
+      },
+      "min_confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0,
+        "description": "Minimum confidence score threshold (0.0-1.0)."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 50,
+        "description": "Maximum number of candidates to return."
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Pagination offset."
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "candidates": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "candidate_id": { "type": "string" },
+            "name": { "type": "string" },
+            "summary": { "type": "string" },
+            "confidence": { "type": "number" },
+            "status": { "type": "string" },
+            "role": { "type": "string" },
+            "created_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
+      "total": { "type": "integer" }
+    }
+  }
+}

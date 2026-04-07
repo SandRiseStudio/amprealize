@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "compliance/list-policies",
+  "description": "List compliance policies with optional filters. Returns policies matching the specified criteria. Requires compliance.policy.read RBAC scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "org_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Filter by organization ID"
+      },
+      "project_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Filter by project ID (requires org_id)"
+      },
+      "policy_type": {
+        "type": "string",
+        "enum": ["AUDIT", "SECURITY", "COMPLIANCE", "GOVERNANCE", "CUSTOM"],
+        "description": "Filter by policy type"
+      },
+      "enforcement_level": {
+        "type": "string",
+        "enum": ["ADVISORY", "WARNING", "BLOCKING"],
+        "description": "Filter by enforcement level"
+      },
+      "is_active": {
+        "type": "boolean",
+        "description": "Filter by active status"
+      },
+      "include_global": {
+        "type": "boolean",
+        "default": true,
+        "description": "Include global policies in results"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "policies": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "policy_id": { "type": "string", "format": "uuid" },
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "version": { "type": "string" },
+            "org_id": { "type": ["string", "null"] },
+            "project_id": { "type": ["string", "null"] },
+            "policy_type": { "type": "string" },
+            "enforcement_level": { "type": "string" },
+            "is_active": { "type": "boolean" },
+            "scope": { "type": "string" },
+            "created_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      }
+    },
+    "required": ["policies"]
+  },
+  "examples": [
+    {
+      "description": "List all active security policies",
+      "input": {
+        "policy_type": "SECURITY",
+        "is_active": true
+      }
+    },
+    {
+      "description": "List policies for a specific project",
+      "input": {
+        "org_id": "org-001",
+        "project_id": "proj-001",
+        "include_global": true
+      }
+    }
+  ],
+  "rbac": {
+    "required_scopes": ["compliance.policy.read"],
+    "surface_restrictions": ["MCP", "CLI", "REST_API", "WEB"]
+  }
+}

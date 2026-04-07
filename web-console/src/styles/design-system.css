@@ -1,0 +1,350 @@
+/**
+ * High-Performance CSS Variables + Animations
+ *
+ * Design system optimized for:
+ * - 60fps animations via GPU-accelerated properties
+ * - Haptic-ready interactions (via CSS + JS hooks)
+ * - Figma/Linear-inspired aesthetic
+ * - Light mode only (bright UI)
+ */
+
+:root {
+  /* ─────────────────────────────────────────────────────────────────────────
+     Color Palette (Light mode, bright + crisp)
+     ───────────────────────────────────────────────────────────────────────── */
+  /* Flat tinted glass palette: depth comes from blur, layering, and borders. */
+  --color-bg-app: #edf5fb;
+  --color-bg-surface: rgba(255, 255, 255, 0.72);
+  --color-bg-elevated: rgba(255, 255, 255, 0.84);
+  --color-bg-hover: rgba(255, 255, 255, 0.96);
+  --color-bg-active: rgba(223, 238, 247, 0.94);
+  --color-bg-selection: rgba(34, 118, 210, 0.14);
+
+  --color-border-subtle: rgba(73, 112, 146, 0.16);
+  --color-border-default: rgba(70, 108, 140, 0.24);
+  --color-border-hover: rgba(42, 101, 156, 0.38);
+
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #334155;
+  --color-text-tertiary: #64748b;
+  --color-text-disabled: #94a3b8;
+
+  --color-accent: #2276d2;
+  --color-accent-hover: #1a63b5;
+  --color-accent-secondary: #1098ad;
+  --color-accent-tertiary: #1fb6a6;
+  --color-accent-subtle: rgba(34, 118, 210, 0.14);
+  --color-accent-soft: rgba(16, 152, 173, 0.12);
+
+  --color-success: #16834f;
+  /* Brighter green for small presence / online indicators (avatar dots, etc.) */
+  --color-success-vivid: #4ade80;
+  --color-warning: #c98517;
+  --color-error: #d74b45;
+  --color-info: #2f8ab8;
+
+  --gradient-brand: rgba(34, 118, 210, 0.96);
+  --gradient-brand-soft: rgba(34, 118, 210, 0.12);
+  --gradient-surface: rgba(255, 255, 255, 0.78);
+  --gradient-surface-strong: rgba(255, 255, 255, 0.9);
+  --gradient-panel: rgba(220, 239, 247, 0.66);
+  --gradient-page: #edf5fb;
+  --glass-highlight: rgba(255, 255, 255, 0.58);
+  --glass-outline: rgba(255, 255, 255, 0.34);
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Spacing Scale (4px base)
+     ───────────────────────────────────────────────────────────────────────── */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Typography
+     ───────────────────────────────────────────────────────────────────────── */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+  --text-xs: 0.75rem;    /* 12px */
+  --text-sm: 0.8125rem;  /* 13px */
+  --text-base: 0.9375rem; /* 15px */
+  --text-lg: 1.0625rem;   /* 17px */
+  --text-xl: 1.25rem;     /* 20px */
+  --text-2xl: 1.75rem;    /* 28px */
+
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  --leading-tight: 1.12;
+  --leading-normal: 1.56;
+  --leading-relaxed: 1.72;
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Radii
+     ───────────────────────────────────────────────────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-full: 9999px;
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Shadows (disabled - no shadows in design system)
+     ───────────────────────────────────────────────────────────────────────── */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-glow: none;
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Transitions (spring-like curves via cubic-bezier)
+     ───────────────────────────────────────────────────────────────────────── */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-spring-gentle: cubic-bezier(0.34, 1.2, 0.64, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.7, 0.64, 1);
+
+  --duration-instant: 50ms;
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+  --duration-slower: 400ms;
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Z-Index Scale
+     ───────────────────────────────────────────────────────────────────────── */
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-overlay: 300;
+  --z-chat-scrim: 349;
+  --z-chat: 350;
+  --z-modal: 400;
+  --z-popover: 500;
+  --z-toast: 600;
+  --z-command-palette: 700;
+
+  /* ─────────────────────────────────────────────────────────────────────────
+     Layout
+     ───────────────────────────────────────────────────────────────────────── */
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 48px;
+  --header-height: 48px;
+  --panel-header-height: 36px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Base Reset + Typography
+   ───────────────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--color-text-primary);
+  background: var(--gradient-page);
+  overflow: hidden; /* Prevent body scroll, handle in containers */
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Focus States (accessible + beautiful)
+   ───────────────────────────────────────────────────────────────────────────── */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Selection
+   ───────────────────────────────────────────────────────────────────────────── */
+::selection {
+  background-color: var(--color-accent);
+  color: white;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Scrollbar (thin, elegant)
+   ───────────────────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-hover);
+  background-clip: content-box;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-default) transparent;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Animation Utilities
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Fade in from below */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Subtle content swap – lighter lift for panel refreshes */
+@keyframes content-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Scale in (for modals, popovers) */
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Slide in from right (for sidebars) */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* Solid shimmer for loading states (no gradients) */
+@keyframes shimmer-solid {
+  0%, 100% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* Pulse for presence indicators */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Spin for loading */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up var(--duration-normal) var(--ease-out-expo);
+}
+
+/* Staggered content-reveal for panel child sections */
+.animate-reveal {
+  animation: content-reveal var(--duration-slow) var(--ease-out-expo) both;
+}
+.animate-reveal-d1 { animation-delay: 0ms; }
+.animate-reveal-d2 { animation-delay: 50ms; }
+.animate-reveal-d3 { animation-delay: 100ms; }
+.animate-reveal-d4 { animation-delay: 150ms; }
+.animate-reveal-d5 { animation-delay: 200ms; }
+
+.animate-scale-in {
+  animation: scale-in var(--duration-normal) var(--ease-out-expo);
+}
+
+.animate-shimmer {
+  background: rgba(238, 245, 251, 0.84);
+  animation: shimmer-solid 1.5s ease-in-out infinite;
+}
+
+.animate-pulse {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Interactive Elements Base
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Pressable elements get subtle scale on press */
+.pressable {
+  transition: transform var(--duration-fast) var(--ease-out-quart);
+  will-change: transform;
+}
+
+.pressable:active {
+  transform: scale(0.98);
+}
+
+/* Haptic feedback hint (JS will trigger actual haptic) */
+[data-haptic] {
+  cursor: pointer;
+}

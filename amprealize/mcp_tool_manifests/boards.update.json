@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "boards.update",
+  "description": "Update board settings including name, description, and configuration.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "board_id": {
+        "type": "string",
+        "description": "Board ID to update (required)"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "New board name"
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 1000,
+        "description": "New board description"
+      },
+      "settings": {
+        "type": "object",
+        "description": "Board settings to update"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user updating the board"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": ["board_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "board": {
+        "type": "object",
+        "properties": {
+          "board_id": { "type": "string" },
+          "project_id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" },
+      "error": { "type": "string" }
+    }
+  }
+}

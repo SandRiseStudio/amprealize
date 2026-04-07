@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgs.switch",
+  "description": "Switch the current org context for subsequent tool calls. Sets the active organization for RLS scoping.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to switch to"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Optional project ID within the org to scope to"
+      }
+    },
+    "required": ["org_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Active organization ID"
+      },
+      "org_name": {
+        "type": "string",
+        "description": "Active organization name"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Active project ID (if set)"
+      },
+      "role": {
+        "type": "string",
+        "enum": ["owner", "admin", "member", "viewer"],
+        "description": "User's role in this organization"
+      },
+      "permissions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "List of permissions available to user in this org"
+      }
+    }
+  }
+}

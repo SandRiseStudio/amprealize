@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "compliance/audit-trail",
+  "description": "Generate an audit trail report showing all compliance activity for a run, checklist, action, or time range. Returns entries sorted by timestamp with actor context and behaviors cited. Requires compliance.audit.read RBAC scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Filter by run ID"
+      },
+      "checklist_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Filter by checklist ID"
+      },
+      "action_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Filter by action ID"
+      },
+      "start_date": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Filter entries after this ISO timestamp"
+      },
+      "end_date": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Filter entries before this ISO timestamp"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": ["string", "null"],
+        "description": "Run ID filter used (if any)"
+      },
+      "generated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "total_entries": { "type": "integer" },
+          "checklist_count": { "type": "integer" },
+          "status_breakdown": {
+            "type": "object",
+            "additionalProperties": { "type": "integer" }
+          }
+        }
+      },
+      "entries": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "step_id": { "type": "string" },
+            "checklist_id": { "type": "string" },
+            "title": { "type": "string" },
+            "status": { "type": "string" },
+            "timestamp": { "type": "string", "format": "date-time" },
+            "actor": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "role": { "type": "string" },
+                "surface": { "type": "string" }
+              }
+            },
+            "evidence": { "type": "object" },
+            "behaviors_cited": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "related_run_id": { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
+    "required": ["generated_at", "summary", "entries"]
+  },
+  "examples": [
+    {
+      "description": "Get audit trail for a specific run",
+      "input": {
+        "run_id": "r1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      }
+    },
+    {
+      "description": "Get audit trail for the last 24 hours",
+      "input": {
+        "start_date": "2025-01-01T00:00:00Z",
+        "end_date": "2025-01-02T00:00:00Z"
+      }
+    }
+  ],
+  "rbac": {
+    "required_scopes": ["compliance.audit.read"],
+    "surface_restrictions": ["MCP", "CLI", "REST_API", "WEB"]
+  }
+}

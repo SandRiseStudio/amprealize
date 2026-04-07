@@ -1,0 +1,71 @@
+{
+  "name": "agentPerformance.getThresholds",
+  "description": "Get performance alert thresholds for an agent or organization. Thresholds define when alerts are triggered.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent ID to get thresholds for (optional)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID for org-level thresholds (optional)"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "scope": {
+        "type": "string",
+        "description": "Scope of thresholds: 'agent', 'org', or 'default'"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent ID if agent-level thresholds"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Org ID if org-level thresholds"
+      },
+      "thresholds": {
+        "type": "object",
+        "properties": {
+          "success_rate_warning": {
+            "type": "number",
+            "description": "Success rate warning threshold (default: 70%)"
+          },
+          "success_rate_critical": {
+            "type": "number",
+            "description": "Success rate critical threshold (default: 50%)"
+          },
+          "token_savings_warning": {
+            "type": "number",
+            "description": "Token savings warning threshold (default: 20%)"
+          },
+          "token_savings_critical": {
+            "type": "number",
+            "description": "Token savings critical threshold (default: 10%)"
+          },
+          "behavior_reuse_warning": {
+            "type": "number",
+            "description": "Behavior reuse warning threshold (default: 50%)"
+          },
+          "behavior_reuse_critical": {
+            "type": "number",
+            "description": "Behavior reuse critical threshold (default: 30%)"
+          },
+          "compliance_coverage_warning": {
+            "type": "number",
+            "description": "Compliance coverage warning threshold (default: 70%)"
+          },
+          "compliance_coverage_critical": {
+            "type": "number",
+            "description": "Compliance coverage critical threshold (default: 50%)"
+          }
+        }
+      }
+    }
+  }
+}

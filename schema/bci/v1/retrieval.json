@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schema.amprealize.dev/bci/v1/retrieval.json",
+  "title": "Behavior-Conditioned Inference Retrieval Schemas",
+  "type": "object",
+  "description": "Canonical JSON representations for BCI retrieval requests and responses (REST + MCP).",
+  "definitions": {
+    "RetrievalStrategy": {
+      "type": "string",
+      "enum": ["embedding", "keyword", "hybrid"]
+    },
+    "RoleFocus": {
+      "type": "string",
+      "enum": ["STRATEGIST", "TEACHER", "STUDENT", "MULTI_ROLE"]
+    },
+    "BehaviorMatch": {
+      "type": "object",
+      "required": ["behavior_id", "name", "version", "instruction", "score"],
+      "properties": {
+        "behavior_id": {"type": "string", "format": "uuid"},
+        "name": {"type": "string", "maxLength": 120},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+        "instruction": {"type": "string"},
+        "description": {"type": "string"},
+        "role_focus": {"$ref": "#/definitions/RoleFocus"},
+        "tags": {
+          "type": "array",
+          "items": {"type": "string", "maxLength": 50},
+          "uniqueItems": false,
+          "maxItems": 25
+        },
+        "score": {"type": "number", "minimum": 0.0},
+        "strategy_breakdown": {
+          "type": "object",
+          "description": "Per-strategy contribution to the final score (0-1).",
+          "properties": {
+            "embedding": {"type": "number", "minimum": 0.0},
+            "keyword": {"type": "number", "minimum": 0.0},
+            "recency": {"type": "number", "minimum": 0.0}
+          },
+          "additionalProperties": false
+        },
+        "citation_label": {
+          "type": "string",
+          "description": "One-line label used for prompt citations (defaults to name)."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Optional metadata surfaced to Strategist / Teacher workflows.",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetrieveRequest": {
+      "type": "object",
+      "required": ["query"],
+      "properties": {
+        "query": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "top_k": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
+        "strategy": {"$ref": "#/definitions/RetrievalStrategy", "default": "hybrid"},
+        "role_focus": {"$ref": "#/definitions/RoleFocus"},
+        "tags": {
+          "type": "array",
+          "items": {"type": "string", "maxLength": 50},
+          "maxItems": 20
+        },
+        "include_metadata": {"type": "boolean", "default": false},
+        "embedding_weight": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Relative weight for embedding score when strategy=hybrid.",
+          "default": 0.7
+        },
+        "keyword_weight": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Relative weight for keyword score when strategy=hybrid.",
+          "default": 0.3
+        },
+        "trace_context": {
+          "type": "object",
+          "description": "Optional trace snippet or metadata used to enrich retrieval.",
+          "properties": {
+            "previous_steps": {
+              "type": "array",
+              "items": {"type": "string"},
+              "maxItems": 10
+            },
+            "problem_domain": {"type": "string", "maxLength": 120}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetrieveResponse": {
+      "type": "object",
+      "required": ["query", "results"],
+      "properties": {
+        "query": {"type": "string"},
+        "strategy_used": {"$ref": "#/definitions/RetrievalStrategy"},
+        "latency_ms": {"type": "number", "minimum": 0.0},
+        "results": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/BehaviorMatch"}
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Additional retrieval diagnostics (e.g., index version, cache hit).",
+          "properties": {
+            "index_version": {"type": "string"},
+            "cache_hit": {"type": "boolean"},
+            "behavior_count": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workItems.postComment",
+  "description": "Post a comment on a work item. Comments can be from users or agents and optionally link to execution runs.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "work_item_id": {
+        "type": "string",
+        "description": "ID or display ID (e.g. 'myproject-42') of the work item to comment on (required)"
+      },
+      "body": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 50000,
+        "description": "Comment text content (required). Supports markdown formatting."
+      },
+      "author_id": {
+        "type": "string",
+        "description": "ID of the comment author - user ID or agent ID (required)"
+      },
+      "author_type": {
+        "type": "string",
+        "enum": ["user", "agent"],
+        "default": "user",
+        "description": "Type of author: 'user' for human users, 'agent' for AI agents"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Optional link to an execution run ID. Useful for agent-posted summaries."
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Optional JSON metadata to attach to the comment"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID for multi-tenant context"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "User ID performing the action (for audit logging)"
+      },
+      "actor_role": {
+        "type": "string",
+        "description": "Role of the actor (for audit logging)"
+      },
+      "actor_surface": {
+        "type": "string",
+        "description": "Surface the action is performed from (e.g., 'mcp', 'web', 'cli')"
+      }
+    },
+    "required": ["work_item_id", "body", "author_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the comment was posted successfully"
+      },
+      "comment": {
+        "type": "object",
+        "description": "The created comment object",
+        "properties": {
+          "comment_id": { "type": "string" },
+          "work_item_id": { "type": "string" },
+          "author_id": { "type": "string" },
+          "author_type": { "type": "string" },
+          "content": { "type": "string" },
+          "run_id": { "type": ["string", "null"] },
+          "metadata": { "type": "object" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": {
+        "type": "string",
+        "description": "Human-readable status message"
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if success is false"
+      }
+    }
+  },
+  "examples": [
+    {
+      "name": "Post user comment",
+      "input": {
+        "work_item_id": "wi_abc123",
+        "body": "Started working on this task. Will update when done.",
+        "author_id": "user_xyz",
+        "author_type": "user"
+      }
+    },
+    {
+      "name": "Post agent execution summary",
+      "input": {
+        "work_item_id": "wi_abc123",
+        "body": "## Execution Summary\n\n**Status:** Completed successfully\n\n**Changes:**\n- Updated `src/api/handlers.py`\n- Added unit tests\n\n**PR:** #123",
+        "author_id": "agent_engineering",
+        "author_type": "agent",
+        "run_id": "run_def456"
+      }
+    }
+  ]
+}

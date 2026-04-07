@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "runs.updateProgress",
+  "description": "Update run progress with status, step information, and metadata. Returns updated run.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "Run identifier"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"],
+        "description": "Updated run status"
+      },
+      "progress_pct": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 100,
+        "description": "Progress percentage (0-100)"
+      },
+      "message": {
+        "type": "string",
+        "description": "Progress message"
+      },
+      "step_id": {
+        "type": "string",
+        "description": "Current step identifier"
+      },
+      "step_name": {
+        "type": "string",
+        "description": "Current step name"
+      },
+      "step_status": {
+        "type": "string",
+        "description": "Current step status"
+      },
+      "tokens_generated": {
+        "type": "integer",
+        "description": "Tokens generated in this run"
+      },
+      "tokens_baseline": {
+        "type": "integer",
+        "description": "Baseline tokens for comparison"
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Additional metadata to merge"
+      }
+    },
+    "required": ["run_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string"
+      },
+      "updated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "status": {
+        "type": "string"
+      },
+      "progress_pct": {
+        "type": "number"
+      },
+      "message": {
+        "type": "string"
+      },
+      "current_step": {
+        "type": "string"
+      },
+      "metadata": {
+        "type": "object"
+      },
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      }
+    },
+    "required": ["run_id", "updated_at", "status", "progress_pct"]
+  }
+}

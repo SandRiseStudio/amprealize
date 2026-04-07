@@ -1,0 +1,523 @@
+{
+	"name": "amprealize-ide-extension",
+	"displayName": "Amprealize IDE Extension",
+	"description": "Amprealize IDE extension with real-time run monitoring, behavior management, and AI agent orchestration for development workflows",
+	"version": "1.0.0",
+	"publisher": "amprealize",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/SandRiseStudio/amprealize"
+	},
+	"homepage": "https://github.com/SandRiseStudio/amprealize",
+	"bugs": {
+		"url": "https://github.com/SandRiseStudio/amprealize/issues"
+	},
+	"engines": {
+		"vscode": "^1.74.0"
+	},
+	"categories": [
+		"Machine Learning",
+		"Extension Packs"
+	],
+	"keywords": [
+		"ai",
+		"machine-learning",
+		"agents",
+		"automation",
+		"workflows",
+		"compliance",
+		"behavior-management",
+		"mcp",
+		"model-context-protocol"
+	],
+	"icon": "resources/icon.png",
+	"badges": [
+		{
+			"url": "https://img.shields.io/github/v/release/SandRiseStudio/amprealize?label=version",
+			"href": "https://github.com/SandRiseStudio/amprealize/releases",
+			"description": "Latest Release"
+		},
+		{
+			"url": "https://img.shields.io/github/workflow/status/SandRiseStudio/amprealize/CI?label=build",
+			"href": "https://github.com/SandRiseStudio/amprealize/actions/workflows/ci.yml",
+			"description": "Build Status"
+		}
+	],
+	"license": "Apache-2.0",
+	"galleryBanner": {
+		"color": "#1e1e1e",
+		"theme": "dark"
+	},
+	"markdown": "github",
+	"qna": "https://github.com/SandRiseStudio/amprealize/discussions",
+	"pricing": "Free",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "amprealize",
+					"title": "Amprealize",
+					"icon": "resources/amprealize-icon.svg"
+				}
+			]
+		},
+		"views": {
+			"amprealize": [
+				{
+					"id": "amprealize.executionTracker",
+					"name": "Execution Tracker"
+				},
+				{
+					"id": "amprealize.complianceTracker",
+					"name": "Compliance Tracker"
+				},
+				{
+					"id": "amprealize.actionTracker",
+					"name": "Action Registry"
+				},
+				{
+					"id": "amprealize.costTracker",
+					"name": "Cost Analytics"
+				},
+				{
+					"id": "amprealize.behaviorAccuracy",
+					"name": "Behavior Accuracy"
+				},
+				{
+					"id": "amprealize.conversations",
+					"name": "Conversations"
+				}
+			]
+		},
+		"commands": [
+			{
+				"command": "amprealize.refreshExecutionTracker",
+				"title": "Refresh Execution Tracker",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "amprealize.viewRunDetails",
+				"title": "View Run Details"
+			},
+			{
+				"command": "amprealize.refreshComplianceTracker",
+				"title": "Refresh Compliance Tracker",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "amprealize.openComplianceReview",
+				"title": "Open Compliance Review"
+			},
+			{
+				"command": "amprealize.createComplianceChecklist",
+				"title": "Create Compliance Checklist"
+			},
+			{
+				"command": "amprealize.showOutput",
+				"title": "Show Output"
+			},
+			{
+				"command": "amprealize.executionTracker.copyRunId",
+				"title": "Copy Run ID"
+			},
+			{
+				"command": "amprealize.executionTracker.refreshRun",
+				"title": "Refresh Run"
+			},
+			{
+				"command": "amprealize.complianceTracker.createChecklist",
+				"title": "Create Checklist"
+			},
+			{
+				"command": "amprealize.complianceTracker.refreshChecklist",
+				"title": "Refresh Checklist"
+			},
+			{
+				"command": "amprealize.mcp.showStatus",
+				"title": "Amprealize: MCP Connection Status",
+				"icon": "$(plug)"
+			},
+			{
+				"command": "amprealize.mcp.connect",
+				"title": "Amprealize: Connect to MCP Server",
+				"icon": "$(plug)"
+			},
+			{
+				"command": "amprealize.mcp.disconnect",
+				"title": "Amprealize: Disconnect from MCP Server",
+				"icon": "$(debug-disconnect)"
+			},
+			{
+				"command": "amprealize.openChat",
+				"title": "Amprealize: Open Chat Panel",
+				"icon": "$(comment-discussion)"
+			},
+			{
+				"command": "amprealize.refreshActionTracker",
+				"title": "Refresh Action Registry",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "amprealize.openActionTimeline",
+				"title": "Amprealize: Open Action Timeline",
+				"icon": "$(history)"
+			},
+			{
+				"command": "amprealize.recordAction",
+				"title": "Amprealize: Record Action",
+				"icon": "$(record)"
+			},
+			{
+				"command": "amprealize.listActions",
+				"title": "Amprealize: List Actions"
+			},
+			{
+				"command": "amprealize.replayAction",
+				"title": "Amprealize: Replay Action",
+				"icon": "$(play)"
+			},
+			{
+				"command": "amprealize.viewActionDetail",
+				"title": "View Action Details"
+			},
+			{
+				"command": "amprealize.actionTracker.copyActionId",
+				"title": "Copy Action ID"
+			},
+			{
+				"command": "amprealize.actionTracker.filterByBehavior",
+				"title": "Filter by Behavior"
+			},
+			{
+				"command": "amprealize.actionTracker.clearFilters",
+				"title": "Clear Filters"
+			},
+			{
+				"command": "amprealize.refreshCostTracker",
+				"title": "Refresh Cost Analytics",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "amprealize.costTracker.setPeriod7d",
+				"title": "Show Last 7 Days"
+			},
+			{
+				"command": "amprealize.costTracker.setPeriod30d",
+				"title": "Show Last 30 Days"
+			},
+			{
+				"command": "amprealize.costTracker.setPeriod90d",
+				"title": "Show Last 90 Days"
+			},
+			{
+				"command": "amprealize.openBehaviorAccuracy",
+				"title": "Amprealize: Behavior Accuracy Dashboard",
+				"icon": "$(graph)"
+			},
+			{
+				"command": "amprealize.openOnboarding",
+				"title": "Amprealize: Set Up Workspace",
+				"icon": "$(rocket)"
+			},
+			{
+				"command": "amprealize.submitBehaviorFeedback",
+				"title": "Amprealize: Submit Behavior Feedback",
+				"icon": "$(feedback)"
+			},
+			{
+				"command": "amprealize.refreshBehaviorAccuracy",
+				"title": "Refresh Behavior Accuracy",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "amprealize.openConversation",
+				"title": "Amprealize: Open Conversation",
+				"icon": "$(comment-discussion)"
+			},
+			{
+				"command": "amprealize.refreshConversations",
+				"title": "Refresh Conversations",
+				"icon": "$(refresh)"
+			}
+		],
+		"menus": {
+			"view/title": [
+				{
+					"command": "amprealize.actionTracker.refresh",
+					"when": "view == amprealize.actionTracker",
+					"group": "navigation"
+				},
+				{
+					"command": "amprealize.openActionTimeline",
+					"when": "view == amprealize.actionTracker",
+					"group": "navigation"
+				},
+				{
+					"command": "amprealize.actionTracker.clearFilters",
+					"when": "view == amprealize.actionTracker",
+					"group": "1_filters"
+				},
+				{
+					"command": "amprealize.refreshConversations",
+					"when": "view == amprealize.conversations",
+					"group": "navigation"
+				},
+				{
+					"command": "amprealize.openConversation",
+					"when": "view == amprealize.conversations",
+					"group": "navigation"
+				},
+				{
+					"command": "amprealize.refreshCostTracker",
+					"when": "view == amprealize.costTracker",
+					"group": "navigation"
+				},
+				{
+					"command": "amprealize.costTracker.setPeriod7d",
+					"when": "view == amprealize.costTracker",
+					"group": "1_period"
+				},
+				{
+					"command": "amprealize.costTracker.setPeriod30d",
+					"when": "view == amprealize.costTracker",
+					"group": "1_period"
+				},
+				{
+					"command": "amprealize.costTracker.setPeriod90d",
+					"when": "view == amprealize.costTracker",
+					"group": "1_period"
+				}
+			],
+			"view/item/context": [
+				{
+					"command": "amprealize.viewActionDetail",
+					"when": "view == amprealize.actionTracker && viewItem == action-item",
+					"group": "inline"
+				},
+				{
+					"command": "amprealize.replayAction",
+					"when": "view == amprealize.actionTracker && viewItem == action-item",
+					"group": "inline"
+				},
+				{
+					"command": "amprealize.actionTracker.copyActionId",
+					"when": "view == amprealize.actionTracker && viewItem == action-item",
+					"group": "1_actions"
+				},
+				{
+					"command": "amprealize.actionTracker.filterByBehavior",
+					"when": "view == amprealize.actionTracker && viewItem == action-item",
+					"group": "2_filters"
+				}
+			]
+		},
+		"viewItems": {
+			"amprealize.actionTracker": [
+				{
+					"id": "action-item",
+					"name": "Action Item"
+				},
+				{
+					"id": "status-group",
+					"name": "Status Group"
+				}
+			],
+			"amprealize.executionTracker": [
+				{
+					"id": "run-item",
+					"name": "Run Item"
+				},
+				{
+					"id": "run-running",
+					"name": "Running Run"
+				},
+				{
+					"id": "run-completed",
+					"name": "Completed Run"
+				},
+				{
+					"id": "run-failed",
+					"name": "Failed Run"
+				},
+				{
+					"id": "run-cancelled",
+					"name": "Cancelled Run"
+				},
+				{
+					"id": "run-step",
+					"name": "Run Step"
+				},
+				{
+					"id": "run-step-pending",
+					"name": "Pending Step"
+				},
+				{
+					"id": "run-step-running",
+					"name": "Running Step"
+				},
+				{
+					"id": "run-step-completed",
+					"name": "Completed Step"
+				},
+				{
+					"id": "run-step-failed",
+					"name": "Failed Step"
+				}
+			],
+			"amprealize.complianceTracker": [
+				{
+					"id": "checklist-draft",
+					"name": "Draft Checklist"
+				},
+				{
+					"id": "checklist-in-progress",
+					"name": "In Progress Checklist"
+				},
+				{
+					"id": "checklist-completed",
+					"name": "Completed Checklist"
+				},
+				{
+					"id": "checklist-approved",
+					"name": "Approved Checklist"
+				},
+				{
+					"id": "checklist-rejected",
+					"name": "Rejected Checklist"
+				},
+				{
+					"id": "step-pending",
+					"name": "Pending Step"
+				},
+				{
+					"id": "step-in-progress",
+					"name": "In Progress Step"
+				},
+				{
+					"id": "step-completed",
+					"name": "Completed Step"
+				},
+				{
+					"id": "step-blocked",
+					"name": "Blocked Step"
+				},
+				{
+					"id": "step-skipped",
+					"name": "Skipped Step"
+				},
+				{
+					"id": "comment",
+					"name": "Comment"
+				}
+			]
+		},
+		"configuration": {
+			"title": "Amprealize",
+			"properties": {
+				"amprealize.pythonPath": {
+					"type": "string",
+					"default": "python",
+					"description": "Path to Python executable for running the Amprealize CLI and MCP server"
+				},
+				"amprealize.cliPath": {
+					"type": "string",
+					"default": "amprealize",
+					"description": "Path to the Amprealize CLI executable"
+				},
+				"amprealize.mcpRequestTimeout": {
+					"type": "number",
+					"default": 30000,
+					"minimum": 1000,
+					"maximum": 300000,
+					"description": "Timeout for individual MCP tool calls in milliseconds (default: 30 seconds)"
+				},
+				"amprealize.mcpHeartbeatInterval": {
+					"type": "number",
+					"default": 30000,
+					"minimum": 5000,
+					"maximum": 120000,
+					"description": "Interval between heartbeat pings to MCP server in milliseconds (default: 30 seconds)"
+				},
+				"amprealize.mcpMaxReconnectAttempts": {
+					"type": "number",
+					"default": 10,
+					"minimum": 0,
+					"maximum": 100,
+					"description": "Maximum number of automatic reconnection attempts before giving up (0 to disable)"
+				},
+				"amprealize.mcpAutoReconnect": {
+					"type": "boolean",
+					"default": true,
+					"description": "Automatically reconnect to MCP server when connection is lost"
+				},
+				"amprealize.telemetryEnabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Enable telemetry for usage analytics and diagnostics"
+				},
+				"amprealize.telemetryActorId": {
+					"type": "string",
+					"default": "vscode-user",
+					"description": "Actor ID for telemetry events"
+				},
+				"amprealize.telemetryActorRole": {
+					"type": "string",
+					"default": "STUDENT",
+					"enum": ["STUDENT", "TEACHER", "STRATEGIST"],
+					"description": "Actor role for telemetry events"
+				}
+			}
+		},
+		"keybindings": [
+			{
+				"command": "amprealize.openChat",
+				"key": "ctrl+shift+g",
+				"mac": "cmd+shift+g",
+				"when": "editorTextFocus || !inputFocus"
+			},
+			{
+				"command": "amprealize.quickActions",
+				"key": "ctrl+shift+alt+g",
+				"mac": "cmd+shift+alt+g"
+			},
+			{
+				"command": "amprealize.openConversation",
+				"key": "ctrl+shift+m",
+				"mac": "cmd+shift+m",
+				"when": "editorTextFocus || !inputFocus"
+			}
+		]
+	},
+	"scripts": {
+		"vscode:prepublish": "tsc -p ./ || true",
+		"compile": "tsc -p ./ || true",
+		"watch": "tsc -watch -p ./",
+		"pretest": "npm run compile && npm run lint",
+		"lint": "eslint src --ext ts",
+		"test": "node ./out/test/runTest.js",
+		"package": "node scripts/package.js",
+		"package:vsix": "vsce package",
+		"publish": "vsce publish"
+	},
+	"devDependencies": {
+		"@types/vscode": "^1.74.0",
+		"@types/node": "16.x",
+		"@types/mocha": "^10.0.6",
+		"@types/glob": "^8.1.0",
+		"@typescript-eslint/eslint-plugin": "^5.59.1",
+		"@typescript-eslint/parser": "^5.59.1",
+		"@vscode/test-electron": "^2.3.8",
+		"@vscode/vsce": "^2.22.0",
+		"eslint": "^8.39.0",
+		"glob": "^8.1.0",
+		"mocha": "^10.2.0",
+		"typescript": "^5.0.4"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.0.0"
+	}
+}

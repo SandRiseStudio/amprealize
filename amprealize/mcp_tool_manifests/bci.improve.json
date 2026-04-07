@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bci.improve",
+  "description": "Analyze a failed run and generate improvement suggestions using BCI and TraceAnalysisService. Detects patterns in the failed run trace, scores reusability, retrieves relevant behaviors, and generates actionable improvement recommendations. Useful for root cause analysis and post-mortem workflows.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "The run ID to analyze"
+      },
+      "provider": {
+        "type": "string",
+        "enum": ["openai", "anthropic", "openrouter", "ollama", "together", "groq", "fireworks"],
+        "description": "LLM provider to use. If not provided, loads from AMPREALIZE_LLM_PROVIDER environment variable."
+      },
+      "model": {
+        "type": "string",
+        "description": "Model name to use (e.g., gpt-4o, claude-3-5-sonnet). If not provided, uses provider default."
+      },
+      "max_behaviors": {
+        "type": "integer",
+        "default": 10,
+        "description": "Maximum number of behaviors to extract from the trace analysis"
+      }
+    },
+    "required": ["run_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "The analyzed run ID"
+      },
+      "patterns": {
+        "type": "array",
+        "description": "Detected patterns in the failed run",
+        "items": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "Pattern description"
+            },
+            "frequency": {
+              "type": "integer",
+              "description": "How many times this pattern appears"
+            },
+            "score": {
+              "type": "number",
+              "description": "Reusability score (0-1)"
+            }
+          }
+        }
+      },
+      "suggestions": {
+        "type": "string",
+        "description": "Generated improvement suggestions including root cause analysis, code changes, and preventive measures"
+      },
+      "behaviors_extracted": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Behavior names extracted from the trace analysis"
+      },
+      "latency_ms": {
+        "type": "number",
+        "description": "Total analysis latency in milliseconds"
+      }
+    }
+  }
+}

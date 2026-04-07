@@ -1,0 +1,25 @@
+{
+  "name": "behavior.analyzeAndRetrieve",
+  "description": "Analyze a task, retrieve relevant behaviors, and get recommendations in one call. This high-level tool combines behaviors.getForTask, bci.retrieve, and bci.composePrompt, reducing context window usage by returning everything needed to start a task.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_description": {
+        "type": "string",
+        "description": "Natural language description of the task to perform (required)"
+      },
+      "role": {
+        "type": "string",
+        "enum": ["Student", "Teacher", "Strategist"],
+        "description": "Agent role for context-appropriate behaviors",
+        "default": "Student"
+      },
+      "include_prompt": {
+        "type": "boolean",
+        "description": "Whether to compose a BCI prompt with retrieved behaviors",
+        "default": true
+      }
+    },
+    "required": ["task_description"]
+  }
+}

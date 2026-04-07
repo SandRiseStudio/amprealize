@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bci.detectPatterns",
+  "description": "Detect reusable reasoning patterns across traces to seed new behaviors.",
+  "inputSchema": {
+    "$ref": "../../schema/bci/v1/trace.json#/definitions/DetectPatternsRequest"
+  },
+  "outputSchema": {
+    "$ref": "../../schema/bci/v1/trace.json#/definitions/DetectPatternsResponse"
+  }
+}

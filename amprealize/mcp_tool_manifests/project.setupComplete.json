@@ -1,0 +1,32 @@
+{
+  "name": "project.setupComplete",
+  "description": "Set up a complete project with board and team members in one operation. This high-level tool replaces multiple calls to projects.create, boards.create, and projects.addMember, reducing context window usage and round-trips.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Project name (required)"
+      },
+      "description": {
+        "type": "string",
+        "description": "Project description"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID (required)"
+      },
+      "board_name": {
+        "type": "string",
+        "description": "Default board name",
+        "default": "Main Board"
+      },
+      "member_emails": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Email addresses of team members to invite"
+      }
+    },
+    "required": ["name", "org_id"]
+  }
+}

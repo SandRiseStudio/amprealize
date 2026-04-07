@@ -1,0 +1,23 @@
+{{ severity | upper }} ALERT
+
+{{ title }}
+
+{{ message }}
+
+{% if source %}
+Source: {{ source }}
+{% endif %}
+
+{% if details %}
+Details:
+{% for key, value in details.items() %}
+  • {{ key }}: {{ value }}
+{% endfor %}
+{% endif %}
+
+{% if action_link %}
+Take action: {{ action_link }}
+{% endif %}
+
+---
+Sent at {{ timestamp | default("now") }}

@@ -1,0 +1,84 @@
+{
+  "name": "analytics.costPerRun",
+  "description": "Query cost breakdown per individual run from analytics warehouse. Shows cost, tokens, and timing for each run, optionally filtered by template.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results from this date forward"
+      },
+      "end_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results up to this date"
+      },
+      "template_id": {
+        "type": "string",
+        "description": "Optional filter to show costs for runs using a specific template"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of records to return (default: 100, max: 1000)",
+        "default": 100
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "records": {
+        "type": "array",
+        "description": "List of cost records by run",
+        "items": {
+          "type": "object",
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "description": "Unique identifier for the run"
+            },
+            "template_id": {
+              "type": "string",
+              "description": "Workflow template used (null for ad-hoc runs)"
+            },
+            "total_cost_usd": {
+              "type": "number",
+              "description": "Total cost in USD for this run"
+            },
+            "total_tokens": {
+              "type": "integer",
+              "description": "Total tokens used in this run"
+            },
+            "started_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the run started"
+            },
+            "completed_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the run completed (if finished)"
+            },
+            "status": {
+              "type": "string",
+              "description": "Current run status"
+            }
+          }
+        }
+      },
+      "count": {
+        "type": "integer",
+        "description": "Number of run records returned"
+      }
+    }
+  },
+  "endpoint": {
+    "method": "GET",
+    "path": "/v1/analytics/cost-per-run",
+    "queryParams": ["start_date", "end_date", "template_id", "limit"]
+  },
+  "cli": {
+    "command": "amprealize analytics cost-per-run",
+    "flags": ["--start-date", "--end-date", "--template", "--limit", "--format"]
+  },
+  "tags": ["analytics", "cost", "budget", "runs", "prd-8.17"]
+}

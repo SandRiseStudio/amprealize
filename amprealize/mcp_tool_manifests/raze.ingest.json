@@ -1,0 +1,137 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "raze.ingest",
+  "description": "Ingest structured log events into the Raze logging system. Supports batch ingestion with automatic buffering and flush. Use for recording debug info, errors, and operational events with full context.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "events": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 1000,
+        "description": "Array of log events to ingest",
+        "items": {
+          "type": "object",
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": ["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+              "description": "Log severity level"
+            },
+            "service": {
+              "type": "string",
+              "description": "Service/component name that generated this log"
+            },
+            "message": {
+              "type": "string",
+              "description": "Human-readable log message"
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 timestamp (defaults to now if omitted)"
+            },
+            "run_id": {
+              "type": "string",
+              "description": "Execution run ID for correlation"
+            },
+            "action_id": {
+              "type": "string",
+              "description": "Action ID within the run"
+            },
+            "session_id": {
+              "type": "string",
+              "description": "User session ID"
+            },
+            "actor_surface": {
+              "type": "string",
+              "enum": ["api", "cli", "vscode", "web", "mcp", "system"],
+              "description": "Which surface generated this log"
+            },
+            "context": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Additional structured context as key-value pairs"
+            },
+            "schema_version": {
+              "type": "string",
+              "default": "v1",
+              "description": "Schema version for forward compatibility"
+            }
+          },
+          "required": ["level", "service", "message"],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": ["events"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "accepted": {
+        "type": "integer",
+        "description": "Number of events accepted for processing"
+      },
+      "message": {
+        "type": "string",
+        "description": "Human-readable status message"
+      }
+    },
+    "required": ["accepted", "message"]
+  },
+  "examples": [
+    {
+      "name": "Log a warning with context",
+      "input": {
+        "events": [
+          {
+            "level": "WARNING",
+            "service": "behavior-service",
+            "message": "Behavior retrieval took longer than expected",
+            "run_id": "run-abc123",
+            "context": {
+              "behavior_id": "behavior_unify_execution_records",
+              "latency_ms": 2500,
+              "retriever": "faiss"
+            }
+          }
+        ]
+      },
+      "output": {
+        "accepted": 1,
+        "message": "Accepted 1 events for processing"
+      }
+    },
+    {
+      "name": "Batch ingest multiple events",
+      "input": {
+        "events": [
+          {
+            "level": "INFO",
+            "service": "mcp-server",
+            "message": "Tool execution started",
+            "actor_surface": "mcp"
+          },
+          {
+            "level": "DEBUG",
+            "service": "mcp-server",
+            "message": "Parsed request parameters",
+            "context": {"tool": "behaviors.search", "params_count": 3}
+          },
+          {
+            "level": "INFO",
+            "service": "mcp-server",
+            "message": "Tool execution completed",
+            "context": {"duration_ms": 150}
+          }
+        ]
+      },
+      "output": {
+        "accepted": 3,
+        "message": "Accepted 3 events for processing"
+      }
+    }
+  ]
+}

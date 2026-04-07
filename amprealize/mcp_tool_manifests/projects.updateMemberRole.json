@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "projects.updateMemberRole",
+  "description": "Update a member's role in a project. Requires project admin or owner role.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID"
+      },
+      "target_user_id": {
+        "type": "string",
+        "description": "ID of the user whose role to update"
+      },
+      "role": {
+        "type": "string",
+        "enum": ["owner", "admin", "maintainer", "developer", "viewer"],
+        "description": "New role to assign"
+      }
+    },
+    "required": ["user_id", "project_id", "target_user_id", "role"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "membership": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "project_id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "role": { "type": "string" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

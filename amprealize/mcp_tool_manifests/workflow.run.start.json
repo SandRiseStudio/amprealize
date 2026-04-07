@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workflow.run.start",
+  "description": "Execute a workflow template with behavior-conditioned inference, injecting retrieved behaviors into prompts at runtime.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["template_id", "actor"],
+    "properties": {
+      "template_id": {
+        "type": "string",
+        "description": "Template identifier to execute"
+      },
+      "behavior_ids": {
+        "type": "array",
+        "description": "Behavior IDs to inject (auto-retrieves from template if omitted)",
+        "items": {"type": "string"}
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Run metadata"
+      },
+      "actor": {
+        "type": "object",
+        "required": ["id", "role"],
+        "properties": {
+          "id": {"type": "string"},
+          "role": {"type": "string"},
+          "surface": {"type": "string"}
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["run_id", "template_id", "status", "started_at"],
+    "properties": {
+      "run_id": {"type": "string"},
+      "template_id": {"type": "string"},
+      "template_name": {"type": "string"},
+      "role_focus": {"type": "string"},
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "role": {"type": "string"},
+          "surface": {"type": "string"}
+        }
+      },
+      "steps": {
+        "type": "array",
+        "description": "Runtime step execution state"
+      },
+      "started_at": {"type": "string", "format": "date-time"},
+      "completed_at": {"type": ["string", "null"], "format": "date-time"},
+      "total_tokens": {"type": "integer"},
+      "behaviors_cited": {"type": "array", "items": {"type": "string"}},
+      "metadata": {"type": "object"}
+    }
+  }
+}

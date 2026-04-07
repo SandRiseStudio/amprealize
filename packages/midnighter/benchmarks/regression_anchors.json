@@ -1,0 +1,135 @@
+{
+  "version": "1.0",
+  "description": "Regression anchor thresholds for domain expertise benchmark evaluation. These represent minimum acceptable scores for the BCI + knowledge pack pipeline.",
+  "generated_from": "domain_expertise_benchmark.jsonl",
+  "total_examples": 56,
+  "global_thresholds": {
+    "behavior_adherence": {
+      "min": 0.70,
+      "target": 0.85,
+      "description": "Fraction of expected behaviors correctly cited in response"
+    },
+    "citation_accuracy": {
+      "min": 0.65,
+      "target": 0.80,
+      "description": "Precision of behavior citations (cited behaviors that are relevant)"
+    },
+    "hallucination_rate": {
+      "max": 0.10,
+      "target": 0.05,
+      "description": "Fraction of responses containing fabricated behavior references"
+    },
+    "mean_reciprocal_rank": {
+      "min": 0.60,
+      "target": 0.75,
+      "description": "MRR of the first correct behavior in the retrieval ranking"
+    },
+    "ndcg_at_5": {
+      "min": 0.55,
+      "target": 0.70,
+      "description": "Normalized Discounted Cumulative Gain at K=5 for behavior retrieval"
+    },
+    "ndcg_at_10": {
+      "min": 0.50,
+      "target": 0.65,
+      "description": "Normalized Discounted Cumulative Gain at K=10 for behavior retrieval"
+    }
+  },
+  "per_category_thresholds": {
+    "docs": {
+      "behavior_adherence_min": 0.80,
+      "mrr_min": 0.70,
+      "note": "Documentation tasks should have high adherence due to clear behavior triggers"
+    },
+    "implementation": {
+      "behavior_adherence_min": 0.70,
+      "mrr_min": 0.60,
+      "note": "Implementation tasks may invoke multiple behaviors; lower threshold acceptable"
+    },
+    "testing": {
+      "behavior_adherence_min": 0.75,
+      "mrr_min": 0.65,
+      "note": "Testing behaviors are well-defined with clear keyword triggers"
+    },
+    "migration": {
+      "behavior_adherence_min": 0.80,
+      "mrr_min": 0.70,
+      "note": "Migration tasks have strong keyword signals (alembic, schema, migrate)"
+    },
+    "config": {
+      "behavior_adherence_min": 0.80,
+      "mrr_min": 0.70,
+      "note": "Configuration tasks have distinctive vocabulary"
+    },
+    "deployment": {
+      "behavior_adherence_min": 0.70,
+      "mrr_min": 0.60,
+      "note": "Deployment tasks may overlap with config and incident categories"
+    },
+    "incident": {
+      "behavior_adherence_min": 0.75,
+      "mrr_min": 0.65,
+      "note": "Incident tasks require fast, accurate behavior retrieval"
+    },
+    "general": {
+      "behavior_adherence_min": 0.60,
+      "mrr_min": 0.50,
+      "note": "General tasks have weaker signals; lower threshold acceptable"
+    },
+    "phase_planning": {
+      "behavior_adherence_min": 0.65,
+      "mrr_min": 0.55,
+      "note": "GEP planning phase tests phase-aware BCI; multi-behavior retrieval"
+    },
+    "phase_implementing": {
+      "behavior_adherence_min": 0.65,
+      "mrr_min": 0.55,
+      "note": "GEP implementing phase requires context-aware behavior selection"
+    },
+    "phase_reviewing": {
+      "behavior_adherence_min": 0.70,
+      "mrr_min": 0.60,
+      "note": "GEP reviewing phase should reliably trigger compliance behaviors"
+    },
+    "phase_completing": {
+      "behavior_adherence_min": 0.70,
+      "mrr_min": 0.60,
+      "note": "GEP completing phase should trigger documentation and deploy behaviors"
+    },
+    "negative": {
+      "hallucination_rate_max": 0.05,
+      "false_positive_rate_max": 0.10,
+      "note": "Negative examples must not trigger behavior retrieval"
+    },
+    "multi_behavior": {
+      "behavior_adherence_min": 0.60,
+      "recall_at_5_min": 0.70,
+      "note": "Multi-behavior tasks test recall of all relevant behaviors"
+    }
+  },
+  "difficulty_multipliers": {
+    "easy": 1.1,
+    "medium": 1.0,
+    "hard": 0.9,
+    "description": "Apply multiplier to per-category thresholds based on difficulty. Easy tasks should exceed thresholds; hard tasks have more lenient expectations."
+  },
+  "comparison_thresholds": {
+    "pack_bci_vs_baseline": {
+      "min_improvement_behavior_adherence": 0.15,
+      "min_improvement_citation_accuracy": 0.10,
+      "max_regression_hallucination_rate": 0.02,
+      "description": "Pack+BCI strategy must beat baseline by these margins"
+    },
+    "bci_only_vs_baseline": {
+      "min_improvement_behavior_adherence": 0.08,
+      "min_improvement_citation_accuracy": 0.05,
+      "max_regression_hallucination_rate": 0.03,
+      "description": "BCI-only strategy must beat baseline by these margins"
+    },
+    "token_efficiency": {
+      "max_token_increase_percent": 15.0,
+      "target_token_reduction_percent": 30.0,
+      "description": "BCI should ideally reduce tokens; at worst increase by 15%"
+    }
+  }
+}

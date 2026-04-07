@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "messages.edit",
+  "description": "Edit a message's content. Only the original sender can edit, and only within the edit window (default 15 minutes).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "message_id": {
+        "type": "string",
+        "description": "Message ID to edit (required)"
+      },
+      "content": {
+        "type": "string",
+        "description": "New message content (required)"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user editing the message"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": ["message_id", "content"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "message": { "type": "object" }
+    }
+  }
+}

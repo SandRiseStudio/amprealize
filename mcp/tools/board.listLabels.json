@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "board.listLabels",
+  "description": "List all labels for a project. Labels are used to categorize and filter work items.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["project_id"],
+    "properties": {
+      "project_id": {
+        "type": "string",
+        "description": "ID of the project to list labels for"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "labels": {
+        "type": "array",
+        "description": "List of labels",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Label ID"
+            },
+            "name": {
+              "type": "string",
+              "description": "Label name"
+            },
+            "color": {
+              "type": "string",
+              "enum": ["gray", "red", "orange", "yellow", "green", "teal", "blue", "indigo", "purple", "pink"],
+              "description": "Label color"
+            },
+            "project_id": {
+              "type": "string",
+              "description": "Project ID this label belongs to"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the label was created"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "When the label was last updated"
+            }
+          }
+        }
+      },
+      "total": {
+        "type": "integer",
+        "description": "Total number of labels"
+      }
+    }
+  }
+}

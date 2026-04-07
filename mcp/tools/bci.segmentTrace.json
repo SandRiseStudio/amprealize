@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bci.segmentTrace",
+  "description": "Segment chain-of-thought or structured traces into indexed steps for downstream pattern detection.",
+  "inputSchema": {
+    "$ref": "../../schema/bci/v1/trace.json#/definitions/SegmentTraceRequest"
+  },
+  "outputSchema": {
+    "$ref": "../../schema/bci/v1/trace.json#/definitions/SegmentTraceResponse"
+  }
+}

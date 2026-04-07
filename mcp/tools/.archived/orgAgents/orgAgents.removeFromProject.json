@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgAgents.removeFromProject",
+  "description": "Remove an agent from a project assignment.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "agent_id": {
+        "type": "string",
+        "description": "Agent ID to remove"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID to remove the agent from"
+      }
+    },
+    "required": ["user_id", "agent_id", "project_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "agent_id": { "type": "string" },
+      "project_id": { "type": "string" },
+      "message": { "type": "string" }
+    }
+  }
+}

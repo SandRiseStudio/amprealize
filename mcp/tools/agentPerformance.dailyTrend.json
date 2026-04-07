@@ -1,0 +1,96 @@
+{
+  "name": "agentPerformance.dailyTrend",
+  "description": "Get daily performance trend data for an agent. Returns day-by-day metrics for visualization and trend analysis.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Unique identifier of the agent"
+      },
+      "days": {
+        "type": "integer",
+        "description": "Number of days of history to retrieve (default: 30)",
+        "default": 30,
+        "minimum": 1,
+        "maximum": 365
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization filter"
+      }
+    },
+    "required": ["agent_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier"
+      },
+      "daily_data": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date",
+              "description": "Date (YYYY-MM-DD)"
+            },
+            "tasks_completed": {
+              "type": "integer",
+              "description": "Tasks completed on this day"
+            },
+            "tasks_succeeded": {
+              "type": "integer",
+              "description": "Successful tasks"
+            },
+            "tasks_failed": {
+              "type": "integer",
+              "description": "Failed tasks"
+            },
+            "success_rate_pct": {
+              "type": "number",
+              "description": "Success rate for this day"
+            },
+            "tokens_used": {
+              "type": "integer",
+              "description": "Tokens consumed"
+            },
+            "baseline_tokens": {
+              "type": "integer",
+              "description": "Baseline tokens"
+            },
+            "token_savings_pct": {
+              "type": "number",
+              "description": "Token savings percentage"
+            },
+            "behavior_reuse_pct": {
+              "type": "number",
+              "description": "Behavior reuse percentage"
+            },
+            "compliance_coverage_pct": {
+              "type": "number",
+              "description": "Compliance coverage percentage"
+            },
+            "avg_duration_ms": {
+              "type": "number",
+              "description": "Average task duration"
+            },
+            "active_time_ms": {
+              "type": "integer",
+              "description": "Total active time"
+            },
+            "idle_time_ms": {
+              "type": "integer",
+              "description": "Total idle time"
+            }
+          }
+        },
+        "description": "Daily performance records"
+      }
+    }
+  }
+}

@@ -1,0 +1,78 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.venv/
+.env
+.env.*
+*.log
+*.sqlite3
+
+# Node / frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Build outputs
+build/
+dist/
+coverage/
+*.tgz
+security/scan_reports/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+
+# ---------------------------------------------------------------------------
+# IDE, local AI assistants, and ephemeral tooling (machine-specific)
+# ---------------------------------------------------------------------------
+.cursor/
+.continue/
+.claude/
+.codex/
+.cline/
+.playwright-mcp/
+.serena/
+.agents/
+.tmp/
+
+# Local scratch / accidental exports at repo root
+/board-state.md
+
+.env.github-oauth
+
+# OAuth client secret exports (do not commit)
+client_secret*.json
+*apps.googleusercontent.com.json
+
+# Private keys and secrets directory
+secrets/
+*.pem
+*.private-key.pem
+
+# Amprealize runtime state (contains resolved secrets)
+.amprealize/
+
+# Environment configs with secrets
+environments.yaml
+
+# Backup files
+*.backup
+
+# Archive files with old secrets
+*.archive
+
+# Local data (databases, caches, backups)
+data/

@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "behaviors.update",
+  "description": "Update an existing behavior draft. Only DRAFT behaviors can be updated. Returns the updated behavior.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string",
+        "description": "Behavior ID to update"
+      },
+      "version": {
+        "type": "string",
+        "description": "Version to update (must be DRAFT)"
+      },
+      "instruction": {
+        "type": "string",
+        "description": "Updated procedural instruction"
+      },
+      "description": {
+        "type": "string",
+        "description": "Updated description"
+      },
+      "trigger_keywords": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Updated trigger keywords"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Updated tags"
+      },
+      "examples": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "scenario": {
+              "type": "string"
+            },
+            "application": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "Updated examples"
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Updated metadata"
+      },
+      "embedding": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        },
+        "description": "Updated embedding vector"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"]
+      }
+    },
+    "required": ["behavior_id", "version", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "instruction": {
+        "type": "string"
+      },
+      "role_focus": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["DRAFT"]
+      },
+      "version": {
+        "type": "string"
+      },
+      "updated_at": {
+        "type": "string"
+      }
+    },
+    "required": ["behavior_id", "status", "version", "updated_at"]
+  }
+}

@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "config.getModelAvailability",
+  "version": "1.0.0",
+  "description": "List available LLM models for a project based on credential resolution. Returns models available from platform, organization, or project-level credentials (BYOK takes priority). Use this to discover which models can be used for agent execution and their associated costs.",
+  "category": "config",
+  "tags": ["config", "models", "llm", "availability", "byok", "pricing"],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_id": {
+        "type": "string",
+        "description": "Project ID to check model availability for. Required for project-level credential resolution."
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID. If provided, includes org-level credentials in resolution. If omitted, derived from project if possible."
+      },
+      "include_pricing": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to include pricing information (input_price_per_m, output_price_per_m) in response."
+      },
+      "provider_filter": {
+        "type": "string",
+        "enum": ["anthropic", "openai", "openrouter", "local"],
+        "description": "Optional filter to only return models from a specific provider."
+      }
+    },
+    "required": ["project_id"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "project_id": {
+        "type": "string",
+        "description": "The project ID that was queried"
+      },
+      "org_id": {
+        "type": ["string", "null"],
+        "description": "The organization ID used in resolution (if any)"
+      },
+      "models": {
+        "type": "array",
+        "description": "List of available models with their configurations",
+        "items": {
+          "type": "object",
+          "properties": {
+            "model_id": {
+              "type": "string",
+              "description": "Unique model identifier (e.g., 'claude-opus-4-5', 'gpt-5-2')"
+            },
+            "provider": {
+              "type": "string",
+              "enum": ["anthropic", "openai", "openrouter", "local"],
+              "description": "LLM provider"
+            },
+            "display_name": {
+              "type": "string",
+              "description": "Human-readable model name"
+            },
+            "context_limit": {
+              "type": "integer",
+              "description": "Maximum context window in tokens"
+            },
+            "max_output_tokens": {
+              "type": "integer",
+              "description": "Maximum output tokens per request"
+            },
+            "supports_tool_calls": {
+              "type": "boolean",
+              "description": "Whether model supports function/tool calling"
+            },
+            "input_price_per_m": {
+              "type": "number",
+              "description": "Cost in USD per 1 million input tokens (only if include_pricing=true)"
+            },
+            "output_price_per_m": {
+              "type": "number",
+              "description": "Cost in USD per 1 million output tokens (only if include_pricing=true)"
+            },
+            "credential_source": {
+              "type": "string",
+              "enum": ["platform", "org", "project"],
+              "description": "Where the credential for this model comes from"
+            },
+            "is_byok": {
+              "type": "boolean",
+              "description": "Whether this uses Bring Your Own Key (org or project level)"
+            }
+          },
+          "required": ["model_id", "provider", "display_name", "context_limit", "supports_tool_calls", "credential_source", "is_byok"]
+        }
+      },
+      "total_count": {
+        "type": "integer",
+        "description": "Total number of available models"
+      },
+      "has_byok": {
+        "type": "boolean",
+        "description": "Whether any BYOK credentials are configured"
+      }
+    },
+    "required": ["project_id", "models", "total_count", "has_byok"]
+  },
+  "examples": [
+    {
+      "name": "Get all available models for a project",
+      "input": {
+        "project_id": "proj_abc123"
+      },
+      "output": {
+        "project_id": "proj_abc123",
+        "org_id": "org_xyz789",
+        "models": [
+          {
+            "model_id": "claude-opus-4-5",
+            "provider": "anthropic",
+            "display_name": "Claude Opus 4.5",
+            "context_limit": 200000,
+            "max_output_tokens": 16384,
+            "supports_tool_calls": true,
+            "input_price_per_m": 15.0,
+            "output_price_per_m": 75.0,
+            "credential_source": "platform",
+            "is_byok": false
+          },
+          {
+            "model_id": "gpt-5-2",
+            "provider": "openai",
+            "display_name": "GPT-5.2",
+            "context_limit": 128000,
+            "max_output_tokens": 16384,
+            "supports_tool_calls": true,
+            "input_price_per_m": 10.0,
+            "output_price_per_m": 30.0,
+            "credential_source": "project",
+            "is_byok": true
+          }
+        ],
+        "total_count": 2,
+        "has_byok": true
+      }
+    },
+    {
+      "name": "Filter by provider",
+      "input": {
+        "project_id": "proj_abc123",
+        "provider_filter": "anthropic"
+      },
+      "output": {
+        "project_id": "proj_abc123",
+        "org_id": null,
+        "models": [
+          {
+            "model_id": "claude-opus-4-5",
+            "provider": "anthropic",
+            "display_name": "Claude Opus 4.5",
+            "context_limit": 200000,
+            "max_output_tokens": 16384,
+            "supports_tool_calls": true,
+            "input_price_per_m": 15.0,
+            "output_price_per_m": 75.0,
+            "credential_source": "platform",
+            "is_byok": false
+          }
+        ],
+        "total_count": 1,
+        "has_byok": false
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "PROJECT_NOT_FOUND",
+      "message": "Project not found: {project_id}",
+      "description": "The specified project does not exist or user lacks access"
+    },
+    {
+      "code": "NO_MODELS_AVAILABLE",
+      "message": "No models available for project {project_id}",
+      "description": "No credentials are configured at any level (platform, org, or project)"
+    },
+    {
+      "code": "INVALID_PROVIDER",
+      "message": "Invalid provider filter: {provider}",
+      "description": "The provider_filter value is not a recognized provider"
+    }
+  ],
+  "authorization": {
+    "required_scopes": [],
+    "notes": "Requires project membership. Optional read:models scope may be enforced in future."
+  },
+  "rateLimit": {
+    "requests_per_minute": 60,
+    "notes": "Lightweight operation - high rate limit"
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "name": "agentPerformance.getSummary",
+  "description": "Get aggregated performance metrics summary for an agent over a specified period. Returns success rate, token savings, behavior reuse, and compliance coverage.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Unique identifier of the agent"
+      },
+      "period_days": {
+        "type": "integer",
+        "description": "Number of days to include in the analysis (default: 30)",
+        "default": 30,
+        "minimum": 1,
+        "maximum": 365
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization filter"
+      }
+    },
+    "required": ["agent_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Agent identifier"
+      },
+      "period_start": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Start of the analysis period"
+      },
+      "period_end": {
+        "type": "string",
+        "format": "date-time",
+        "description": "End of the analysis period"
+      },
+      "total_tasks": {
+        "type": "integer",
+        "description": "Total tasks completed in the period"
+      },
+      "successful_tasks": {
+        "type": "integer",
+        "description": "Number of successful tasks"
+      },
+      "failed_tasks": {
+        "type": "integer",
+        "description": "Number of failed tasks"
+      },
+      "success_rate_pct": {
+        "type": "number",
+        "description": "Success rate percentage"
+      },
+      "avg_duration_ms": {
+        "type": "number",
+        "description": "Average task duration in milliseconds"
+      },
+      "total_tokens_used": {
+        "type": "integer",
+        "description": "Total tokens consumed"
+      },
+      "total_baseline_tokens": {
+        "type": "integer",
+        "description": "Total baseline token count"
+      },
+      "token_savings_pct": {
+        "type": "number",
+        "description": "Token savings percentage compared to baseline"
+      },
+      "tasks_with_behaviors": {
+        "type": "integer",
+        "description": "Tasks that cited at least one behavior"
+      },
+      "behavior_reuse_pct": {
+        "type": "number",
+        "description": "Percentage of tasks using behaviors"
+      },
+      "unique_behaviors_used": {
+        "type": "integer",
+        "description": "Count of unique behaviors cited"
+      },
+      "top_behaviors": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" },
+            "count": { "type": "integer" }
+          }
+        },
+        "description": "Most frequently used behaviors"
+      },
+      "compliance_checks_passed": {
+        "type": "integer",
+        "description": "Total compliance checks passed"
+      },
+      "compliance_checks_total": {
+        "type": "integer",
+        "description": "Total compliance checks performed"
+      },
+      "compliance_coverage_pct": {
+        "type": "number",
+        "description": "Compliance coverage percentage"
+      },
+      "utilization_pct": {
+        "type": "number",
+        "description": "Agent utilization percentage"
+      }
+    }
+  }
+}

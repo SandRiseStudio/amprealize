@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "github.commitToBranch",
+  "description": "Commit file changes directly to a GitHub branch. Creates the branch if it doesn't exist. Uses project-level GitHub tokens from CredentialStore.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_id": {
+        "type": "string",
+        "description": "Amprealize project ID for credential resolution (required)"
+      },
+      "repo": {
+        "type": "string",
+        "description": "Repository in owner/repo format (required, e.g., 'octocat/Hello-World')"
+      },
+      "branch": {
+        "type": "string",
+        "description": "Target branch name (required)"
+      },
+      "message": {
+        "type": "string",
+        "maxLength": 72,
+        "description": "Commit message (required)"
+      },
+      "message_body": {
+        "type": "string",
+        "maxLength": 65536,
+        "description": "Extended commit message body (optional)"
+      },
+      "files": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File path relative to repo root"
+            },
+            "content": {
+              "type": "string",
+              "description": "File content (base64 encoded if binary)"
+            },
+            "encoding": {
+              "type": "string",
+              "enum": ["utf-8", "base64"],
+              "default": "utf-8",
+              "description": "Content encoding"
+            },
+            "action": {
+              "type": "string",
+              "enum": ["create", "update", "delete"],
+              "default": "update",
+              "description": "File operation type"
+            }
+          },
+          "required": ["path"]
+        },
+        "description": "Files to commit (required)"
+      },
+      "create_branch": {
+        "type": "boolean",
+        "default": true,
+        "description": "Create branch if it doesn't exist (default: true)"
+      },
+      "base_branch": {
+        "type": "string",
+        "default": "main",
+        "description": "Base branch to create new branch from (default: main)"
+      }
+    },
+    "required": ["project_id", "repo", "branch", "message", "files"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the operation succeeded"
+      },
+      "commit_sha": {
+        "type": "string",
+        "description": "SHA of the created commit"
+      },
+      "commit_url": {
+        "type": "string",
+        "description": "URL to the commit"
+      },
+      "branch": {
+        "type": "string",
+        "description": "Branch name the commit was made to"
+      },
+      "branch_created": {
+        "type": "boolean",
+        "description": "Whether a new branch was created"
+      },
+      "files_changed": {
+        "type": "integer",
+        "description": "Number of files changed"
+      },
+      "tree_sha": {
+        "type": "string",
+        "description": "SHA of the tree object"
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if success is false"
+      }
+    },
+    "required": ["success"]
+  }
+}

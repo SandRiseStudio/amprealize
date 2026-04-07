@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgAgents.create",
+  "description": "Register a new agent within an organization. Creates an agent with a unique identifier and configuration.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to create the agent in"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Agent name"
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 1000,
+        "description": "Agent description"
+      },
+      "agent_type": {
+        "type": "string",
+        "enum": ["assistant", "autonomous", "orchestrator", "worker"],
+        "default": "assistant",
+        "description": "Type of agent"
+      },
+      "model": {
+        "type": "string",
+        "description": "Model identifier (e.g., gpt-4, claude-3-opus)"
+      },
+      "system_prompt": {
+        "type": "string",
+        "description": "System prompt for the agent"
+      },
+      "config": {
+        "type": "object",
+        "description": "Agent configuration options"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Additional metadata for the agent"
+      }
+    },
+    "required": ["user_id", "org_id", "name"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "agent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "org_id": { "type": "string" },
+          "name": { "type": "string" },
+          "slug": { "type": "string" },
+          "agent_type": { "type": "string" },
+          "status": { "type": "string" },
+          "model": { "type": "string" },
+          "created_by": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "name": "analytics.tokenSavings",
+  "description": "Query token savings facts from analytics warehouse showing per-run token consumption, baseline comparisons, and efficiency metrics.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results from this date forward"
+      },
+      "end_date": {
+        "type": "string",
+        "description": "Optional ISO format date (YYYY-MM-DD) to filter results up to this date"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of records to return (1-1000, default: 100)",
+        "minimum": 1,
+        "maximum": 1000,
+        "default": 100
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "records": {
+        "type": "array",
+        "description": "List of token savings facts",
+        "items": {
+          "type": "object",
+          "properties": {
+            "run_id": {
+              "type": "string",
+              "description": "Unique workflow run identifier"
+            },
+            "template_id": {
+              "type": "string",
+              "description": "Workflow template identifier"
+            },
+            "output_tokens": {
+              "type": "integer",
+              "description": "Actual tokens consumed in the run output"
+            },
+            "baseline_tokens": {
+              "type": "integer",
+              "description": "Baseline token count for comparison (without BCI)"
+            },
+            "token_savings_pct": {
+              "type": "number",
+              "description": "Token reduction percentage (1 - output/baseline)"
+            },
+            "recorded_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Timestamp when the fact was recorded"
+            }
+          },
+          "required": ["run_id", "output_tokens", "baseline_tokens", "token_savings_pct"]
+        }
+      },
+      "count": {
+        "type": "integer",
+        "description": "Number of records returned"
+      }
+    },
+    "required": ["records", "count"]
+  }
+}

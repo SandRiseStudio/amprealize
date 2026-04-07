@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "board.updateLabel",
+  "description": "Update a label's name or color.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["label_id"],
+    "properties": {
+      "label_id": {
+        "type": "string",
+        "description": "ID of the label to update"
+      },
+      "name": {
+        "type": "string",
+        "description": "New label name",
+        "minLength": 1,
+        "maxLength": 50
+      },
+      "color": {
+        "type": "string",
+        "enum": ["gray", "red", "orange", "yellow", "green", "teal", "blue", "indigo", "purple", "pink"],
+        "description": "New label color"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      },
+      "actor": {
+        "type": "object",
+        "description": "Optional actor context for audit logging",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Actor ID"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["user", "agent", "system"],
+            "description": "Actor type"
+          }
+        }
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "label": {
+        "type": "object",
+        "description": "The updated label",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Label ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Label name"
+          },
+          "color": {
+            "type": "string",
+            "description": "Label color"
+          },
+          "project_id": {
+            "type": "string",
+            "description": "Project ID"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}

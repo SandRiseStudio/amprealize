@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "messages.removeReaction",
+  "description": "Remove an emoji reaction from a message.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "message_id": {
+        "type": "string",
+        "description": "Message ID to remove reaction from (required)"
+      },
+      "emoji": {
+        "type": "string",
+        "maxLength": 32,
+        "description": "Emoji reaction string to remove (required)"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user removing the reaction"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": ["message_id", "emoji"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "message": { "type": "string" }
+    }
+  }
+}

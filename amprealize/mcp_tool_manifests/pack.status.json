@@ -1,0 +1,14 @@
+{
+  "name": "pack.status",
+  "description": "Show workspace storage backend and pack activation status. Reports whether feature_flags and activations tables exist.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "workspace_path": {
+        "type": "string",
+        "description": "Path to the workspace root (optional, defaults to current directory)"
+      }
+    },
+    "required": []
+  }
+}

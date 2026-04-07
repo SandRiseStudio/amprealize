@@ -1,0 +1,136 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "behaviors.getForTask",
+  "description": "Get relevant behaviors for a task BEFORE starting execution. This is the primary tool agents should call at the start of any task to retrieve applicable behaviors. Returns role-specific advisory and recommended behaviors. Per AGENTS.md: 'For every task, agents need to natively know how to find/manage behaviors via any surface (MCP, API, CLI)'.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_description": {
+        "type": "string",
+        "description": "Natural language description of the task to be performed. Be specific about the task context for better behavior matching."
+      },
+      "role": {
+        "type": "string",
+        "enum": ["Student", "Teacher", "Strategist", "any"],
+        "default": "Student",
+        "description": "Agent's current declared role. Used for role-specific advisory. Student (routine execution), Teacher (examples/validation), Strategist (novel patterns)."
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 20,
+        "default": 5,
+        "description": "Maximum number of behaviors to return"
+      },
+      "role_context": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["Student", "Teacher", "Strategist"]
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "behaviors_cited": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        },
+        "description": "Optional role context for telemetry (emphasized for tracking role declarations)"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "description": "Optional actor context for audit logging"
+      }
+    },
+    "required": ["task_description"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "role": {
+        "type": "string",
+        "description": "The role used for retrieval"
+      },
+      "task_description": {
+        "type": "string",
+        "description": "Echo of the input task description"
+      },
+      "role_advisory": {
+        "type": "string",
+        "description": "Role-specific guidance for applying behaviors. Includes: role emoji, behaviors to apply, and escalation guidance."
+      },
+      "recommended_behaviors": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Behavior name (e.g., behavior_use_raze_for_logging)"
+            },
+            "instruction": {
+              "type": "string",
+              "description": "Full procedural instruction for the behavior"
+            },
+            "role_focus": {
+              "type": "string",
+              "description": "Primary role for this behavior"
+            },
+            "trigger_keywords": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "Keywords that trigger this behavior"
+            },
+            "score": {
+              "type": "number",
+              "description": "Relevance score for this task"
+            },
+            "confidence_score": {
+              "type": "number",
+              "description": "Behavior's confidence score (if set)"
+            }
+          },
+          "required": ["name", "instruction", "role_focus", "score"]
+        },
+        "description": "List of recommended behaviors for this task, sorted by relevance"
+      }
+    },
+    "required": ["role", "role_advisory", "recommended_behaviors"]
+  },
+  "examples": [
+    {
+      "description": "Get behaviors for adding logging to an endpoint",
+      "input": {
+        "task_description": "Add structured logging to the new /api/users endpoint",
+        "role": "Student"
+      },
+      "output": {
+        "role": "Student",
+        "role_advisory": "📖 Role: Student\nApply these behaviors during execution: behavior_use_raze_for_logging\nCite each behavior in your work output.\nIf pattern occurs 3+ times without behavior, escalate to Strategist.",
+        "recommended_behaviors": [
+          {
+            "name": "behavior_use_raze_for_logging",
+            "instruction": "When adding logging: Import RazeLogger, configure sink, include context fields, use structured fields...",
+            "role_focus": "Student",
+            "trigger_keywords": ["logging", "structured logs", "telemetry sink"],
+            "score": 0.95
+          }
+        ]
+      }
+    }
+  ]
+}

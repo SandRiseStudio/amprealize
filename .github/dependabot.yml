@@ -1,0 +1,95 @@
+version: 2
+updates:
+  # Python (pip) — root pyproject.toml
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "Nas4146"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
+    open-pull-requests-limit: 10
+
+  # npm — VS Code extension
+  - package-ecosystem: "npm"
+    directory: "/extension"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "Nas4146"
+    labels:
+      - "dependencies"
+      - "npm"
+      - "extension"
+    commit-message:
+      prefix: "deps(extension)"
+    open-pull-requests-limit: 5
+
+  # npm — web console
+  - package-ecosystem: "npm"
+    directory: "/web-console"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "Nas4146"
+    labels:
+      - "dependencies"
+      - "npm"
+      - "web-console"
+    commit-message:
+      prefix: "deps(web-console)"
+    open-pull-requests-limit: 5
+
+  # npm — metrics dashboard
+  - package-ecosystem: "npm"
+    directory: "/dashboard"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "Nas4146"
+    labels:
+      - "dependencies"
+      - "npm"
+      - "dashboard"
+    commit-message:
+      prefix: "deps(dashboard)"
+    open-pull-requests-limit: 5
+
+  # npm — collab-client package
+  - package-ecosystem: "npm"
+    directory: "/packages/collab-client"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "Nas4146"
+    labels:
+      - "dependencies"
+      - "npm"
+      - "packages"
+    commit-message:
+      prefix: "deps(collab-client)"
+    open-pull-requests-limit: 5
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "Nas4146"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "deps(actions)"
+    open-pull-requests-limit: 5

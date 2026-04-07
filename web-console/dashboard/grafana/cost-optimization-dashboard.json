@@ -1,0 +1,557 @@
+{
+  "dashboard": {
+    "title": "Amprealize Cost Optimization",
+    "tags": ["amprealize", "cost", "budget", "optimization"],
+    "timezone": "browser",
+    "refresh": "5m",
+    "schemaVersion": 38,
+    "annotations": {
+      "list": [
+        {
+          "builtIn": 1,
+          "datasource": "-- Grafana --",
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "type": "dashboard"
+        }
+      ]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "daily_budget",
+          "type": "constant",
+          "current": {"value": "${AMPREALIZE_COST_DAILY_BUDGET_USD:-80}"},
+          "label": "Daily Budget (USD)"
+        },
+        {
+          "name": "monthly_budget",
+          "type": "constant",
+          "current": {"value": "${AMPREALIZE_COST_MONTHLY_BUDGET_USD:-2000}"},
+          "label": "Monthly Budget (USD)"
+        },
+        {
+          "name": "alert_threshold",
+          "type": "constant",
+          "current": {"value": "${AMPREALIZE_COST_ALERT_THRESHOLD_PCT:-0.80}"},
+          "label": "Alert Threshold (%)"
+        }
+      ]
+    },
+    "panels": [
+      {
+        "title": "Daily Cost vs Budget",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(amprealize_cost_total{period=\"daily\"})",
+            "legendFormat": "Today's Cost",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 64},
+                {"color": "red", "value": 80}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Monthly Cost vs Budget",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(amprealize_cost_total{period=\"monthly\"})",
+            "legendFormat": "Month-to-Date",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1600},
+                {"color": "red", "value": 2000}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Budget Utilization %",
+        "type": "gauge",
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "(sum(amprealize_cost_total{period=\"daily\"}) / $daily_budget) * 100",
+            "legendFormat": "Daily Budget Used",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 150,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 80},
+                {"color": "red", "value": 100}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Estimated Monthly (Projected)",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(amprealize_cost_total{period=\"daily\"}) * 30",
+            "legendFormat": "Projected Monthly",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1800},
+                {"color": "red", "value": 2400}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Daily Cost Trend (7d)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "targets": [
+          {
+            "expr": "sum(amprealize_cost_total{period=\"daily\"})",
+            "legendFormat": "Daily Cost",
+            "refId": "A"
+          },
+          {
+            "expr": "$daily_budget",
+            "legendFormat": "Budget Limit",
+            "refId": "B"
+          },
+          {
+            "expr": "$daily_budget * $alert_threshold",
+            "legendFormat": "Alert Threshold",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD"
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Budget Limit"},
+              "properties": [
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}},
+                {"id": "custom.lineStyle", "value": {"fill": "dash"}}
+              ]
+            },
+            {
+              "matcher": {"id": "byName", "options": "Alert Threshold"},
+              "properties": [
+                {"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}},
+                {"id": "custom.lineStyle", "value": {"fill": "dash"}}
+              ]
+            }
+          ]
+        },
+        "alert": {
+          "name": "Daily Budget Alert",
+          "message": "Daily cost is approaching or exceeding budget threshold",
+          "conditions": [
+            {
+              "evaluator": {"params": ["$daily_budget * $alert_threshold"], "type": "gt"},
+              "query": {"params": ["A", "5m", "now"]},
+              "type": "query"
+            }
+          ],
+          "frequency": "5m",
+          "noDataState": "no_data",
+          "executionErrorState": "alerting",
+          "notifications": []
+        }
+      },
+      {
+        "title": "Cost by Service",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 4},
+        "targets": [
+          {
+            "expr": "sum by (service) (amprealize_cost_total{period=\"daily\"})",
+            "legendFormat": "{{service}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "legend": {"displayMode": "table", "placement": "right"}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD"
+          }
+        }
+      },
+      {
+        "title": "Cost by Model",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 4},
+        "targets": [
+          {
+            "expr": "sum by (model) (amprealize_cost_total{period=\"daily\"})",
+            "legendFormat": "{{model}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "legend": {"displayMode": "table", "placement": "right"}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD"
+          }
+        }
+      },
+      {
+        "title": "Hourly Cost Rate (24h)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+        "targets": [
+          {
+            "expr": "sum(rate(amprealize_cost_total[1h]))",
+            "legendFormat": "Hourly Rate",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD"
+          }
+        }
+      },
+      {
+        "title": "Cost per Run (Avg)",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 4, "x": 12, "y": 12},
+        "targets": [
+          {
+            "expr": "avg(amprealize_run_cost_usd)",
+            "legendFormat": "Avg Cost/Run",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 4
+          }
+        }
+      },
+      {
+        "title": "Total Runs Today",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 4, "x": 16, "y": 12},
+        "targets": [
+          {
+            "expr": "sum(amprealize_runs_total{period=\"daily\"})",
+            "legendFormat": "Runs",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "title": "Efficiency Score",
+        "type": "gauge",
+        "gridPos": {"h": 4, "w": 4, "x": 20, "y": 12},
+        "targets": [
+          {
+            "expr": "(1 - (sum(amprealize_cost_total{period=\"daily\"}) / ($daily_budget))) * 100",
+            "legendFormat": "Efficiency",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 20},
+                {"color": "green", "value": 50}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Top 10 Expensive Workflows",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "topk(10, sum by (workflow_id, workflow_name) (amprealize_workflow_cost_total))",
+            "legendFormat": "{{workflow_name}}",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD"
+          }
+        },
+        "transformations": [
+          {"id": "sortBy", "options": {"fields": {}, "sort": [{"field": "Value", "desc": true}]}}
+        ]
+      },
+      {
+        "title": "Token Usage by Type",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+        "targets": [
+          {
+            "expr": "sum by (token_type) (rate(amprealize_tokens_total[5m]))",
+            "legendFormat": "{{token_type}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "title": "ROI: Token Savings Value",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 28},
+        "targets": [
+          {
+            "expr": "sum(amprealize_token_savings_value_usd)",
+            "legendFormat": "Savings Value",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "green", "value": 50}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Net Cost (After Savings)",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 28},
+        "targets": [
+          {
+            "expr": "sum(amprealize_cost_total{period=\"daily\"}) - sum(amprealize_token_savings_value_usd)",
+            "legendFormat": "Net Cost",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD"
+          }
+        }
+      },
+      {
+        "title": "Cost Efficiency Ratio",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 28},
+        "description": "Savings / Cost - higher is better (>1 means positive ROI)",
+        "targets": [
+          {
+            "expr": "sum(amprealize_token_savings_value_usd) / sum(amprealize_cost_total{period=\"daily\"})",
+            "legendFormat": "Efficiency Ratio",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 2,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 0.5},
+                {"color": "green", "value": 1}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Budget Remaining",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 28},
+        "targets": [
+          {
+            "expr": "$daily_budget - sum(amprealize_cost_total{period=\"daily\"})",
+            "legendFormat": "Remaining",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 16},
+                {"color": "green", "value": 40}
+              ]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "alerts": [
+    {
+      "uid": "cost-daily-budget-alert",
+      "title": "Daily Budget Threshold Exceeded",
+      "condition": "A",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "",
+          "relativeTimeRange": {"from": 300, "to": 0},
+          "model": {
+            "expr": "sum(amprealize_cost_total{period=\"daily\"}) > ($daily_budget * $alert_threshold)",
+            "refId": "A"
+          }
+        }
+      ],
+      "noDataState": "NoData",
+      "execErrState": "Alerting",
+      "for": "5m",
+      "labels": {"severity": "warning"},
+      "annotations": {
+        "summary": "Daily cost ({{ $value }}) has exceeded {{ $alert_threshold }}% of budget ({{ $daily_budget }})",
+        "description": "Amprealize daily spending is approaching or has exceeded the configured budget threshold. Review cost drivers and consider optimization."
+      }
+    },
+    {
+      "uid": "cost-daily-budget-critical",
+      "title": "Daily Budget Exceeded",
+      "condition": "A",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "",
+          "relativeTimeRange": {"from": 300, "to": 0},
+          "model": {
+            "expr": "sum(amprealize_cost_total{period=\"daily\"}) > $daily_budget",
+            "refId": "A"
+          }
+        }
+      ],
+      "noDataState": "NoData",
+      "execErrState": "Alerting",
+      "for": "1m",
+      "labels": {"severity": "critical"},
+      "annotations": {
+        "summary": "Daily cost ({{ $value }}) has exceeded the budget limit ({{ $daily_budget }})",
+        "description": "CRITICAL: Amprealize daily spending has exceeded the configured daily budget. Immediate action required."
+      }
+    },
+    {
+      "uid": "cost-monthly-budget-alert",
+      "title": "Monthly Budget Threshold Exceeded",
+      "condition": "A",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "",
+          "relativeTimeRange": {"from": 300, "to": 0},
+          "model": {
+            "expr": "sum(amprealize_cost_total{period=\"monthly\"}) > ($monthly_budget * $alert_threshold)",
+            "refId": "A"
+          }
+        }
+      ],
+      "noDataState": "NoData",
+      "execErrState": "Alerting",
+      "for": "5m",
+      "labels": {"severity": "warning"},
+      "annotations": {
+        "summary": "Monthly cost ({{ $value }}) has exceeded {{ $alert_threshold }}% of budget ({{ $monthly_budget }})",
+        "description": "Amprealize monthly spending is approaching or has exceeded the configured budget threshold."
+      }
+    },
+    {
+      "uid": "cost-spike-alert",
+      "title": "Cost Spike Detected",
+      "condition": "A",
+      "data": [
+        {
+          "refId": "A",
+          "queryType": "",
+          "relativeTimeRange": {"from": 3600, "to": 0},
+          "model": {
+            "expr": "sum(rate(amprealize_cost_total[5m])) > (avg_over_time(sum(rate(amprealize_cost_total[5m]))[24h:5m]) * 2)",
+            "refId": "A"
+          }
+        }
+      ],
+      "noDataState": "NoData",
+      "execErrState": "Alerting",
+      "for": "10m",
+      "labels": {"severity": "warning"},
+      "annotations": {
+        "summary": "Cost rate is 2x higher than 24h average",
+        "description": "Amprealize is experiencing a cost spike. Current rate is more than double the 24-hour average. Investigate cause."
+      }
+    }
+  ]
+}

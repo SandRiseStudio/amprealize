@@ -1,0 +1,282 @@
+/**
+ * Document List Styles
+ *
+ * Items with micro-interactions and spring-based hover effects
+ */
+
+.document-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.document-list-section {
+  margin-bottom: var(--space-3);
+}
+
+.document-list-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.document-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+
+  /* GPU-accelerated hover background */
+  background: transparent;
+  transition: background-color var(--duration-fast) var(--ease-out-quart);
+}
+
+.document-item::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: var(--color-bg-hover);
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.document-item:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.document-item:active {
+  background-color: var(--color-bg-active);
+}
+
+.document-item.selected {
+  background-color: var(--color-accent-subtle);
+}
+
+.document-item.selected::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  background-color: var(--color-accent);
+  border-radius: 0 2px 2px 0;
+}
+
+.document-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+  transition: color var(--duration-fast);
+}
+
+.document-item:hover .document-icon,
+.document-item.selected .document-icon {
+  color: var(--color-accent);
+}
+
+.document-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.document-name {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.document-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+.document-type-badge {
+  padding: 2px 6px;
+  background-color: var(--color-bg-elevated);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: var(--font-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.document-type-badge.type-plan {
+  color: var(--color-accent);
+  background-color: var(--color-accent-subtle);
+}
+
+.document-type-badge.type-agent {
+  color: var(--color-success);
+  background-color: rgba(16, 185, 129, 0.1);
+}
+
+.document-type-badge.type-workflow {
+  color: var(--color-warning);
+  background-color: rgba(245, 158, 11, 0.1);
+}
+
+.document-type-badge.type-org {
+  color: var(--color-info);
+  background-color: rgba(59, 130, 246, 0.12);
+}
+
+.document-presence-dots {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  gap: 2px;
+}
+
+.document-presence-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--color-bg-surface);
+}
+
+.document-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  opacity: 0;
+  transform: translateX(8px);
+  transition:
+    opacity var(--duration-fast),
+    transform var(--duration-fast) var(--ease-out-quart);
+}
+
+.document-item:hover .document-actions {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.document-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast),
+    color var(--duration-fast);
+}
+
+.document-action-btn:hover {
+  background-color: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+/* New Document Button */
+.new-document-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  margin-top: var(--space-2);
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast),
+    background-color var(--duration-fast),
+    color var(--duration-fast);
+}
+
+.new-document-button:hover {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Drag & Drop
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.document-item.dragging {
+  opacity: 0.5;
+  transform: scale(0.98);
+}
+
+.document-item.drag-over {
+  background-color: var(--color-accent-subtle);
+  border: 1px dashed var(--color-accent);
+}
+
+.document-list.drag-active .document-item:not(.dragging) {
+  transition:
+    transform var(--duration-fast) var(--ease-out-quart),
+    background-color var(--duration-fast);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Loading States
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.document-skeleton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+
+.skeleton-icon,
+.skeleton-text {
+  background-color: var(--color-bg-elevated);
+  animation: shimmer-solid 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+.skeleton-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.skeleton-text {
+  height: 14px;
+  flex: 1;
+}
+
+.skeleton-text.short {
+  width: 60%;
+}
+
+@keyframes shimmer-solid {
+  0%, 100% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}

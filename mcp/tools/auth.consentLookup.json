@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "auth.consentLookup",
+  "description": "Look up details for a pending consent request using its user code. Returns the current status, requested scopes, and approval/denial information.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["user_code"],
+    "properties": {
+      "user_code": {
+        "type": "string",
+        "description": "The user-facing code displayed during device authorization (e.g., 'ABCD-EFGH'). Case-insensitive, hyphens optional."
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "user_code": {
+        "type": "string",
+        "description": "Normalized user code."
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "APPROVED", "DENIED", "EXPIRED"],
+        "description": "Current status of the consent request."
+      },
+      "client_id": {
+        "type": "string",
+        "description": "OAuth client that initiated the request."
+      },
+      "scopes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Requested OAuth scopes."
+      },
+      "surface": {
+        "type": "string",
+        "description": "Surface that initiated the request (e.g., 'cli', 'mcp', 'vscode')."
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the consent request was created."
+      },
+      "expires_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the consent request expires."
+      },
+      "verification_uri": {
+        "type": "string",
+        "description": "URL where the user can enter the code."
+      },
+      "verification_uri_complete": {
+        "type": "string",
+        "description": "URL with code pre-filled (if available)."
+      },
+      "approved_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the request was approved (if status is APPROVED)."
+      },
+      "denied_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the request was denied (if status is DENIED)."
+      },
+      "denied_reason": {
+        "type": "string",
+        "description": "Reason provided when request was denied."
+      },
+      "error": {
+        "type": "string",
+        "description": "Error message if lookup failed."
+      }
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    {
+      "code": "user-code-not-found",
+      "description": "The specified user code does not exist or has expired.",
+      "httpStatus": 404
+    },
+    {
+      "code": "invalid-user-code",
+      "description": "The user code format is invalid.",
+      "httpStatus": 400
+    }
+  ]
+}

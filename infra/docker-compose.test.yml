@@ -1,0 +1,415 @@
+# docker-compose.test.yml
+# Local / Podman-friendly test stack.
+# Default: one Postgres (6433) for the modular monolith + Alembic; telemetry, metrics, Redis.
+# Legacy: set COMPOSE_PROFILES=per-service-db to also start workflow/action/run/compliance/auth DBs.
+# Usage: podman compose -f infra/docker-compose.test.yml up -d
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # PostgreSQL — modular monolith (default)
+  # ==========================================================================
+
+  postgres-behavior-test:
+    container_name: amprealize-postgres-behavior-test
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: behavior_test
+      POSTGRES_PASSWORD: behavior_test_pass
+      POSTGRES_DB: behavior_test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "6433:5432"  # Dev uses 5433, test uses 6433
+    volumes:
+      - postgres-behavior-test-data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U behavior_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-test-net
+
+  postgres-workflow-test:
+    profiles:
+      - per-service-db
+    container_name: amprealize-postgres-workflow-test
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: workflow_test
+      POSTGRES_PASSWORD: workflow_test_pass
+      POSTGRES_DB: workflow_test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "6434:5432"  # Dev uses 5434, test uses 6434
+    volumes:
+      - postgres-workflow-test-data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workflow_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-test-net
+
+  postgres-action-test:
+    profiles:
+      - per-service-db
+    container_name: amprealize-postgres-action-test
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: action_test
+      POSTGRES_PASSWORD: action_test_pass
+      POSTGRES_DB: action_test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "6435:5432"  # Dev uses 5435, test uses 6435
+    volumes:
+      - postgres-action-test-data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U action_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-test-net
+
+  postgres-run-test:
+    profiles:
+      - per-service-db
+    container_name: amprealize-postgres-run-test
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: run_test
+      POSTGRES_PASSWORD: run_test_pass
+      POSTGRES_DB: run_test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "6436:5432"  # Dev uses 5436, test uses 6436
+    volumes:
+      - postgres-run-test-data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U run_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-test-net
+
+  postgres-compliance-test:
+    profiles:
+      - per-service-db
+    container_name: amprealize-postgres-compliance-test
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: compliance_test
+      POSTGRES_PASSWORD: compliance_test_pass
+      POSTGRES_DB: compliance_test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "6437:5432"  # Dev uses 5437, test uses 6437
+    volumes:
+      - postgres-compliance-test-data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U compliance_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-test-net
+
+  # ==========================================================================
+  # TimescaleDB for Telemetry (Test)
+  # ==========================================================================
+
+  postgres-telemetry-test:
+    container_name: amprealize-postgres-telemetry-test
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: telemetry_test
+      POSTGRES_PASSWORD: telemetry_test_pass
+      POSTGRES_DB: telemetry_test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "6432:5432"  # Dev uses 5432, test uses 6432
+    volumes:
+      - postgres-telemetry-test-data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telemetry_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-test-net
+
+  postgres-metrics-test:
+    container_name: amprealize-postgres-metrics-test
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: amprealize_metrics_test
+      POSTGRES_PASSWORD: metrics_test_pass
+      POSTGRES_DB: amprealize_metrics_test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "6439:5432"  # Dev uses 5439, test uses 6439
+    volumes:
+      - postgres-metrics-test-data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_metrics_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-test-net
+
+  # ==========================================================================
+  # PostgreSQL Auth Service
+  # ==========================================================================
+
+  postgres-auth-test:
+    profiles:
+      - per-service-db
+    container_name: amprealize-postgres-auth-test
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: amprealize_auth_test
+      POSTGRES_PASSWORD: auth_test_pass
+      POSTGRES_DB: amprealize_auth_test
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "6440:5432"  # Dev uses 5440, test uses 6440
+    volumes:
+      - postgres-auth-test-data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_auth_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-test-net
+
+  # ==========================================================================
+  # Redis Cache
+  # ==========================================================================
+
+  redis-test:
+    container_name: amprealize-redis-test
+    image: redis:7-alpine
+    ports:
+      - "6479:6379"  # Dev uses 6379, test uses 6479
+    volumes:
+      - redis-test-data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - amprealize-test-net
+    command: redis-server --appendonly yes
+
+  # ==========================================================================
+  # Kafka + Zookeeper (Telemetry Pipeline)
+  # ==========================================================================
+
+  zookeeper-test:
+    container_name: amprealize-zookeeper-test
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "3181:2181"  # Dev uses 2181, test uses 3181
+    volumes:
+      - zookeeper-test-data:/var/lib/zookeeper/data
+      - zookeeper-test-log:/var/lib/zookeeper/log
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-test-net
+
+  kafka-test:
+    container_name: amprealize-kafka-test
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      zookeeper-test:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-test:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:10092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-test:9092,PLAINTEXT_HOST://localhost:10092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_HEAP_OPTS: "-Xms256M -Xmx256M"
+    command: >-
+      bash -c "
+        echo 'Waiting for stale /brokers/ids/1 entries to clear before starting Kafka...'
+        for attempt in $(seq 1 20); do
+          if zookeeper-shell zookeeper-test:2181 stat /brokers/ids/1 >/dev/null 2>&1; then
+            echo \"  entry still present (attempt $${attempt}/20); sleeping 2s\"
+            sleep 2
+          else
+            echo '  broker slot is free'
+            break
+          fi
+        done
+        if zookeeper-shell zookeeper-test:2181 stat /brokers/ids/1 >/dev/null 2>&1; then
+          echo '  forcing delete of stale broker registration'
+          zookeeper-shell zookeeper-test:2181 delete /brokers/ids/1 >/dev/null 2>&1 || true
+        fi
+        exec /etc/confluent/docker/run
+      "
+    ports:
+      - "10092:10092"  # Dev uses 9092, test uses 10092
+    volumes:
+      - kafka-test-data:/var/lib/kafka/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 768M
+        reservations:
+          memory: 384M
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - amprealize-test-net
+
+  # ==========================================================================
+  # NGINX - Reverse Proxy for API Server
+  # ==========================================================================
+  # Proxies requests to the host machine's API server (started by test runner)
+  # This allows testing NGINX routing behavior in CI/test environments
+
+  nginx-test:
+    container_name: amprealize-nginx-test
+    image: nginx:alpine
+    environment:
+      # Point to host machine where test runner starts the API server
+      # host.docker.internal works for Docker Desktop, host.containers.internal for Podman
+      - AMPREALIZE_STAGING_UPSTREAM_HOST=${AMPREALIZE_TEST_API_HOST:-host.containers.internal}
+      - AMPREALIZE_STAGING_UPSTREAM_PORT=${AMPREALIZE_TEST_API_PORT:-8000}
+      - "NGINX_TEMPLATE_VARS=AMPREALIZE_STAGING_UPSTREAM_HOST AMPREALIZE_STAGING_UPSTREAM_PORT"
+    volumes:
+      - ./deployment/config/nginx-staging.conf:/etc/nginx/nginx.conf.template:ro
+      - ./deployment/scripts/nginx-entrypoint.sh:/etc/nginx/start-amprealize.sh:ro
+    ports:
+      - "8080:80"
+    command: ["/bin/sh", "/etc/nginx/start-amprealize.sh"]
+    extra_hosts:
+      # Ensure host.containers.internal resolves (for Podman on Linux)
+      - "host.containers.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          memory: 64M
+    networks:
+      - amprealize-test-net
+
+volumes:
+  postgres-behavior-test-data:
+  postgres-workflow-test-data:
+  postgres-action-test-data:
+  postgres-run-test-data:
+  postgres-compliance-test-data:
+  postgres-telemetry-test-data:
+  postgres-metrics-test-data:
+  postgres-auth-test-data:
+  redis-test-data:
+  zookeeper-test-data:
+  zookeeper-test-log:
+  kafka-test-data:
+
+networks:
+  amprealize-test-net:
+    driver: bridge

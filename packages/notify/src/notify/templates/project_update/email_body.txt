@@ -1,0 +1,21 @@
+Hi{% if recipient_name %} {{ recipient_name }}{% endif %},
+
+There's an update on {{ project_name }}:
+
+{{ title }}
+
+{{ message }}
+
+{% if details %}
+Details:
+{% for key, value in details.items() %}
+  • {{ key }}: {{ value }}
+{% endfor %}
+{% endif %}
+
+{% if action_link %}
+View more: {{ action_link }}
+{% endif %}
+
+Best regards,
+The {{ app_name | default("Amprealize") }} Team

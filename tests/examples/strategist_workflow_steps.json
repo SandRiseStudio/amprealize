@@ -1,0 +1,46 @@
+[
+  {
+    "step_id": "step-1",
+    "name": "Decompose Request",
+    "description": "Break down the user request into actionable sub-tasks using retrieved behaviors",
+    "prompt_template": "You are a Strategist agent analyzing a user request.\n\n## User Request\n{{REQUEST}}\n\n{{BEHAVIORS}}\n\n## Task\nDecompose this request into a sequence of actionable sub-tasks. Reference behaviors by name when applicable.\n\nProvide your analysis in structured format.",
+    "behavior_injection_point": "{{BEHAVIORS}}",
+    "required_behaviors": [],
+    "validation_rules": {
+      "min_tasks": 1,
+      "max_tasks": 10
+    },
+    "metadata": {
+      "estimated_tokens": 500
+    }
+  },
+  {
+    "step_id": "step-2",
+    "name": "Map Dependencies",
+    "description": "Identify dependencies and execution order for the sub-tasks",
+    "prompt_template": "Based on the decomposed tasks, map dependencies and determine execution order.\n\n## Sub-tasks\n{{TASKS}}\n\n{{BEHAVIORS}}\n\n## Task\nIdentify task dependencies and suggest optimal execution sequence. Consider parallel execution opportunities.\n\nProvide dependency graph and execution plan.",
+    "behavior_injection_point": "{{BEHAVIORS}}",
+    "required_behaviors": [],
+    "validation_rules": {
+      "require_dependency_graph": true
+    },
+    "metadata": {
+      "estimated_tokens": 400
+    }
+  },
+  {
+    "step_id": "step-3",
+    "name": "Generate Execution Plan",
+    "description": "Create detailed execution plan with success criteria",
+    "prompt_template": "Generate a detailed execution plan for the identified tasks.\n\n## Tasks and Dependencies\n{{DEPENDENCY_GRAPH}}\n\n{{BEHAVIORS}}\n\n## Task\nCreate an execution plan with:\n1. Step-by-step instructions\n2. Success criteria for each step\n3. Rollback procedures\n4. Estimated resource requirements\n\nReference behaviors for standard procedures.",
+    "behavior_injection_point": "{{BEHAVIORS}}",
+    "required_behaviors": [],
+    "validation_rules": {
+      "require_success_criteria": true,
+      "require_rollback_plan": true
+    },
+    "metadata": {
+      "estimated_tokens": 600
+    }
+  }
+]

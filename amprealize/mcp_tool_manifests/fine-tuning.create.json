@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "fine-tuning.create",
+  "description": "Create a new fine-tuning job using BC-SFT training pipeline with behavior-conditioned examples.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "model_name": {
+        "type": "string",
+        "description": "Name of the base model to fine-tune"
+      },
+      "training_data_source": {
+        "type": "string",
+        "enum": ["BEHAVIOR_CONDITIONED", "TRACES", "MANUAL"],
+        "description": "Source of training data for fine-tuning"
+      },
+      "behavior_filter": {
+        "type": "object",
+        "description": "Filter behaviors for training corpus generation",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["DRAFT", "PENDING_REVIEW", "APPROVED", "DEPRECATED"]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "role_focus": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT"]
+          }
+        }
+      },
+      "training_config": {
+        "type": "object",
+        "description": "Training configuration parameters",
+        "properties": {
+          "epochs": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 3
+          },
+          "learning_rate": {
+            "type": "number",
+            "default": 5e-5
+          },
+          "batch_size": {
+            "type": "integer",
+            "default": 4
+          },
+          "max_length": {
+            "type": "integer",
+            "default": 2048
+          }
+        }
+      }
+    },
+    "required": ["model_name", "training_data_source"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "job_id": {
+        "type": "string",
+        "description": "Unique job identifier (ftj-<12-char-hex>)"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["PENDING", "RUNNING", "COMPLETED", "FAILED", "CANCELLED"]
+      },
+      "model_name": {
+        "type": "string"
+      },
+      "created_at": {
+        "type": "string",
+        "description": "ISO8601 timestamp"
+      },
+      "progress": {
+        "type": "object",
+        "description": "Training progress metrics",
+        "properties": {
+          "epoch": {
+            "type": "integer"
+          },
+          "step": {
+            "type": "integer"
+          },
+          "total_steps": {
+            "type": "integer"
+          },
+          "loss": {
+            "type": "number"
+          },
+          "accuracy": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "required": ["job_id", "status", "model_name", "created_at"]
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "knowledgePacks.build",
+  "description": "Build a knowledge pack from registered sources. Generates primer, overlays, and retrieval metadata according to the specified profile and token budget.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "pack_id": {
+        "type": "string",
+        "description": "Pack identifier (optional, derived from project config if not provided)"
+      },
+      "version": {
+        "type": "string",
+        "description": "Explicit version string e.g. '1.0.0' (optional, auto-generated if not provided)"
+      },
+      "profile": {
+        "type": "string",
+        "enum": ["solo-dev", "amprealize-platform", "custom"],
+        "default": "solo-dev",
+        "description": "Target profile with token budget and overlay rules"
+      },
+      "token_budget": {
+        "type": "integer",
+        "description": "Override default token budget from profile"
+      },
+      "primer_template_path": {
+        "type": "string",
+        "description": "Path to custom primer template file"
+      },
+      "source_filter": {
+        "type": "object",
+        "properties": {
+          "source_types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["behavior", "workflow", "policy", "system_prompt", "template", "docs"]
+            },
+            "description": "Filter sources by type"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Filter sources by scope(s)"
+          }
+        },
+        "description": "Optional filters to limit which sources are included"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB"]
+          }
+        },
+        "required": ["id", "role", "surface"]
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "pack_id": {
+        "type": "string",
+        "description": "Identifier of the built pack"
+      },
+      "version": {
+        "type": "string",
+        "description": "Version string of the built pack"
+      },
+      "profile": {
+        "type": "string",
+        "description": "Profile used for the build"
+      },
+      "token_budget_used": {
+        "type": "integer",
+        "description": "Actual tokens used by the pack"
+      },
+      "overlay_count": {
+        "type": "integer",
+        "description": "Number of overlays included"
+      },
+      "source_count": {
+        "type": "integer",
+        "description": "Number of sources consumed"
+      },
+      "primer_hash": {
+        "type": "string",
+        "description": "SHA256 hash of the generated primer"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Timestamp when the pack was built"
+      }
+    }
+  }
+}

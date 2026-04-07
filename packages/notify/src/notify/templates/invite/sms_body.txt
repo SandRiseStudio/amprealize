@@ -1,0 +1,1 @@
+{{ inviter_name }} invited you to join {{ org_name }}{% if role %} as {{ role }}{% endif %}. Accept: {{ invite_link }} (expires {{ expires_at }})

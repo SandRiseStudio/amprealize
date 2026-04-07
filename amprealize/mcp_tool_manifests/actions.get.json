@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "actions.get",
+  "description": "Retrieve a single action by ID with full metadata, commands, validation output, and audit log linkage.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Action identifier to retrieve"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["STRATEGIST", "TEACHER", "STUDENT", "ADMIN"]
+          },
+          "surface": {
+            "type": "string",
+            "enum": ["CLI", "REST_API", "MCP", "WEB", "VSCODE"]
+          }
+        },
+        "required": ["id", "role", "surface"],
+        "description": "Actor requesting the action"
+      }
+    },
+    "required": ["action_id", "actor"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "action_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "artifact_path": {
+        "type": "string"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "behaviors_cited": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "timestamp": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "actor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          }
+        }
+      },
+      "metadata": {
+        "type": "object",
+        "properties": {
+          "commands": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "validation_output": {
+            "type": "string"
+          },
+          "related_links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "related_run_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "checksum": {
+        "type": "string",
+        "description": "SHA-256 checksum of artifact"
+      },
+      "audit_log_event_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Immutable audit log entry reference"
+      },
+      "replay_status": {
+        "type": "string",
+        "enum": ["NOT_STARTED", "QUEUED", "RUNNING", "SUCCEEDED", "FAILED"]
+      }
+    },
+    "required": ["action_id", "artifact_path", "summary", "behaviors_cited", "timestamp", "actor", "checksum", "replay_status"]
+  }
+}

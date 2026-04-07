@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgAgents.list",
+  "description": "List all agents in an organization with optional filters.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to list agents from"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Filter agents by project ID"
+      },
+      "agent_type": {
+        "type": "string",
+        "enum": ["assistant", "autonomous", "orchestrator", "worker"],
+        "description": "Filter by agent type"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["initializing", "idle", "running", "paused", "stopped", "error", "deleted"],
+        "description": "Filter by status"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 50,
+        "description": "Maximum number of agents to return"
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Number of agents to skip for pagination"
+      }
+    },
+    "required": ["user_id", "org_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "agents": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "slug": { "type": "string" },
+            "agent_type": { "type": "string" },
+            "status": { "type": "string" },
+            "model": { "type": "string" },
+            "created_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
+      "total": { "type": "integer" },
+      "limit": { "type": "integer" },
+      "offset": { "type": "integer" }
+    }
+  }
+}

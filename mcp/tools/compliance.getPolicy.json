@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "compliance/get-policy",
+  "description": "Retrieve a single compliance policy by ID. Requires compliance.policy.read RBAC scope.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "policy_id": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Policy identifier"
+      }
+    },
+    "required": ["policy_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "policy_id": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "name": { "type": "string" },
+      "description": { "type": "string" },
+      "version": { "type": "string" },
+      "org_id": { "type": ["string", "null"] },
+      "project_id": { "type": ["string", "null"] },
+      "policy_type": { "type": "string" },
+      "enforcement_level": { "type": "string" },
+      "rules": { "type": "array" },
+      "required_behaviors": { "type": "array" },
+      "compliance_categories": { "type": "array" },
+      "is_active": { "type": "boolean" },
+      "scope": { "type": "string", "enum": ["global", "org", "project"] },
+      "created_by": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "role": { "type": "string" },
+          "surface": { "type": "string" }
+        }
+      },
+      "created_at": { "type": "string", "format": "date-time" },
+      "updated_at": { "type": "string", "format": "date-time" },
+      "metadata": { "type": "object" }
+    },
+    "required": ["policy_id", "name", "policy_type", "enforcement_level", "is_active", "scope"]
+  },
+  "examples": [
+    {
+      "description": "Get a policy by ID",
+      "input": {
+        "policy_id": "p1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      }
+    }
+  ],
+  "rbac": {
+    "required_scopes": ["compliance.policy.read"],
+    "surface_restrictions": ["MCP", "CLI", "REST_API", "WEB"]
+  }
+}

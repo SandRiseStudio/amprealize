@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "projects.update",
+  "description": "Update a project's settings, name, or visibility. Requires project admin or owner role.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID to update"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "New project name"
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 1000,
+        "description": "New project description"
+      },
+      "visibility": {
+        "type": "string",
+        "enum": ["public", "internal", "private"],
+        "description": "New visibility level"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["active", "archived"],
+        "description": "Project status"
+      },
+      "settings": {
+        "type": "object",
+        "description": "Project settings to update"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Project metadata to update"
+      }
+    },
+    "required": ["user_id", "project_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "project": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "slug": { "type": "string" },
+          "description": { "type": "string" },
+          "visibility": { "type": "string" },
+          "status": { "type": "string" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

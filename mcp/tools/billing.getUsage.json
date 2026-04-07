@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "billing.getUsage",
+  "description": "Get usage summary for an organization within a date range.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID to get usage for"
+      },
+      "start_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Start date for usage period (YYYY-MM-DD)"
+      },
+      "end_date": {
+        "type": "string",
+        "format": "date",
+        "description": "End date for usage period (YYYY-MM-DD)"
+      },
+      "metric": {
+        "type": "string",
+        "enum": ["api_calls", "tokens", "agents", "runs", "storage_gb"],
+        "description": "Specific metric to retrieve (optional, returns all if not specified)"
+      }
+    },
+    "required": ["user_id", "org_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "usage": {
+        "type": "object",
+        "properties": {
+          "org_id": { "type": "string" },
+          "period_start": { "type": "string", "format": "date" },
+          "period_end": { "type": "string", "format": "date" },
+          "metrics": {
+            "type": "object",
+            "properties": {
+              "api_calls": { "type": "integer" },
+              "tokens": { "type": "integer" },
+              "agents": { "type": "integer" },
+              "runs": { "type": "integer" },
+              "storage_gb": { "type": "number" }
+            }
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "api_calls": { "type": "integer" },
+              "tokens": { "type": "integer" },
+              "agents": { "type": "integer" },
+              "runs": { "type": "integer" },
+              "storage_gb": { "type": "number" }
+            }
+          },
+          "usage_percent": {
+            "type": "object",
+            "description": "Percentage of limit used for each metric"
+          }
+        }
+      }
+    }
+  }
+}

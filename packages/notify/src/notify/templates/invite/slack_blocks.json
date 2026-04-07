@@ -1,0 +1,50 @@
+[
+    {
+        "type": "header",
+        "text": {
+            "type": "plain_text",
+            "text": "🎉 You're Invited!",
+            "emoji": true
+        }
+    },
+    {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": "*{{ inviter_name }}* has invited you to join *{{ org_name }}*{% if role %} as a `{{ role }}`{% endif %}."
+        }
+    },
+    {% if message %}
+    {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": "> _{{ message }}_\n> — {{ inviter_name }}"
+        }
+    },
+    {% endif %}
+    {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Accept Invitation",
+                    "emoji": true
+                },
+                "style": "primary",
+                "url": "{{ invite_link }}"
+            }
+        ]
+    },
+    {
+        "type": "context",
+        "elements": [
+            {
+                "type": "mrkdwn",
+                "text": "⏰ Expires: {{ expires_at }}"
+            }
+        ]
+    }
+]

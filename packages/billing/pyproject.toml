@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amprealize-billing"
+version = "0.1.0"
+description = "Provider-agnostic billing and subscription management for Amprealize"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Amprealize Team", email = "team@amprealize.com"}
+]
+keywords = ["billing", "subscriptions", "payments", "saas", "metered-billing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+dependencies = [
+    "pydantic>=2.5,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4,<9.0",
+    "pytest-cov>=4.0,<6.0",
+    "pytest-asyncio>=0.21,<1.0",
+    "black>=23.0,<25.0",
+    "mypy>=1.5,<2.0",
+    "ruff>=0.1,<1.0",
+]
+stripe = [
+    "stripe>=7.0,<10.0",
+]
+redis = [
+    "redis>=5.0,<6.0",
+]
+fastapi = [
+    "fastapi>=0.110,<1.0",
+    "uvicorn>=0.30,<1.0",
+]
+all = [
+    "amprealize-billing[stripe,redis,fastapi]",
+]
+
+[project.urls]
+Homepage = "https://github.com/SandRiseStudio/amprealize"
+Documentation = "https://github.com/SandRiseStudio/amprealize/tree/main/packages/billing"
+Repository = "https://github.com/SandRiseStudio/amprealize"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+billing = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

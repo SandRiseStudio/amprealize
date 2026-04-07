@@ -1,0 +1,156 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "raze.query",
+  "description": "Query structured log events from the Raze logging system. Supports filtering by time range, log level, service, correlation IDs, and full-text search. Returns paginated results.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "start_time": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Start of time range (ISO 8601). Defaults to 24 hours ago."
+      },
+      "end_time": {
+        "type": "string",
+        "format": "date-time",
+        "description": "End of time range (ISO 8601). Defaults to now."
+      },
+      "level": {
+        "type": "string",
+        "enum": ["TRACE", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        "description": "Minimum log level to include (e.g., 'WARNING' includes WARNING, ERROR, CRITICAL)"
+      },
+      "service": {
+        "type": "string",
+        "description": "Filter by service name (exact match)"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Filter by execution run ID"
+      },
+      "action_id": {
+        "type": "string",
+        "description": "Filter by action ID"
+      },
+      "session_id": {
+        "type": "string",
+        "description": "Filter by session ID"
+      },
+      "actor_surface": {
+        "type": "string",
+        "enum": ["api", "cli", "vscode", "web", "mcp", "system"],
+        "description": "Filter by actor surface"
+      },
+      "search": {
+        "type": "string",
+        "description": "Full-text search in message field"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "default": 100,
+        "description": "Maximum number of events to return"
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "default": 0,
+        "description": "Number of events to skip for pagination"
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "events": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "log_id": {"type": "string"},
+            "timestamp": {"type": "string", "format": "date-time"},
+            "level": {"type": "string"},
+            "service": {"type": "string"},
+            "message": {"type": "string"},
+            "run_id": {"type": ["string", "null"]},
+            "action_id": {"type": ["string", "null"]},
+            "session_id": {"type": ["string", "null"]},
+            "actor_surface": {"type": ["string", "null"]},
+            "context": {"type": "object"},
+            "schema_version": {"type": "string"}
+          }
+        },
+        "description": "Matching log events"
+      },
+      "total": {
+        "type": "integer",
+        "description": "Total number of matching events (before pagination)"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Limit used in query"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "Offset used in query"
+      }
+    },
+    "required": ["events", "total", "limit", "offset"]
+  },
+  "examples": [
+    {
+      "name": "Query errors from last hour",
+      "input": {
+        "level": "ERROR",
+        "limit": 50
+      },
+      "output": {
+        "events": [
+          {
+            "log_id": "550e8400-e29b-41d4-a716-446655440000",
+            "timestamp": "2024-01-15T10:30:00Z",
+            "level": "ERROR",
+            "service": "behavior-service",
+            "message": "Failed to retrieve behavior: connection timeout",
+            "run_id": "run-xyz789",
+            "actor_surface": "api",
+            "context": {"behavior_id": "behavior_123", "timeout_ms": 5000},
+            "schema_version": "v1"
+          }
+        ],
+        "total": 1,
+        "limit": 50,
+        "offset": 0
+      }
+    },
+    {
+      "name": "Query logs for a specific run",
+      "input": {
+        "run_id": "run-abc123",
+        "limit": 200
+      },
+      "output": {
+        "events": [],
+        "total": 0,
+        "limit": 200,
+        "offset": 0
+      }
+    },
+    {
+      "name": "Full-text search",
+      "input": {
+        "search": "timeout",
+        "service": "mcp-server",
+        "limit": 25
+      },
+      "output": {
+        "events": [],
+        "total": 0,
+        "limit": 25,
+        "offset": 0
+      }
+    }
+  ]
+}

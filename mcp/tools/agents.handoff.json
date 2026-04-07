@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "agents.handoff",
+  "description": "Transfer execution to another agent. Marks the current run as handed-off and creates a new run for the target agent. Context and outputs can optionally be transferred to maintain continuity.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "agent_id": {
+        "type": "string",
+        "description": "Target agent ID to hand off to (e.g., 'compliance', 'security', 'engineering')"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Reason for the handoff (e.g., 'Requires security review', 'Compliance approval needed')"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Current run ID to hand off from (auto-filled if in run context)"
+      },
+      "transfer_context": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to copy context (inputs, constraints, behaviors) to the new run"
+      },
+      "transfer_outputs": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to copy outputs accumulated so far to the new run"
+      },
+      "handoff_notes": {
+        "type": "string",
+        "description": "Optional notes for the receiving agent about the handoff"
+      }
+    },
+    "required": ["agent_id", "reason"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "handoff_id": {
+        "type": "string",
+        "description": "Unique identifier for this handoff"
+      },
+      "new_run_id": {
+        "type": "string",
+        "description": "Run ID created for the target agent"
+      },
+      "previous_run_id": {
+        "type": "string",
+        "description": "Run ID that was handed off from"
+      },
+      "new_agent_id": {
+        "type": "string",
+        "description": "Agent ID now handling execution"
+      },
+      "previous_agent_id": {
+        "type": "string",
+        "description": "Agent ID that handed off execution"
+      },
+      "reason": {
+        "type": "string",
+        "description": "Reason for the handoff"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["COMPLETED", "FAILED"],
+        "description": "Status of the handoff operation"
+      },
+      "context_transferred": {
+        "type": "boolean",
+        "description": "Whether context was transferred"
+      },
+      "outputs_transferred": {
+        "type": "boolean",
+        "description": "Whether outputs were transferred"
+      },
+      "created_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp when handoff was created"
+      }
+    },
+    "required": ["handoff_id", "new_run_id", "previous_run_id", "status"]
+  }
+}

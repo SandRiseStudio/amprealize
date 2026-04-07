@@ -1,0 +1,117 @@
+# Agent Workspace Blueprint
+# Purpose: Isolated container environment for agent code execution
+#
+# This blueprint provisions a minimal container with git and filesystem access
+# for agents to clone and work with GitHub repositories during work item execution.
+#
+# Features:
+# - Git installed for repo cloning
+# - Python/Node for code execution
+# - Workspace mounted at /workspace/repo
+# - Isolated from host filesystem
+# - Configurable TTL for cleanup
+#
+# Usage:
+#   breakeramp plan --blueprint agent-workspace \
+#     --var github_repo=owner/repo \
+#     --var github_token=$TOKEN \
+#     --var run_id=run-abc123
+#
+name: agent-workspace
+description: Isolated workspace for agent code execution with GitHub repo access
+version: "1.0"
+
+# Environment variables available to services
+variables:
+  github_repo:
+    description: "GitHub repository in owner/repo format"
+    required: true
+  github_token:
+    description: "GitHub token for repo access"
+    required: true
+  run_id:
+    description: "Run ID for tracking and cleanup"
+    required: true
+  workspace_path:
+    description: "Path inside container for workspace"
+    default: "/workspace/repo"
+  ttl_hours:
+    description: "Hours to keep workspace on failure (success cleans up immediately)"
+    default: "24"
+
+services:
+  workspace:
+    image: "docker.io/library/python:3.11-slim"
+    command: ["sleep", "infinity"]  # Keep container running
+    environment:
+      GITHUB_TOKEN: "${github_token}"
+      GITHUB_REPO: "${github_repo}"
+      RUN_ID: "${run_id}"
+      WORKSPACE_PATH: "${workspace_path}"
+    volumes:
+      # Named volume for workspace persistence during execution
+      - "workspace-${run_id}:/workspace"
+    labels:
+      amprealize.run_id: "${run_id}"
+      amprealize.blueprint: "agent-workspace"
+      amprealize.ttl_hours: "${ttl_hours}"
+    # Resource limits for safety
+    resources:
+      memory: "2g"
+      cpus: "2.0"
+    # Health check to verify container is responsive
+    healthcheck:
+      command: ["test", "-d", "/workspace"]
+      interval: "30s"
+      timeout: "10s"
+      retries: 3
+
+# Volumes to create
+volumes:
+  workspace-${run_id}:
+    driver: local
+
+# Init script run after container starts
+# Clones the repository into the workspace
+init_script: |
+  #!/bin/bash
+  set -e
+
+  echo "=== Agent Workspace Init ==="
+  echo "Run ID: ${RUN_ID}"
+  echo "Repository: ${GITHUB_REPO}"
+  echo "Workspace: ${WORKSPACE_PATH}"
+
+  # Install git if not present
+  if ! command -v git &> /dev/null; then
+    apt-get update && apt-get install -y git
+  fi
+
+  # Configure git for GitHub token auth
+  git config --global credential.helper store
+  echo "https://x-access-token:${GITHUB_TOKEN}@github.com" > ~/.git-credentials
+
+  # Clone repository (full clone for complete history)
+  mkdir -p ${WORKSPACE_PATH}
+  cd ${WORKSPACE_PATH}
+
+  if [ -d ".git" ]; then
+    echo "Repository already cloned, pulling latest..."
+    git pull origin HEAD
+  else
+    echo "Cloning repository..."
+    git clone "https://github.com/${GITHUB_REPO}.git" .
+  fi
+
+  echo "=== Workspace Ready ==="
+  echo "Files in workspace:"
+  ls -la
+
+  # Mark workspace as ready
+  touch /workspace/.ready
+
+# Cleanup hooks
+cleanup:
+  on_success: immediate  # Delete immediately on success
+  on_failure: ttl        # Keep for ttl_hours on failure for debugging
+  on_cancel: immediate   # Delete immediately on cancel

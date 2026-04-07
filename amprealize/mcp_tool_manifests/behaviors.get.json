@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "behaviors.get",
+  "description": "Retrieve a specific behavior by ID with full details including instruction, examples, and metadata. Optionally specify a version.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string",
+        "description": "Unique behavior identifier (bhv-<12-char-hex>)"
+      },
+      "version": {
+        "type": "string",
+        "description": "Optional semantic version (defaults to latest approved)"
+      }
+    },
+    "required": ["behavior_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "behavior_id": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "instruction": {
+        "type": "string",
+        "description": "The procedural instruction defining the behavior"
+      },
+      "role_focus": {
+        "type": "string",
+        "enum": ["STRATEGIST", "TEACHER", "STUDENT"]
+      },
+      "status": {
+        "type": "string",
+        "enum": ["DRAFT", "PENDING_REVIEW", "APPROVED", "DEPRECATED"]
+      },
+      "version": {
+        "type": "string"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "trigger_keywords": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "examples": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "scenario": {
+              "type": "string"
+            },
+            "application": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "metadata": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "created_at": {
+        "type": "string"
+      },
+      "updated_at": {
+        "type": "string"
+      },
+      "created_by": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string"
+          }
+        }
+      },
+      "effective_from": {
+        "type": "string",
+        "description": "ISO8601 timestamp when behavior became/becomes active (APPROVED only)"
+      },
+      "effective_to": {
+        "type": "string",
+        "description": "ISO8601 timestamp when behavior was/will be deprecated (DEPRECATED only)"
+      }
+    },
+    "required": ["behavior_id", "name", "instruction", "role_focus", "status", "version"]
+  }
+}

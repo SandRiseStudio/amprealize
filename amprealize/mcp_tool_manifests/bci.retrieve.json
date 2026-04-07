@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "bci.retrieve",
+  "description": "Retrieve top-K behaviors using hybrid embedding/keyword scoring for behavior-conditioned inference.",
+  "inputSchema": {
+    "$ref": "../../schema/bci/v1/retrieval.json#/definitions/RetrieveRequest"
+  },
+  "outputSchema": {
+    "$ref": "../../schema/bci/v1/retrieval.json#/definitions/RetrieveResponse"
+  }
+}

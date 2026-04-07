@@ -1,0 +1,371 @@
+version: '3.9'
+
+# PostgreSQL infrastructure for Amprealize migration validation
+# Three isolated databases matching service architecture:
+# - telemetry: TelemetryService (events, metrics, audit logs)
+# - behaviors: BehaviorService (behavior definitions, versions, handbook)
+# - workflows: WorkflowService (workflow templates, runs, execution state)
+
+services:
+  # PostgreSQL - Telemetry Service Database (TimescaleDB for time-series optimization)
+  postgres-telemetry:
+    image: timescale/timescaledb:latest-pg16
+    hostname: postgres-telemetry
+    container_name: amprealize-postgres-telemetry
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: telemetry
+      POSTGRES_USER: amprealize_telemetry
+      POSTGRES_PASSWORD: dev_telemetry_pass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+      - "-c"
+      - "shared_preload_libraries=timescaledb"
+    volumes:
+      - postgres-telemetry-data:/var/lib/postgresql/data
+      - ./schema/migrations/001_create_telemetry_warehouse.sql:/docker-entrypoint-initdb.d/001_create_telemetry_warehouse.sql:ro
+      - ./schema/migrations/012_create_metrics_service.sql:/docker-entrypoint-initdb.d/012_create_metrics_service.sql:ro
+      - ./schema/migrations/013_create_trace_analysis.sql:/docker-entrypoint-initdb.d/013_create_trace_analysis.sql:ro
+      - ./schema/migrations/014_create_telemetry_warehouse_timescale.sql:/docker-entrypoint-initdb.d/014_create_telemetry_warehouse_timescale.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_telemetry -d telemetry"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-postgres-net
+
+  # PostgreSQL - Behavior Service Database (with pgvector extension)
+  postgres-behavior:
+    image: timescale/timescaledb:latest-pg16
+    hostname: postgres-behavior
+    container_name: amprealize-postgres-behavior
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: behaviors
+      POSTGRES_USER: amprealize_behavior
+      POSTGRES_PASSWORD: dev_behavior_pass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    volumes:
+      - postgres-behavior-data:/var/lib/postgresql/data
+      - ./schema/migrations/002_create_behavior_service.sql:/docker-entrypoint-initdb.d/002_create_behavior_service.sql:ro
+      - ./schema/migrations/008_optimize_behavior_indexes.sql:/docker-entrypoint-initdb.d/008_optimize_behavior_indexes.sql:ro
+      - ./schema/migrations/010_create_behavior_embeddings.sql:/docker-entrypoint-initdb.d/010_create_behavior_embeddings.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_behavior -d behaviors"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-postgres-net
+
+  # PostgreSQL - Workflow Service Database
+  postgres-workflow:
+    image: postgres:16-alpine
+    hostname: postgres-workflow
+    container_name: amprealize-postgres-workflow
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: workflows
+      POSTGRES_USER: amprealize_workflow
+      POSTGRES_PASSWORD: dev_workflow_pass
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    volumes:
+      - postgres-workflow-data:/var/lib/postgresql/data
+      - ./schema/migrations/003_create_workflow_service.sql:/docker-entrypoint-initdb.d/003_create_workflow_service.sql:ro
+      - ./schema/migrations/009_refactor_workflow_schema.sql:/docker-entrypoint-initdb.d/009_refactor_workflow_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_workflow -d workflows"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-postgres-net
+
+  # PostgreSQL - Action Service Database
+  postgres-action:
+    image: postgres:16-alpine
+    hostname: postgres-action
+    container_name: amprealize-postgres-action
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_DB: amprealize_action
+      POSTGRES_USER: amprealize_user
+      POSTGRES_PASSWORD: local_dev_pw
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    volumes:
+      - postgres-action-data:/var/lib/postgresql/data
+      - ./schema/migrations/004_create_action_service.sql:/docker-entrypoint-initdb.d/004_create_action_service.sql:ro
+      - ./schema/migrations/007_extend_replays_metadata.sql:/docker-entrypoint-initdb.d/007_extend_replays_metadata.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_user -d amprealize_action"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-postgres-net
+
+  # PostgreSQL - Run Service Database
+  postgres-run:
+    image: postgres:16-alpine
+    hostname: postgres-run
+    container_name: amprealize-postgres-run
+    ports:
+      - "5436:5432"
+    environment:
+      POSTGRES_DB: amprealize_run
+      POSTGRES_USER: amprealize_user
+      POSTGRES_PASSWORD: local_dev_pw
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    volumes:
+      - postgres-run-data:/var/lib/postgresql/data
+      - ./schema/migrations/005_create_run_service.sql:/docker-entrypoint-initdb.d/005_create_run_service.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_user -d amprealize_run"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-postgres-net
+
+  # PostgreSQL for ComplianceService - Port 5437
+  postgres-compliance:
+    image: postgres:16-alpine
+    hostname: postgres-compliance
+    container_name: amprealize-postgres-compliance
+    ports:
+      - "5437:5432"
+    environment:
+      POSTGRES_DB: amprealize_compliance
+      POSTGRES_USER: amprealize_user
+      POSTGRES_PASSWORD: local_dev_pw
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    volumes:
+      - postgres-compliance-data:/var/lib/postgresql/data
+      - ./schema/migrations/006_create_compliance_service.sql:/docker-entrypoint-initdb.d/006_create_compliance_service.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_user -d amprealize_compliance"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-postgres-net
+
+  # PostgreSQL - AgentOrchestratorService Database
+  postgres-agent-orchestrator:
+    image: postgres:16-alpine
+    hostname: postgres-agent-orchestrator
+    container_name: amprealize-postgres-agent-orchestrator
+    ports:
+      - "5438:5432"
+    environment:
+      POSTGRES_DB: amprealize
+      POSTGRES_USER: amprealize_user
+      POSTGRES_PASSWORD: local_dev_pw
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_duration=off"
+    volumes:
+      - postgres-agent-orchestrator-data:/var/lib/postgresql/data
+      - ./schema/migrations/011_create_agent_orchestrator.sql:/docker-entrypoint-initdb.d/011_create_agent_orchestrator.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amprealize_user -d amprealize"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-postgres-net
+
+    # Redis - Cache Layer for BehaviorService and WorkflowService
+  redis:
+    image: redis:7-alpine
+    hostname: redis
+    container_name: amprealize-redis
+    ports:
+      - "6379:6379"
+    command:
+      - "redis-server"
+      - "--maxmemory"
+      - "256mb"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+      - "--save"
+      - ""
+      - "--appendonly"
+      - "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - amprealize-postgres-net
+
+  # PgBouncer - Connection Pooler
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    hostname: pgbouncer
+    container_name: amprealize-pgbouncer
+    ports:
+      - "6432:6432"
+    environment:
+      - DATABASE_URL=postgres://amprealize_behavior:dev_behavior_pass@postgres-behavior:5432/behaviors
+    volumes:
+      - ./deployment/config/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./deployment/config/pgbouncer.userlist:/etc/pgbouncer/userlist.txt:ro
+
+  # pgAdmin - Web interface for PostgreSQL inspection
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    hostname: pgadmin
+    container_name: amprealize-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@amprealize.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./deployment/config/pgadmin_servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      - postgres-telemetry
+      - postgres-behavior
+      - postgres-workflow
+      - postgres-action
+      - postgres-run
+      - postgres-compliance
+      - postgres-agent-orchestrator
+    networks:
+      - amprealize-postgres-net
+
+volumes:
+  postgres-telemetry-data:
+    driver: local
+  postgres-behavior-data:
+    driver: local
+  postgres-workflow-data:
+    driver: local
+  postgres-action-data:
+    driver: local
+  postgres-run-data:
+    driver: local
+  postgres-compliance-data:
+    driver: local
+  postgres-agent-orchestrator-data:
+    driver: local
+  pgadmin-data:
+    driver: local
+
+networks:
+  amprealize-postgres-net:
+    driver: bridge
+
+# Usage:
+# 1. Start all PostgreSQL services:
+#    podman-compose -f docker-compose.postgres.yml up -d
+#
+# 2. Verify health:
+#    podman-compose -f docker-compose.postgres.yml ps
+#
+# 3. Access pgAdmin:
+#    http://localhost:5050
+#    (email: admin@amprealize.local, password: admin)
+#
+# 4. Connect to databases:
+#    Telemetry:  postgresql://amprealize_telemetry:dev_telemetry_pass@localhost:5432/telemetry
+#    Behavior:   postgresql://amprealize_behavior:dev_behavior_pass@localhost:5433/behaviors
+#    Workflow:   postgresql://amprealize_workflow:dev_workflow_pass@localhost:5434/workflows
+#    Action:     postgresql://amprealize_user:local_dev_pw@localhost:5435/amprealize_action
+#    Run:        postgresql://amprealize_user:local_dev_pw@localhost:5436/amprealize_run
+#    Compliance: postgresql://amprealize_user:local_dev_pw@localhost:5437/amprealize_compliance
+#    AgentOrch:  postgresql://amprealize_user:local_dev_pw@localhost:5438/amprealize
+#
+#    Through PgBouncer (recommended for application connections):
+#    postgresql://amprealize_behavior:dev_behavior_pass@localhost:6432/behaviors
+#    postgresql://amprealize_workflow:dev_workflow_pass@localhost:6432/workflows
+#    postgresql://amprealize_user:local_dev_pw@localhost:6432/amprealize_action
+#    postgresql://amprealize_user:local_dev_pw@localhost:6432/amprealize_run
+#    postgresql://amprealize_user:local_dev_pw@localhost:6432/amprealize_compliance
+#    postgresql://amprealize_user:local_dev_pw@localhost:6432/amprealize
+#    postgresql://amprealize_telemetry:dev_telemetry_pass@localhost:6432/telemetry
+#
+#    (PgBouncer listens on port 6432 and forwards to the individual service databases.)
+#
+# 5. Stop and clean up:
+#    podman-compose -f docker-compose.postgres.yml down -v
+#
+# Note: If using Docker compatibility alias, podman commands are identical:
+#    alias docker=podman
+#    alias docker-compose=podman-compose

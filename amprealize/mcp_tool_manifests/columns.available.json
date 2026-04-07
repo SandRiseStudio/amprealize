@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "columns.available",
+  "description": "Show which columns/statuses can still be added to a board. Helps with progressive disclosure — see what workflow stages are available to add.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "board_id": {
+        "type": "string",
+        "description": "Board UUID to check available columns for (required)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "existing_columns": {
+        "type": "array",
+        "items": { "type": "object" }
+      },
+      "available_columns": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "status_mapping": { "type": "string" },
+            "suggested_name": { "type": "string" },
+            "suggested_color": { "type": "string" }
+          }
+        }
+      },
+      "message": { "type": "string" },
+      "error": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "audit.archive",
+  "description": "Trigger archival of audit events from PostgreSQL hot tier to S3 WORM warm tier. Events are signed with Ed25519 before archival for tamper-evidence. Default retention: 7 years per SOC2 compliance.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "force": {
+        "type": "boolean",
+        "default": false,
+        "description": "Force archival even if retention period not reached (requires admin)"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "archived_count": { "type": "integer" },
+      "batch_id": { "type": "string" },
+      "s3_key": { "type": "string" },
+      "signature": { "type": "string" },
+      "hash_chain_head": { "type": "string" },
+      "_links": {
+        "type": "object",
+        "properties": {
+          "verify": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    }
+  }
+}

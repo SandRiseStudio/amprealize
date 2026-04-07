@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "research.search",
+  "description": "Search previously evaluated research papers by query text, verdict, score range, or source type.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Free-text search query to match against paper titles and content"
+      },
+      "verdict": {
+        "type": "string",
+        "enum": ["ADOPT", "ADAPT", "DEFER", "REJECT"],
+        "description": "Filter by verdict"
+      },
+      "min_score": {
+        "type": "number",
+        "description": "Minimum overall score filter"
+      },
+      "max_score": {
+        "type": "number",
+        "description": "Maximum overall score filter"
+      },
+      "source_type": {
+        "type": "string",
+        "enum": ["url", "arxiv", "markdown", "pdf", "docx"],
+        "description": "Filter by source type"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of results (default: 50)"
+      },
+      "offset": {
+        "type": "integer",
+        "description": "Offset for pagination (default: 0)"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "papers": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "paper_id": { "type": "string" },
+            "title": { "type": "string" },
+            "verdict": { "type": "string" },
+            "overall_score": { "type": "number" },
+            "core_idea": { "type": "string" }
+          }
+        }
+      },
+      "total_count": { "type": "integer" },
+      "has_more": { "type": "boolean" }
+    }
+  }
+}

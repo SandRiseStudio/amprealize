@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "orgs.removeMember",
+  "description": "Remove a member from an organization. Requires admin or owner role.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "ID of the user performing the action (required for authorization)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID"
+      },
+      "target_user_id": {
+        "type": "string",
+        "description": "ID of the user to remove"
+      }
+    },
+    "required": ["user_id", "org_id", "target_user_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean"
+      },
+      "removed_user_id": {
+        "type": "string"
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

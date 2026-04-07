@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "boards.get",
+  "description": "Get board details by ID. Optionally includes column information.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "board_id": {
+        "type": "string",
+        "description": "Board ID to retrieve (required)"
+      },
+      "include_columns": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to include column information"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization ID for multi-tenant context"
+      }
+    },
+    "required": ["board_id"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "board": {
+        "type": "object",
+        "properties": {
+          "board_id": { "type": "string" },
+          "project_id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "is_default": { "type": "boolean" },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "column_id": { "type": "string" },
+                "name": { "type": "string" },
+                "position": { "type": "integer" },
+                "color": { "type": "string" }
+              }
+            }
+          },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "error": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "auth.policy.preview",
+  "description": "Evaluate a potential tool invocation against the current policy bundle without mutating state.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["agent_id", "tool_name", "scopes"],
+    "properties": {
+      "agent_id": {"type": "string"},
+      "user_id": {"type": "string"},
+      "tool_name": {"type": "string"},
+      "scopes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "minItems": 1
+      },
+      "context": {
+        "type": "object",
+        "additionalProperties": {"type": "string"}
+      },
+      "bundle_version": {"type": "string", "description": "Optional policy bundle hash; defaults to latest."}
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["decision"],
+    "properties": {
+      "decision": {"type": "string", "enum": ["ALLOW", "CONSENT_REQUIRED", "DENY"]},
+      "reason": {"type": "string"},
+      "bundle_version": {"type": "string"},
+      "obligations": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": {"type": "string"},
+            "attributes": {
+              "type": "object",
+              "additionalProperties": {"type": "string"}
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "additionalProperties": false
+  },
+  "errors": [
+    {
+      "code": "bundle-not-found",
+      "description": "Specified bundle_version could not be located.",
+      "httpStatus": 404
+    }
+  ]
+}
