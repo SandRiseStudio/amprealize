@@ -350,21 +350,36 @@ class PostgresPool:
             org_id: Organization ID to set as current_org_id
             user_id: User ID to set as current_user_id
         """
+        # Batch both SET statements into a single `cur.execute()` so psycopg2
+        # sends them in one protocol message (one Neon round-trip ≈ 75-150 ms).
+        # Previously each SET was a separate `.execute()` which meant 2 extra
+        # RTTs per query — dominant cost for small queries against Neon.
+        from psycopg2 import sql as _pg_sql
+
+        # Build a batched statement; `SET LOCAL` disallows parameterised
+        # identifiers so we quote literal values via psycopg2.sql.Literal,
+        # which returns a safely-escaped SQL string (not bound parameters).
+        parts: list[_pg_sql.Composable] = []
+        if org_id:
+            parts.append(
+                _pg_sql.SQL("SET LOCAL app.current_org_id = {}").format(
+                    _pg_sql.Literal(org_id)
+                )
+            )
+        else:
+            parts.append(_pg_sql.SQL("RESET app.current_org_id"))
+        if user_id:
+            parts.append(
+                _pg_sql.SQL("SET LOCAL app.current_user_id = {}").format(
+                    _pg_sql.Literal(user_id)
+                )
+            )
+        else:
+            parts.append(_pg_sql.SQL("RESET app.current_user_id"))
+
+        batched = _pg_sql.SQL("; ").join(parts)
         with conn.cursor() as cur:
-            # search_path is set once per physical connection via the
-            # SQLAlchemy "connect" event — no need to re-SET here.
-
-            # Set org context for RLS policies
-            if org_id:
-                cur.execute("SET LOCAL app.current_org_id = %s", (org_id,))
-            else:
-                cur.execute("RESET app.current_org_id")
-
-            # Set user context for audit/RLS
-            if user_id:
-                cur.execute("SET LOCAL app.current_user_id = %s", (user_id,))
-            else:
-                cur.execute("RESET app.current_user_id")
+            cur.execute(batched)
 
     def run_query(
         self,
