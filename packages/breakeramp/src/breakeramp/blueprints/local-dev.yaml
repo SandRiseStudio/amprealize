@@ -312,6 +312,8 @@ services:
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       # BYOK (Bring Your Own Key) credential encryption - required for persistent storage
       BYOK_ENCRYPTION_KEY: "${BYOK_ENCRYPTION_KEY:-F8mx5M0oI4byBM353Yu5dtcz8d4AxlEKl1cBf2FW0Y4=}"
+      # Performance instrumentation (0 disables).
+      AMPREALIZE_PERF_LOG: "${AMPREALIZE_PERF_LOG:-1}"
     healthcheck_timeout_s: 90
     post_start_commands:
       # Run Alembic migrations to create all schemas and tables

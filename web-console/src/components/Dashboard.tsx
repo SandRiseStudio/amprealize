@@ -53,7 +53,7 @@ import {
   PERSONAL_SCOPE_SELECTED_HINT,
   PERSONAL_SCOPE_SHORT_HINT,
 } from '../copy/scopeLabels';
-import { razeLog } from '../telemetry/raze';
+import { razeLog, perfMark } from '../telemetry/raze';
 import './Dashboard.css';
 
 // ---------------------------------------------------------------------------
@@ -914,13 +914,15 @@ export function Dashboard() {
     if (dashboardPerfFlagsRef.current.chrome === scopePerfKey) return;
     dashboardPerfFlagsRef.current.chrome = scopePerfKey;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    void razeLog('INFO', 'dashboard.chrome_ready', {
+    const payload = {
       scope: currentOrgId ? 'org' : 'personal',
       org_id: currentOrgId ?? null,
       project_count: projects.length,
       visible_project_count: visibleProjectIds.length,
       elapsed_ms: Math.round(now - dashboardPerfStartedAtRef.current),
-    });
+    };
+    perfMark('dashboard.chrome_ready', payload);
+    void razeLog('INFO', 'dashboard.chrome_ready', payload);
   }, [currentOrgId, projects.length, scopedStats, scopePerfKey, showProjectsLoading, visibleProjectIds.length]);
 
   useEffect(() => {
@@ -928,13 +930,15 @@ export function Dashboard() {
     if (dashboardPerfFlagsRef.current.agentPanel === scopePerfKey) return;
     dashboardPerfFlagsRef.current.agentPanel = scopePerfKey;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    void razeLog('INFO', 'dashboard.agent_panel_ready', {
+    const payload = {
       scope: currentOrgId ? 'org' : 'personal',
       org_id: currentOrgId ?? null,
       total_agents: scopedAgents.length,
       displayed_agents: displayedAgents.length,
       elapsed_ms: Math.round(now - dashboardPerfStartedAtRef.current),
-    });
+    };
+    perfMark('dashboard.agent_panel_ready', payload);
+    void razeLog('INFO', 'dashboard.agent_panel_ready', payload);
   }, [agentPanelEnabled, currentOrgId, displayedAgents.length, scopedAgents.length, scopePerfKey, showAgentsLoading]);
 
   useShellTitle('Home');

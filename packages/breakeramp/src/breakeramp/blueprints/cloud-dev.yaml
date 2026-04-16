@@ -200,6 +200,7 @@ services:
       # Set via `amprealize context use <name>` before starting
       # =========================================================================
       DATABASE_URL: "${DATABASE_URL}"
+      AMPREALIZE_API_WORKERS: "${AMPREALIZE_API_WORKERS:-1}"
       # Telemetry disabled in cloud-dev (no telemetry DB available)
       AMPREALIZE_TELEMETRY_ENABLED: "false"
       # Explicit Org DSN — falls back to DATABASE_URL
@@ -266,6 +267,13 @@ services:
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       BYOK_ENCRYPTION_KEY: "${BYOK_ENCRYPTION_KEY:-F8mx5M0oI4byBM353Yu5dtcz8d4AxlEKl1cBf2FW0Y4=}"
+
+      # =========================================================================
+      # Performance instrumentation (emits `perf ...` lines on the
+      # `amprealize.perf` logger). Set to 0 to A/B test whether the log
+      # emission itself is a cost.
+      # =========================================================================
+      AMPREALIZE_PERF_LOG: "${AMPREALIZE_PERF_LOG:-1}"
     healthcheck_timeout_s: 90
     # NOTE: No post_start_commands for migrations — run on host via:
     #   amprealize context migrate

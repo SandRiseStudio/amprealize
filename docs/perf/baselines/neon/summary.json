@@ -1,0 +1,22 @@
+{
+  "runId": "neon-2026-04-16T18-14-18Z",
+  "base": "http://localhost:5173",
+  "context": "neon",
+  "runs": 5,
+  "warm": false,
+  "projectId": "proj-b575d734aa37",
+  "boardId": "523b3a4f-4157-4fd1-b5e9-93437eca6009",
+  "startedAtEpoch": 1776363258771,
+  "journeys": [
+    "cold_dashboard",
+    "cold_board"
+  ],
+  "files": [
+    "/Users/nick/Main/amprealize/scripts/perf/out/neon-2026-04-16T18-14-18Z/run-1.json",
+    "/Users/nick/Main/amprealize/scripts/perf/out/neon-2026-04-16T18-14-18Z/run-2.json",
+    "/Users/nick/Main/amprealize/scripts/perf/out/neon-2026-04-16T18-14-18Z/run-3.json",
+    "/Users/nick/Main/amprealize/scripts/perf/out/neon-2026-04-16T18-14-18Z/run-4.json",
+    "/Users/nick/Main/amprealize/scripts/perf/out/neon-2026-04-16T18-14-18Z/run-5.json"
+  ],
+  "finishedAtEpoch": 1776363379472
+}

@@ -60,7 +60,7 @@ import {
   type UnifiedConversationInitialTarget,
 } from '../conversations/UnifiedConversationWindow';
 import { useGetOrCreateDirectConversation } from '../../api/conversations';
-import { razeLog } from '../../telemetry/raze';
+import { razeLog, perfMark } from '../../telemetry/raze';
 import './BoardPage.css';
 
 function getColumnAccentIndex(index: number): number {
@@ -3669,12 +3669,15 @@ export function BoardPage(): React.JSX.Element {
     if (boardPerfFlagsRef.current.shell === boardId) return;
     boardPerfFlagsRef.current.shell = boardId;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    void razeLog('INFO', 'board.shell_ready', {
+    const elapsed_ms = Math.round(now - boardPerfStartedAtRef.current);
+    const payload = {
       board_id: boardId,
       project_id: projectId ?? null,
-      elapsed_ms: Math.round(now - boardPerfStartedAtRef.current),
+      elapsed_ms,
       filters_active: hasActiveFilters,
-    });
+    };
+    perfMark('board.shell_ready', payload);
+    void razeLog('INFO', 'board.shell_ready', payload);
   }, [board, boardId, boardLoading, hasActiveFilters, projectId]);
 
   useEffect(() => {
@@ -3682,15 +3685,18 @@ export function BoardPage(): React.JSX.Element {
     if (boardPerfFlagsRef.current.firstPage === boardId) return;
     boardPerfFlagsRef.current.firstPage = boardId;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    void razeLog('INFO', 'board.first_items_page_ready', {
+    const elapsed_ms = Math.round(now - boardPerfStartedAtRef.current);
+    const payload = {
       board_id: boardId,
       project_id: projectId ?? null,
-      elapsed_ms: Math.round(now - boardPerfStartedAtRef.current),
+      elapsed_ms,
       loaded_count: loadedCount,
       total_count: totalItemCount,
       filters_active: hasActiveFilters,
       is_partial: isPartial,
-    });
+    };
+    perfMark('board.first_items_page_ready', payload);
+    void razeLog('INFO', 'board.first_items_page_ready', payload);
   }, [boardId, hasActiveFilters, isPartial, items.length, itemsLoading, loadedCount, projectId, totalItemCount]);
 
   useEffect(() => {
@@ -3698,14 +3704,17 @@ export function BoardPage(): React.JSX.Element {
     if (boardPerfFlagsRef.current.full === boardId) return;
     boardPerfFlagsRef.current.full = boardId;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    void razeLog('INFO', 'board.full_hydration_ready', {
+    const elapsed_ms = Math.round(now - boardPerfStartedAtRef.current);
+    const payload = {
       board_id: boardId,
       project_id: projectId ?? null,
-      elapsed_ms: Math.round(now - boardPerfStartedAtRef.current),
+      elapsed_ms,
       loaded_count: loadedCount,
       total_count: totalItemCount,
       filters_active: hasActiveFilters,
-    });
+    };
+    perfMark('board.full_hydration_ready', payload);
+    void razeLog('INFO', 'board.full_hydration_ready', payload);
   }, [boardId, hasActiveFilters, isBackgroundHydrating, isPartial, items.length, loadedCount, projectId, totalItemCount]);
 
   const setViewModeValue = useCallback((nextMode: ViewMode) => {

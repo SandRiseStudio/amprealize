@@ -1,0 +1,15 @@
+{
+  "name": "amprealize-perf",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end performance harness for the Amprealize web console. See README.md.",
+  "scripts": {
+    "install-browsers": "playwright install chromium",
+    "login": "node auth-login.mjs",
+    "journeys": "node run-journeys.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

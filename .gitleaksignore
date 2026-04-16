@@ -33,3 +33,18 @@ amprealize/config/schema.py:env-var-references:345
 # Model catalog - api_name is the Anthropic model identifier, not an API key
 amprealize/llm/types.py:generic-api-key:52
 amprealize/work_item_execution_contracts.py:generic-api-key:110
+
+# Perf harness scripts - normal template-literal interpolations (${ts},
+# ${CONTEXT_NAME}, ${RUN_ID}, ${projectId}, ${boardId}, etc.), not secrets
+scripts/perf/auth-login.mjs:env-var-references:46
+scripts/perf/auth-login.mjs:env-var-references:59
+scripts/perf/run-journeys.mjs:env-var-references:57
+scripts/perf/run-journeys.mjs:env-var-references:58
+scripts/perf/run-journeys.mjs:env-var-references:61
+scripts/perf/run-journeys.mjs:env-var-references:80
+scripts/perf/run-journeys.mjs:env-var-references:131
+scripts/perf/run-journeys.mjs:env-var-references:191
+scripts/perf/run-journeys.mjs:env-var-references:223
+scripts/perf/run-journeys.mjs:env-var-references:255
+scripts/perf/run-journeys.mjs:env-var-references:260
+scripts/perf/run-journeys.mjs:env-var-references:271
