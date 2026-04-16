@@ -267,20 +267,6 @@ async function listProjectAgents(projectId?: string | null): Promise<Agent[]> {
   }
 }
 
-async function listProjectAgentPresence(projectId: string): Promise<ProjectAgentPresenceResponse[]> {
-  try {
-    const response = await apiClient.get<{ agents?: ProjectAgentPresenceResponse[]; items?: ProjectAgentPresenceResponse[] }>(
-      `/v1/projects/agents/presence?project_id=${encodeURIComponent(projectId)}`
-    );
-    return (response.agents ?? response.items ?? []);
-  } catch (error) {
-    if (error instanceof ApiError && error.status < 500) {
-      return [];
-    }
-    throw error;
-  }
-}
-
 /**
  * Batched presence lookup across multiple projects in a single HTTP round-trip.
  * The server returns a flat list; each row carries its own `project_id` so
