@@ -2011,10 +2011,10 @@ def up(
         breakeramp up --rebuild-images         # Rebuild local images with latest code
     """
     import subprocess
-    
+
     # Apply amprealize context to get DATABASE_URL and other DSNs
     ctx_name = _apply_amprealize_context(quiet=quiet)
-    
+
     service = get_service()
 
     # Warn (and offer to switch) when cloud context + local-DB blueprint

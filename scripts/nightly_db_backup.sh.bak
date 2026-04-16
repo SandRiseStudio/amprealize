@@ -562,7 +562,7 @@ validate_backup() {
                 local live_count
                 live_count="$(psql "$dsn" -tAc \
                     "SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')" \
-                    2>/dev/null || echo "")" 
+                    2>/dev/null || echo "")"
                 if [[ -n "$live_count" && "$create_count" -gt 0 ]]; then
                     local tbl_diff=$(( live_count - create_count ))
                     tbl_diff=${tbl_diff#-}
@@ -891,7 +891,7 @@ validate_backup() {
                 local live_count
                 live_count="$(psql "$dsn" -tAc \
                     "SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')" \
-                    2>/dev/null || echo "")" 
+                    2>/dev/null || echo "")"
                 if [[ -n "$live_count" && "$create_count" -gt 0 ]]; then
                     local tbl_diff=$(( live_count - create_count ))
                     tbl_diff=${tbl_diff#-}
