@@ -626,24 +626,25 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
             <div className="sidebar-section-body">
               <div className="sidebar-section-body-inner">
                 {hasAgents && (
-                <NavItem
-                  label="Agents"
-                  icon={<AgentIcon />}
-                  active={pathname.startsWith('/agents')}
-                  onClick={() => onNavigate('/agents')}
-                  onKeyDown={(event) => {
-                    if (event.key === 'ArrowDown') {
-                      event.preventDefault();
-                      moveFocus(event.currentTarget, 1);
-                    } else if (event.key === 'ArrowUp') {
-                      event.preventDefault();
-                      moveFocus(event.currentTarget, -1);
-                    }
-                  }}
-                  role="treeitem"
-                  level={1}
-                />
+                  <NavItem
+                    label="Agents"
+                    icon={<AgentIcon />}
+                    active={pathname.startsWith('/agents')}
+                    onClick={() => onNavigate('/agents')}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        moveFocus(event.currentTarget, 1);
+                      } else if (event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        moveFocus(event.currentTarget, -1);
+                      }
+                    }}
+                    role="treeitem"
+                    level={1}
+                  />
                 )}
+              </div>
             </div>
           </div>
         )}
