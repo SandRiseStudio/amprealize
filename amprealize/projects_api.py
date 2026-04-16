@@ -317,10 +317,45 @@ def create_project_routes(
     @router.get("/agents/presence", response_model=ProjectAgentPresenceListResponse)
     def list_agent_presence(
         request: Request,
-        project_id: str = Query(..., description="Project ID to list agent presence for"),
+        project_id: Optional[str] = Query(
+            default=None,
+            description="Single project ID (legacy). Use `project_ids` for batched lookup.",
+        ),
+        project_ids: Optional[str] = Query(
+            default=None,
+            description="Comma-separated list of project IDs for batched lookup.",
+        ),
     ) -> ProjectAgentPresenceListResponse:
-        """List runtime presence state for all assigned agents in a project."""
+        """List runtime presence state for assigned agents.
+
+        Accepts either a single `project_id` (legacy, one HTTP round-trip per
+        project) or a batched comma-separated `project_ids` (one round-trip
+        total). When `project_ids` is used, each returned `AgentPresenceResponse`
+        carries its own `project_id` so the client can group client-side.
+        """
         user_id = get_user_id(request)
+
+        if project_ids:
+            ids = [pid.strip() for pid in project_ids.split(",") if pid.strip()]
+            if not ids:
+                return ProjectAgentPresenceListResponse(agents=[], total=0)
+            # Authorise each project before the batched query.
+            for pid in ids:
+                _require_project_access(user_id, pid)
+            if hasattr(org_service, "list_agent_presence_batch"):
+                grouped = org_service.list_agent_presence_batch(ids)
+                flat = [p for ps in grouped.values() for p in ps]
+            else:
+                flat = []
+                for pid in ids:
+                    flat.extend(org_service.list_agent_presence(pid))
+            return ProjectAgentPresenceListResponse(agents=flat, total=len(flat))
+
+        if not project_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Either `project_id` or `project_ids` must be provided",
+            )
         _require_project_access(user_id, project_id)
         agents = org_service.list_agent_presence(project_id)
         return ProjectAgentPresenceListResponse(agents=agents, total=len(agents))

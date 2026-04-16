@@ -6,7 +6,7 @@
  */
 
 import React from 'react';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, ApiError } from './client';
 import { apiClient as clientInstance } from './client';
 import { razeLog } from '../telemetry/raze';
@@ -281,6 +281,38 @@ async function listProjectAgentPresence(projectId: string): Promise<ProjectAgent
   }
 }
 
+/**
+ * Batched presence lookup across multiple projects in a single HTTP round-trip.
+ * The server returns a flat list; each row carries its own `project_id` so
+ * the caller can group client-side. Falls back to an empty map on any <500.
+ */
+async function listProjectAgentPresenceBatch(
+  projectIds: string[],
+): Promise<Map<string, ProjectAgentPresenceResponse[]>> {
+  if (projectIds.length === 0) return new Map();
+  const q = projectIds.map(encodeURIComponent).join(',');
+  try {
+    const response = await apiClient.get<{
+      agents?: ProjectAgentPresenceResponse[];
+      items?: ProjectAgentPresenceResponse[];
+    }>(`/v1/projects/agents/presence?project_ids=${q}`);
+    const flat = response.agents ?? response.items ?? [];
+    const grouped = new Map<string, ProjectAgentPresenceResponse[]>();
+    for (const pid of projectIds) grouped.set(pid, []);
+    for (const row of flat) {
+      const bucket = grouped.get(row.project_id) ?? [];
+      bucket.push(row);
+      grouped.set(row.project_id, bucket);
+    }
+    return grouped;
+  } catch (error) {
+    if (error instanceof ApiError && error.status < 500) {
+      return new Map(projectIds.map((pid) => [pid, []]));
+    }
+    throw error;
+  }
+}
+
 function getPresenceSummaryLine(agents: AgentPresence[]): string {
   const working = agents.filter((agent) => agent.presence === 'working' || agent.presence === 'at_capacity').length;
   const available = agents.filter((agent) => agent.presence === 'available').length;
@@ -461,24 +493,44 @@ export function useVisibleProjectAgentPresence(
     [projectIds],
   );
 
-  const queries = useQueries({
-    queries: stableProjectIds.map((projectId) => ({
-      queryKey: agentRegistryKeys.projectPresence(projectId),
-      queryFn: () => listProjectAgentPresence(projectId),
-      enabled: (options?.enabled ?? true) && hasToken,
-      staleTime: 30_000,
-      retry: (failureCount: number, error: unknown) => {
-        if (error instanceof ApiError && error.status < 500) return false;
-        return failureCount < 2;
-      },
-    })),
+  // Single batched request rather than N parallel queries. Previously this
+  // fired one `/agents/presence?project_id=…` per visible project, which all
+  // queued up on the single uvicorn worker (~2.5-3s each, observed ~10s
+  // total on cold_board). The batched endpoint returns all rows in one
+  // round-trip with each row's own `project_id` for client-side grouping.
+  const batchedQuery = useQuery({
+    queryKey: agentRegistryKeys.projectPresence(stableProjectIds.join(',')),
+    queryFn: () => listProjectAgentPresenceBatch(stableProjectIds),
+    enabled:
+      (options?.enabled ?? true) && hasToken && stableProjectIds.length > 0,
+    staleTime: 30_000,
+    retry: (failureCount: number, error: unknown) => {
+      if (error instanceof ApiError && error.status < 500) return false;
+      return failureCount < 2;
+    },
   });
+
+  // Keep legacy single-project React Query cache entries populated so other
+  // consumers (e.g. project detail pages) don't double-fetch.
+  const queryClient = useQueryClient();
+  React.useEffect(() => {
+    const grouped = batchedQuery.data;
+    if (!grouped) return;
+    for (const pid of stableProjectIds) {
+      queryClient.setQueryData(
+        agentRegistryKeys.projectPresence(pid),
+        grouped.get(pid) ?? [],
+      );
+    }
+  }, [batchedQuery.data, stableProjectIds, queryClient]);
 
   const data = React.useMemo(() => {
     const map = new Map<string, VisibleProjectAgentPresenceEntry>();
+    const grouped = batchedQuery.data ?? new Map<string, ProjectAgentPresenceResponse[]>();
 
-    stableProjectIds.forEach((projectId, index) => {
-      const projectAgents = (queries[index]?.data ?? []).map(mapProjectAgentPresence);
+    stableProjectIds.forEach((projectId) => {
+      const rawEntries = grouped.get(projectId) ?? [];
+      const projectAgents = rawEntries.map(mapProjectAgentPresence);
       map.set(projectId, {
         agents: projectAgents,
         total: projectAgents.length,
@@ -487,12 +539,12 @@ export function useVisibleProjectAgentPresence(
     });
 
     return map;
-  }, [queries, stableProjectIds]);
+  }, [batchedQuery.data, stableProjectIds]);
 
   return {
     data,
-    isLoading: queries.some((result) => result.isLoading),
-    isFetching: queries.some((result) => result.isFetching),
+    isLoading: batchedQuery.isLoading,
+    isFetching: batchedQuery.isFetching,
   };
 }
 

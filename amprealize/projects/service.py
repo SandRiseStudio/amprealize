@@ -21,6 +21,7 @@ from .contracts import (
     ProjectAgentStatus,
     ProjectVisibility,
 )
+from amprealize.perf_log import perf_span
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +39,19 @@ class OSSProjectService:
 
     def __init__(self, *, dsn: str) -> None:
         self._dsn = dsn
+        self._engine = None
 
     def _get_conn(self):
-        import psycopg2
-        return psycopg2.connect(self._dsn)
+        # Use the shared SQLAlchemy engine pool so the Neon connection
+        # TCP+TLS+auth handshake (~75-150 ms each) is paid once per physical
+        # connection, not per call. `raw_connection()` returns a pooled
+        # psycopg2 connection whose `.close()` releases it back to the pool,
+        # so existing `conn = self._get_conn(); try: ...; finally: conn.close()`
+        # call sites continue to work unchanged.
+        if self._engine is None:
+            from amprealize.storage.postgres_pool import _get_engine  # lazy
+            self._engine = _get_engine(self._dsn)
+        return self._engine.raw_connection()
 
     # ------------------------------------------------------------------
     # Projects
@@ -322,45 +332,50 @@ class OSSProjectService:
         project_id: Optional[str] = None,
     ) -> List[ProjectAgentAssignmentResponse]:
         """List agent assignments for projects owned by a user."""
-        conn = self._get_conn()
-        try:
-            with conn.cursor() as cur:
-                if project_id:
-                    cur.execute(
-                        """
-                        SELECT pa.id, pa.project_id, pa.agent_id,
-                               pa.assigned_by, pa.assigned_at,
-                               pa.config_overrides, pa.role, pa.status,
-                               a.name as agent_name, a.slug as agent_slug,
-                               a.description as agent_description
-                        FROM execution.project_agent_assignments pa
-                        JOIN auth.projects p ON p.project_id = pa.project_id
-                        LEFT JOIN execution.agents a ON a.agent_id = pa.agent_id
-                        WHERE p.owner_id = %s AND pa.project_id = %s
-                        ORDER BY pa.assigned_at DESC
-                        """,
-                        (owner_id, project_id),
-                    )
-                else:
-                    cur.execute(
-                        """
-                        SELECT pa.id, pa.project_id, pa.agent_id,
-                               pa.assigned_by, pa.assigned_at,
-                               pa.config_overrides, pa.role, pa.status,
-                               a.name as agent_name, a.slug as agent_slug,
-                               a.description as agent_description
-                        FROM execution.project_agent_assignments pa
-                        JOIN auth.projects p ON p.project_id = pa.project_id
-                        LEFT JOIN execution.agents a ON a.agent_id = pa.agent_id
-                        WHERE p.owner_id = %s
-                        ORDER BY pa.assigned_at DESC
-                        """,
-                        (owner_id,),
-                    )
-                rows = cur.fetchall()
-                return [self._row_to_agent_assignment(r) for r in rows]
-        finally:
-            conn.close()
+        with perf_span(
+            "projects.list_user_agents",
+            owner_id=owner_id,
+            project_id=project_id,
+        ):
+            conn = self._get_conn()
+            try:
+                with conn.cursor() as cur:
+                    if project_id:
+                        cur.execute(
+                            """
+                            SELECT pa.id, pa.project_id, pa.agent_id,
+                                   pa.assigned_by, pa.assigned_at,
+                                   pa.config_overrides, pa.role, pa.status,
+                                   a.name as agent_name, a.slug as agent_slug,
+                                   a.description as agent_description
+                            FROM execution.project_agent_assignments pa
+                            JOIN auth.projects p ON p.project_id = pa.project_id
+                            LEFT JOIN execution.agents a ON a.agent_id = pa.agent_id
+                            WHERE p.owner_id = %s AND pa.project_id = %s
+                            ORDER BY pa.assigned_at DESC
+                            """,
+                            (owner_id, project_id),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT pa.id, pa.project_id, pa.agent_id,
+                                   pa.assigned_by, pa.assigned_at,
+                                   pa.config_overrides, pa.role, pa.status,
+                                   a.name as agent_name, a.slug as agent_slug,
+                                   a.description as agent_description
+                            FROM execution.project_agent_assignments pa
+                            JOIN auth.projects p ON p.project_id = pa.project_id
+                            LEFT JOIN execution.agents a ON a.agent_id = pa.agent_id
+                            WHERE p.owner_id = %s
+                            ORDER BY pa.assigned_at DESC
+                            """,
+                            (owner_id,),
+                        )
+                    rows = cur.fetchall()
+                    return [self._row_to_agent_assignment(r) for r in rows]
+            finally:
+                conn.close()
 
     def list_project_agent_assignments(
         self,
@@ -503,6 +518,15 @@ class OSSProjectService:
          config_overrides, role, assign_status,
          agent_name, agent_slug, agent_description) = row
 
+        # SQLAlchemy's psycopg2 dialect enables `register_uuid()` on engine
+        # init, so UUID columns now return `uuid.UUID` instances rather than
+        # bare strings (the pre-pool `psycopg2.connect()` default). Coerce
+        # the identifier columns the Pydantic contract expects as `str`.
+        if assign_id is not None and not isinstance(assign_id, str):
+            assign_id = str(assign_id)
+        if agent_id is not None and not isinstance(agent_id, str):
+            agent_id = str(agent_id)
+
         if isinstance(config_overrides, str):
             config_overrides = json.loads(config_overrides)
         elif config_overrides is None:
@@ -542,28 +566,77 @@ class OSSProjectService:
         project_id: str,
     ) -> List[AgentPresenceResponse]:
         """List presence state for all assigned agents in a project."""
-        conn = self._get_conn()
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT ap.agent_id, ap.project_id,
-                           ap.presence_status,
-                           ap.last_activity_at, ap.last_completed_at,
-                           ap.active_item_count, ap.capacity_max,
-                           ap.current_work_item_id, ap.updated_at,
-                           a.name as agent_name, a.slug as agent_slug
-                    FROM execution.agent_presence ap
-                    LEFT JOIN execution.agents a ON a.agent_id = ap.agent_id
-                    WHERE ap.project_id = %s
-                    ORDER BY ap.presence_status, a.name
-                    """,
-                    (project_id,),
-                )
-                rows = cur.fetchall()
-                return [self._row_to_presence(r) for r in rows]
-        finally:
-            conn.close()
+        with perf_span("projects.list_agent_presence", project_id=project_id):
+            conn = self._get_conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT ap.agent_id, ap.project_id,
+                               ap.presence_status,
+                               ap.last_activity_at, ap.last_completed_at,
+                               ap.active_item_count, ap.capacity_max,
+                               ap.current_work_item_id, ap.updated_at,
+                               a.name as agent_name, a.slug as agent_slug
+                        FROM execution.agent_presence ap
+                        LEFT JOIN execution.agents a ON a.agent_id = ap.agent_id
+                        WHERE ap.project_id = %s
+                        ORDER BY ap.presence_status, a.name
+                        """,
+                        (project_id,),
+                    )
+                    rows = cur.fetchall()
+                    return [self._row_to_presence(r) for r in rows]
+            finally:
+                conn.close()
+
+    def list_agent_presence_batch(
+        self,
+        project_ids: List[str],
+    ) -> Dict[str, List[AgentPresenceResponse]]:
+        """Batched version of `list_agent_presence` for multiple projects.
+
+        Single round-trip using `ANY(%s)`, returning a map of project_id to
+        presence rows. Preserves per-project ordering (status, agent name).
+        """
+        if not project_ids:
+            return {}
+        # Dedupe while preserving order for a stable response.
+        seen: Dict[str, None] = {}
+        for pid in project_ids:
+            if pid and pid not in seen:
+                seen[pid] = None
+        ordered_ids = list(seen.keys())
+        with perf_span(
+            "projects.list_agent_presence_batch",
+            project_count=len(ordered_ids),
+        ):
+            conn = self._get_conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT ap.agent_id, ap.project_id,
+                               ap.presence_status,
+                               ap.last_activity_at, ap.last_completed_at,
+                               ap.active_item_count, ap.capacity_max,
+                               ap.current_work_item_id, ap.updated_at,
+                               a.name as agent_name, a.slug as agent_slug
+                        FROM execution.agent_presence ap
+                        LEFT JOIN execution.agents a ON a.agent_id = ap.agent_id
+                        WHERE ap.project_id = ANY(%s)
+                        ORDER BY ap.project_id, ap.presence_status, a.name
+                        """,
+                        (ordered_ids,),
+                    )
+                    rows = cur.fetchall()
+            finally:
+                conn.close()
+        out: Dict[str, List[AgentPresenceResponse]] = {pid: [] for pid in ordered_ids}
+        for row in rows:
+            presence = self._row_to_presence(row)
+            out.setdefault(presence.project_id, []).append(presence)
+        return out
 
     def update_agent_presence(
         self,
@@ -652,6 +725,13 @@ class OSSProjectService:
          active_item_count, capacity_max,
          current_work_item_id, updated_at,
          agent_name, agent_slug) = row
+
+        # See `_row_to_agent_assignment`: the SQLAlchemy psycopg2 dialect
+        # returns UUID columns as `uuid.UUID` rather than `str`.
+        if agent_id is not None and not isinstance(agent_id, str):
+            agent_id = str(agent_id)
+        if current_work_item_id is not None and not isinstance(current_work_item_id, str):
+            current_work_item_id = str(current_work_item_id)
 
         try:
             status_enum = PresenceStatus(presence_status)

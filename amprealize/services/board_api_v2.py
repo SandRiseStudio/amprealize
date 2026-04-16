@@ -60,6 +60,7 @@ from typing import Any, Dict, List, Optional, Literal
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
+from amprealize.perf_log import perf_log, perf_span
 from amprealize.boards.contracts import (
     # Board models
     Board,
@@ -365,7 +366,9 @@ def create_board_routes(
         org_id = _get_org_id(request)
 
         try:
-            boards = board_service.list_boards(project_id=project_id, org_id=org_id, limit=limit, offset=offset)
+            with perf_span("boards.list", project_id=project_id) as span:
+                boards = board_service.list_boards(project_id=project_id, org_id=org_id, limit=limit, offset=offset)
+                span["item_count"] = len(boards)
             return BoardListResponse(boards=boards, total=len(boards))
         except Exception as e:
             logger.exception("Board list failed", extra={"project_id": project_id, "org_id": org_id})
@@ -387,7 +390,9 @@ def create_board_routes(
         org_id = _get_org_id(request)
 
         try:
-            board = board_service.get_board_with_columns(board_id, org_id=org_id)
+            with perf_span("boards.get", board_id=board_id) as span:
+                board = board_service.get_board_with_columns(board_id, org_id=org_id)
+                span["column_count"] = len(board.columns) if getattr(board, "columns", None) else 0
             return BoardWithColumnsResponse(board=board)
         except BoardNotFoundError as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -676,17 +681,18 @@ def create_board_routes(
         _t_shape_ms = round((time.perf_counter() - _t_shape_start) * 1000, 1)
         _t_total_ms = round((time.perf_counter() - _t0) * 1000, 1)
 
-        logger.info(
-            "work_items.list timing t_count_ms=%s t_list_ms=%s t_shape_ms=%s t_total_handler_ms=%s"
-            " item_count=%s payload_est_kb=%s offset=%s board_id=%s",
-            _t_count_ms,
-            _t_list_ms,
-            _t_shape_ms,
+        perf_log(
+            "work_items.list",
             _t_total_ms,
-            len(items),
-            round(len(items) * 1.45, 1),
-            offset,
-            board_id,
+            t_count_ms=_t_count_ms,
+            t_list_ms=_t_list_ms,
+            t_shape_ms=_t_shape_ms,
+            item_count=len(items),
+            payload_est_kb=round(len(items) * 1.45, 1),
+            offset=offset,
+            limit=limit,
+            board_id=board_id,
+            include_total=include_total,
         )
 
         return response
@@ -703,7 +709,9 @@ def create_board_routes(
     ) -> WorkItemBatchResponse:
         org_id = _get_org_id(request)
 
-        items = board_service.get_work_items_batch(body.item_ids, org_id=org_id)
+        with perf_span("work_items.batch", requested=len(body.item_ids)) as span:
+            items = board_service.get_work_items_batch(body.item_ids, org_id=org_id)
+            span["item_count"] = len(items)
         found_ids = {item.item_id for item in items}
         missing_ids = [item_id for item_id in body.item_ids if item_id not in found_ids]
 
