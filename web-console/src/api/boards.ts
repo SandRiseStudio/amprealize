@@ -885,7 +885,20 @@ export function useWorkItems(
           const currentMeta = queryClient.getQueryData<WorkItemsMeta>(itemsMetaKey) ?? EMPTY_WORK_ITEMS_META;
           if (!currentMeta.isPartial) break;
           await appendNextPage();
-          await sleep(400);
+          // Hydration backoff between pages. Runtime-tunable via
+          // localStorage['amprealize.hydrateSleepMs'] so the perf harness can
+          // flip the progressive-sleep A/B without rebuilding.
+          const hydrateSleepMs = (() => {
+            try {
+              const raw = window.localStorage?.getItem('amprealize.hydrateSleepMs');
+              if (raw === null || raw === undefined) return 400;
+              const n = Number(raw);
+              return Number.isFinite(n) && n >= 0 ? n : 400;
+            } catch {
+              return 400;
+            }
+          })();
+          if (hydrateSleepMs > 0) await sleep(hydrateSleepMs);
         }
       } finally {
         if (!cancelled && backgroundHydrationRunRef.current === runId) {

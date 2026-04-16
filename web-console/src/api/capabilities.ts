@@ -51,22 +51,36 @@ const CAPABILITIES_QUERY_KEY = ['api', 'capabilities'] as const;
 let _moduleCache: { data: ApiCapabilitiesResponse; expiresAt: number } | null = null;
 const MODULE_CACHE_TTL_MS = 60_000;
 
+// In-flight dedup: concurrent callers (React Query + queryFn call sites +
+// N effects firing during initial render) must share a single HTTP request
+// until it resolves; otherwise every call misses the module cache and fires
+// its own /v1/capabilities — observed at 23 calls per board load.
+let _inflight: Promise<ApiCapabilitiesResponse> | null = null;
+
 async function fetchCapabilities(): Promise<ApiCapabilitiesResponse> {
   const now = Date.now();
   if (_moduleCache && _moduleCache.expiresAt > now) {
     return _moduleCache.data;
   }
-  try {
-    const data = await apiClient.get<ApiCapabilitiesResponse>('/v1/capabilities', { skipRetry: true });
-    _moduleCache = { data, expiresAt: now + MODULE_CACHE_TTL_MS };
-    return data;
-  } catch (error: unknown) {
-    if (error instanceof ApiError && error.status === 404) {
-      _moduleCache = { data: LEGACY_FALLBACK, expiresAt: now + MODULE_CACHE_TTL_MS };
-      return LEGACY_FALLBACK;
-    }
-    throw error;
+  if (_inflight) {
+    return _inflight;
   }
+  _inflight = (async () => {
+    try {
+      const data = await apiClient.get<ApiCapabilitiesResponse>('/v1/capabilities', { skipRetry: true });
+      _moduleCache = { data, expiresAt: Date.now() + MODULE_CACHE_TTL_MS };
+      return data;
+    } catch (error: unknown) {
+      if (error instanceof ApiError && error.status === 404) {
+        _moduleCache = { data: LEGACY_FALLBACK, expiresAt: Date.now() + MODULE_CACHE_TTL_MS };
+        return LEGACY_FALLBACK;
+      }
+      throw error;
+    } finally {
+      _inflight = null;
+    }
+  })();
+  return _inflight;
 }
 
 /**z
