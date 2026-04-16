@@ -586,6 +586,162 @@ class PostgresDeviceFlowStore:
         logger.info(f"Updated OAuth identity for device session: device_code={device_code}, oauth_user_id={oauth_user_id}")
         return session
 
+    def create_session_from_oauth(
+        self,
+        *,
+        provider: str,
+        user_id: str,
+        email: str,
+        name: Optional[str] = None,
+        picture: Optional[str] = None,
+        provider_access_token: Optional[str] = None,
+        provider_refresh_token: Optional[str] = None,
+        scopes: Optional[List[str]] = None,
+        access_token: Optional[str] = None,
+        refresh_token: Optional[str] = None,
+        access_token_expires_at: Optional[datetime] = None,
+        refresh_token_expires_at: Optional[datetime] = None,
+        session_ttl_days: int = 30,
+        access_token_ttl_seconds: int = 3600,
+        refresh_token_ttl_seconds: int = 7 * 24 * 3600,
+    ) -> Optional[DeviceSession]:
+        """Create an APPROVED device session from OAuth credentials.
+
+        Mirrors DeviceFlowManager.create_session_from_oauth (in-memory) but
+        persists directly to auth.device_sessions so that sessions survive
+        api-worker recreates and can be read by any worker.
+
+        When ``access_token`` / ``refresh_token`` (and their expiries) are
+        supplied the row is written with those exact values, keeping the
+        in-memory store and Postgres in sync. Otherwise fresh tokens are
+        generated here.
+
+        Returns ``None`` on failure so callers (fan-out mirror writes from
+        the OAuth callback) can continue with the in-memory result.
+        """
+
+        import json
+        import uuid as _uuid
+
+        now = datetime.now(timezone.utc)
+        device_code = self._generate_device_code()
+        user_code = self._generate_user_code()
+
+        access_tok = access_token or f"ga_{_uuid.uuid4()}"
+        refresh_tok = refresh_token or f"gr_{_uuid.uuid4()}"
+        access_exp = access_token_expires_at or (
+            now + timedelta(seconds=access_token_ttl_seconds)
+        )
+        refresh_exp = refresh_token_expires_at or (
+            now + timedelta(seconds=refresh_token_ttl_seconds)
+        )
+        session_expires_at = now + timedelta(days=session_ttl_days)
+
+        scopes_list = scopes or ["openid", "profile", "email"]
+
+        metadata: Dict[str, Any] = {"oauth_provider": provider}
+        if provider_access_token:
+            metadata["oauth_access_token"] = provider_access_token
+        if provider_refresh_token:
+            metadata["oauth_refresh_token"] = provider_refresh_token
+
+        def _execute(conn) -> None:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO auth.device_sessions (
+                        device_code, user_code, client_id, scopes, status,
+                        surface, poll_interval, metadata,
+                        created_at, expires_at,
+                        approver, approver_surface, approved_at,
+                        access_token, refresh_token,
+                        access_token_expires_at, refresh_token_expires_at,
+                        oauth_user_id, oauth_username, oauth_email,
+                        oauth_display_name, oauth_avatar_url, oauth_provider
+                    ) VALUES (
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s,
+                        %s, %s, %s,
+                        %s, %s,
+                        %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s
+                    )
+                    """,
+                    (
+                        device_code,
+                        user_code,
+                        f"oauth-{provider}",
+                        json.dumps(scopes_list),
+                        "APPROVED",
+                        "WEB",
+                        5,
+                        json.dumps(metadata),
+                        now,
+                        session_expires_at,
+                        email,
+                        "WEB",
+                        now,
+                        access_tok,
+                        refresh_tok,
+                        access_exp,
+                        refresh_exp,
+                        user_id,
+                        email,
+                        email,
+                        name,
+                        picture,
+                        provider,
+                    ),
+                )
+
+        try:
+            self._pool.run_transaction(
+                operation="device_session.create_from_oauth",
+                service_prefix="auth",
+                actor=user_id,
+                metadata={"provider": provider, "email": email},
+                executor=_execute,
+                telemetry=None,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to persist OAuth device session to postgres "
+                f"(provider={provider}, email={email}): {e}"
+            )
+            return None
+
+        logger.info(
+            "Persisted OAuth device session to postgres: "
+            f"user_code={user_code}, provider={provider}, email={email}"
+        )
+        return DeviceSession(
+            device_code=device_code,
+            user_code=user_code,
+            client_id=f"oauth-{provider}",
+            scopes=scopes_list,
+            status="APPROVED",
+            surface="WEB",
+            poll_interval=5,
+            created_at=now,
+            expires_at=session_expires_at,
+            approver=email,
+            approver_surface="WEB",
+            approved_at=now,
+            access_token=access_tok,
+            refresh_token=refresh_tok,
+            access_token_expires_at=access_exp,
+            refresh_token_expires_at=refresh_exp,
+            oauth_user_id=user_id,
+            oauth_username=email,
+            oauth_email=email,
+            oauth_display_name=name,
+            oauth_avatar_url=picture,
+            oauth_provider=provider,
+            metadata=metadata,
+        )
+
     def cleanup_expired(self) -> int:
         """Remove expired sessions. Returns count of removed sessions."""
         count = 0

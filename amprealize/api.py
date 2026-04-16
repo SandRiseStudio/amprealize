@@ -1335,10 +1335,57 @@ def create_app(
                 apply_limits=True,
             )
 
+    # Wrap the two device-flow stores in a composite so the middleware finds
+    # tokens written to EITHER the Postgres-backed store or the in-memory
+    # legacy manager. Background: the device-flow write paths in this file
+    # still call `container.device_flow_manager.*` (the in-memory manager),
+    # while the middleware preferred `postgres_device_store` when present.
+    # After a container recreate the in-memory store was empty, so even with
+    # a pinned AMPREALIZE_JWT_SECRET the prior OAuth-issued tokens returned
+    # 401. The composite is a stopgap — the write paths should eventually
+    # move to the Postgres store to fix multi-worker serialization too
+    # (tracked in docs/perf/RESULTS.md as the `device_flow_manager` bug).
+    _primary_store = container.postgres_device_store or container.device_flow_manager
+    _fallback_store = (
+        container.device_flow_manager
+        if container.postgres_device_store is not None
+        else None
+    )
+
+    class _CompositeDeviceFlow:
+        """Try `primary` first, fall through to `fallback` on None."""
+
+        def __init__(self, primary, fallback):
+            self._primary = primary
+            self._fallback = fallback
+
+        def __getattr__(self, name):
+            primary_attr = getattr(self._primary, name, None)
+            fallback_attr = (
+                getattr(self._fallback, name, None) if self._fallback else None
+            )
+            if primary_attr is None and fallback_attr is None:
+                raise AttributeError(name)
+            if callable(primary_attr) and callable(fallback_attr):
+                def _wrapped(*args, **kwargs):
+                    result = primary_attr(*args, **kwargs)
+                    if result is None:
+                        return fallback_attr(*args, **kwargs)
+                    return result
+
+                return _wrapped
+            return primary_attr if primary_attr is not None else fallback_attr
+
+    composite_device_store = (
+        _CompositeDeviceFlow(_primary_store, _fallback_store)
+        if _fallback_store is not None
+        else _primary_store
+    )
+
     app.add_middleware(
         AuthMiddleware,
         config=auth_config,
-        device_flow_manager=container.postgres_device_store or container.device_flow_manager,
+        device_flow_manager=composite_device_store,
     )
 
     @app.get("/api/v1/capabilities", response_model=ApiCapabilitiesResponse, tags=["platform"])
@@ -6737,6 +6784,35 @@ def create_app(
             scopes=token_response.scope.split() if token_response.scope else None,
         )
 
+        # Mirror the approved session to auth.device_sessions so it survives
+        # api-worker recreates and is visible across workers. The in-memory
+        # store remains source-of-truth for issuance; this write is best-effort
+        # durability — failures are logged but do not fail the login.
+        try:
+            pg_store = getattr(container, "postgres_device_store", None)
+            if pg_store is not None:
+                pg_store.create_session_from_oauth(
+                    provider=provider,
+                    user_id=internal_user_id,
+                    email=user_info.email,
+                    name=user_info.display_name or user_info.username,
+                    picture=getattr(user_info, "picture", None),
+                    provider_access_token=token_response.access_token,
+                    provider_refresh_token=token_response.refresh_token,
+                    scopes=token_response.scope.split() if token_response.scope else None,
+                    # Use the tokens the in-memory store issued so both
+                    # layers map the SAME access_token → session.
+                    access_token=amprealize_tokens.access_token,
+                    refresh_token=amprealize_tokens.refresh_token,
+                    access_token_expires_at=amprealize_tokens.access_token_expires_at,
+                    refresh_token_expires_at=amprealize_tokens.refresh_token_expires_at,
+                )
+        except Exception as e:
+            logger.warning(
+                f"Failed to mirror OAuth session to postgres_device_store "
+                f"(email={user_info.email}): {e}"
+            )
+
         # Return Amprealize tokens (not raw provider tokens) so they work with
         # standard device flow refresh endpoints (/api/v1/auth/device/refresh)
         return {
@@ -8426,36 +8502,39 @@ def create_app(
         Returns counts and summaries for display on the main dashboard.
         """
         from datetime import datetime, timezone
+        from amprealize.perf_log import perf_span
 
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-        # Get counts from services
         total_behaviors = 0
         total_runs = 0
         running_runs = 0
         completed_today = 0
         failed_today = 0
 
-        try:
-            behaviors = container.behavior_service.list_behaviors()
-            total_behaviors = len(behaviors)
-        except Exception:
-            pass
+        with perf_span("dashboard.stats") as span:
+            try:
+                behaviors = container.behavior_service.list_behaviors()
+                total_behaviors = len(behaviors)
+            except Exception:
+                pass
 
-        try:
-            runs = container.run_service.list_runs(limit=1000)
-            total_runs = len(runs)
-            for run in runs:
-                if run.get("status") == "RUNNING":
-                    running_runs += 1
-                started_at = run.get("started_at", "")
-                if started_at and started_at.startswith(today):
-                    if run.get("status") == "COMPLETED":
-                        completed_today += 1
-                    elif run.get("status") == "FAILED":
-                        failed_today += 1
-        except Exception:
-            pass
+            try:
+                runs = container.run_service.list_runs(limit=1000)
+                total_runs = len(runs)
+                for run in runs:
+                    if run.get("status") == "RUNNING":
+                        running_runs += 1
+                    started_at = run.get("started_at", "")
+                    if started_at and started_at.startswith(today):
+                        if run.get("status") == "COMPLETED":
+                            completed_today += 1
+                        elif run.get("status") == "FAILED":
+                            failed_today += 1
+            except Exception:
+                pass
+            span["behaviors"] = total_behaviors
+            span["runs"] = total_runs
 
         return {
             "total_projects": 0,  # Projects not implemented yet
