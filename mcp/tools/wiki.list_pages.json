@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "wiki.list_pages",
+  "description": "List all pages in a wiki domain. Returns page paths, titles, types, and folder structure. Use this to check what exists before creating new pages.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "domain": {
+        "type": "string",
+        "enum": ["research", "infra", "ai-learning"],
+        "description": "Wiki domain"
+      },
+      "page_type": {
+        "type": "string",
+        "description": "Optional filter by page type"
+      },
+      "folder": {
+        "type": "string",
+        "description": "Optional filter by folder (e.g., \"reference\", \"troubleshooting\")"
+      }
+    },
+    "required": ["domain"]
+  }
+}

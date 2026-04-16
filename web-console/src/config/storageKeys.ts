@@ -12,6 +12,7 @@ export const STORAGE_KEYS = {
   sidebarSections: 'amprealize.sidebar.sections',
   sidebarRecentProjects: 'amprealize.sidebar.recentProjects',
   sidebarPinnedProjects: 'amprealize.sidebar.pinnedProjects',
+  wikiRecentPages: 'amprealize.wiki.recentPages',
 } as const;
 
 const LEGACY_KEYS: Record<keyof typeof STORAGE_KEYS, string> = {
@@ -23,6 +24,7 @@ const LEGACY_KEYS: Record<keyof typeof STORAGE_KEYS, string> = {
   sidebarSections: 'amprealize.sidebar.sections',
   sidebarRecentProjects: 'amprealize.sidebar.recentProjects',
   sidebarPinnedProjects: 'amprealize.sidebar.pinnedProjects',
+  wikiRecentPages: 'amprealize.wiki.recentPages',
 };
 
 /** Board column collapsed state (per column id) */

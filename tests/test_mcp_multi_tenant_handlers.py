@@ -20,7 +20,7 @@ from typing import Optional
 pytestmark = pytest.mark.unit
 
 # Import contracts for test data
-from amprealize.multi_tenant.contracts import (
+from amprealize.projects.contracts import (
     Organization,
     OrgMembership,
     OrgPlan,

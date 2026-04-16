@@ -33,6 +33,16 @@ def pg_dsn() -> str:
     dsn = os.environ.get("AMPREALIZE_METRICS_PG_DSN")
     if not dsn:
         pytest.skip("AMPREALIZE_METRICS_PG_DSN not set")
+    # Verify the database is actually reachable
+    try:
+        import psycopg2
+        conn = psycopg2.connect(dsn, connect_timeout=3)
+        conn.close()
+    except Exception:
+        pytest.skip(
+            "Metrics Postgres not reachable — "
+            "dedicated metrics DB on port 6439 not running"
+        )
     return dsn
 
 

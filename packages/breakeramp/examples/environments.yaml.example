@@ -11,7 +11,7 @@
 # Usage:
 #   amprealize plan development --blueprint postgres-dev
 #   amprealize validate environments.yaml
-#   ./scripts/run_tests.sh --amprealize --env ci
+#   ./scripts/run_tests.sh --amprealize --env test
 #
 # Environment Variables:
 #   GUIDEAI_ENV_FILE or AMPREALIZE_ENV_FILE - Override config file path

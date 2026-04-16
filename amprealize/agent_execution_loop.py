@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from .action_contracts import Actor
 from .agent_registry_contracts import Agent, AgentVersion
-from .multi_tenant.board_contracts import WorkItem
+from .boards.contracts import WorkItem
 from .run_contracts import Run, RunStatus, RunStep
 from .run_service import RunService
 from .task_cycle_contracts import (
@@ -52,8 +52,10 @@ EARLY_RETRIEVAL_TOP_K = int(os.getenv("AMPREALIZE_EARLY_RETRIEVAL_TOP_K", "5"))
 # prefer FeatureFlagService.is_enabled() instead.
 ENABLE_EARLY_RETRIEVAL = os.getenv("AMPREALIZE_ENABLE_EARLY_RETRIEVAL", "true").lower() == "true"
 ENABLE_AUTO_REFLECTION = os.getenv("AMPREALIZE_ENABLE_AUTO_REFLECTION", "false").lower() == "true"
+ENABLE_WIKI_REFLECTION = os.getenv("AMPREALIZE_ENABLE_WIKI_REFLECTION", "false").lower() == "true"
 
 from .work_item_execution_contracts import (
+    AgentExecutionMode,
     AgentResponse,
     ClarificationQuestion,
     ExecutionPolicy,
@@ -66,10 +68,12 @@ from .work_item_execution_contracts import (
     PRCommitStrategy,
     PRExecutionContext,
     ToolCall,
+    ToolPermissionLevel,
     ToolResult,
     WriteScope,
     generate_pr_branch_name,
 )
+from .session_audit import EscalationDetector, SessionAuditLogger
 
 
 logger = logging.getLogger(__name__)
@@ -430,6 +434,7 @@ class AgentExecutionLoop:
         user_id: str,
         org_id: Optional[str],
         project_id: Optional[str],
+        execution_mode: AgentExecutionMode = AgentExecutionMode.GEP,
     ) -> Dict[str, Any]:
         """Run the execution loop until completion.
 
@@ -447,17 +452,73 @@ class AgentExecutionLoop:
             user_id: User who initiated execution
             org_id: Organization ID
             project_id: Project ID
+            execution_mode: GEP (full 8-phase) or SESSION (lightweight 3-phase)
 
         Returns:
             Dict with execution results including outputs, errors, etc.
         """
-        logger.info(f"Starting execution loop for run {run_id}, work item {work_item.item_id}")
+        logger.info(
+            f"Starting execution loop for run {run_id}, "
+            f"work item {work_item.item_id}, mode={execution_mode.value}"
+        )
+
+        # =====================================================================
+        # Session Mode: Override exec_policy for lightweight execution
+        # =====================================================================
+        session_audit: Optional[SessionAuditLogger] = None
+        escalation_detector: Optional[EscalationDetector] = None
+
+        if execution_mode == AgentExecutionMode.SESSION:
+            session_policy = ExecutionPolicy.for_session_mode()
+            # Merge session skip_phases with any already set on exec_policy
+            exec_policy.skip_phases = exec_policy.skip_phases | session_policy.skip_phases
+            # Override gates to SOFT (never block in session mode)
+            for phase_key, gate in session_policy.phase_gates.items():
+                exec_policy.phase_gates[phase_key] = gate
+            # Merge per-tool permissions from session policy
+            if not exec_policy.tool_permissions:
+                exec_policy.tool_permissions = dict(session_policy.tool_permissions)
+            logger.info(
+                f"Session Mode active for run {run_id}: "
+                f"skip_phases={exec_policy.skip_phases}"
+            )
+
+            # Initialize session audit logger (GUIDEAI-914)
+            raze = getattr(self, "_raze_service", None)
+            session_audit = SessionAuditLogger(
+                run_id=run_id,
+                telemetry=self._telemetry,
+                raze_service=raze,
+                user_id=user_id,
+                org_id=org_id,
+                project_id=project_id,
+            )
+            session_audit.log_session_start(
+                work_item_id=work_item.item_id,
+                skip_phases=exec_policy.skip_phases,
+            )
+
+            # Initialize escalation detector (GUIDEAI-913)
+            escalation_detector = EscalationDetector()
+
+            self._telemetry.emit_event(
+                event_type="session_mode.activated",
+                payload={
+                    "run_id": run_id,
+                    "execution_mode": execution_mode.value,
+                    "skip_phases": list(exec_policy.skip_phases),
+                    "tool_permissions": {k: v.value for k, v in exec_policy.tool_permissions.items()},
+                },
+            )
 
         # Update run status to running
         self._run_service.update_progress(
             run_id,
             status=RunStatus.RUNNING,
-            metadata={"phase": CyclePhase.PLANNING.value},
+            metadata={
+                "phase": CyclePhase.PLANNING.value,
+                "execution_mode": execution_mode.value,
+            },
         )
 
         # Load playbook from agent version
@@ -493,6 +554,9 @@ class AgentExecutionLoop:
         # Store early behaviors as instance attribute for access by phase handlers
         self._current_early_behaviors: List[Dict[str, Any]] = early_behaviors
         all_tool_calls: List[ToolCall] = []
+        # Store session audit objects for access by _execute_tool_calls
+        self._session_audit: Optional[SessionAuditLogger] = session_audit
+        self._escalation_detector: Optional[EscalationDetector] = escalation_detector
 
         try:
             while total_iterations < self.MAX_TOTAL_ITERATIONS:
@@ -533,9 +597,17 @@ class AgentExecutionLoop:
                     # E4: Auto-reflection on successful runs
                     self._try_post_run_reflection(run_id, phase_outputs)
 
+                    # E4: Wiki reflection — nudge agent to update AI Learning Wiki
+                    self._try_post_run_wiki_reflection(run_id, phase_outputs)
+
+                    # Log session completion (GUIDEAI-914)
+                    if self._session_audit:
+                        self._session_audit.log_session_complete(success=True)
+
                     logger.info(f"Execution completed for run {run_id}")
                     return {
                         "status": "completed",
+                        "execution_mode": execution_mode.value,
                         "phase_outputs": phase_outputs,
                         "tool_calls": all_tool_calls,
                     }
@@ -1836,18 +1908,34 @@ class AgentExecutionLoop:
         tool_calls: List[ToolCall],
         run_id: str,
         exec_policy: ExecutionPolicy,
+        session_audit: Optional[SessionAuditLogger] = None,
+        escalation_detector: Optional[EscalationDetector] = None,
     ) -> List[ToolResult]:
         """Execute a list of tool calls."""
         if not tool_calls or not self._tool_executor:
             return []
 
+        # Use instance-level audit objects if not passed explicitly
+        audit = session_audit or getattr(self, "_session_audit", None)
+        detector = escalation_detector or getattr(self, "_escalation_detector", None)
+
         results = []
         for call in tool_calls:
             start_time = _now_iso()
+            call_start_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
             try:
-                # Check permissions
-                if not self._check_tool_permission(call.tool_name, exec_policy):
+                # Check per-tool permission policy (GUIDEAI-912)
+                perm_level = exec_policy.tool_permissions.get(call.tool_name)
+                if perm_level == ToolPermissionLevel.DENY:
+                    result = ToolResult(
+                        call_id=call.call_id,
+                        tool_name=call.tool_name,
+                        success=False,
+                        error="Tool denied by per-tool permission policy",
+                        output={},
+                    )
+                elif not self._check_tool_permission(call.tool_name, exec_policy):
                     result = ToolResult(
                         call_id=call.call_id,
                         tool_name=call.tool_name,
@@ -1867,6 +1955,32 @@ class AgentExecutionLoop:
                     error=str(e),
                     output={},
                 )
+
+            elapsed_ms = int(datetime.now(timezone.utc).timestamp() * 1000) - call_start_ms
+
+            # Session audit logging (GUIDEAI-914)
+            if audit:
+                audit.log_tool_call(call, result, elapsed_ms)
+
+            # Escalation detection (GUIDEAI-913)
+            if detector:
+                signals = detector.check(call, result)
+                for signal in signals:
+                    self._telemetry.emit_event(
+                        event_type="session_mode.escalation_suggested",
+                        payload={
+                            "run_id": run_id,
+                            "trigger": signal.trigger,
+                            "severity": signal.severity,
+                            "detail": signal.detail,
+                            "metadata": signal.metadata,
+                        },
+                        run_id=run_id,
+                    )
+                    logger.info(
+                        f"Escalation signal [{signal.severity}]: "
+                        f"{signal.trigger} — {signal.detail}"
+                    )
 
             # Record tool call step with both inputs AND outputs
             tool_output = result.output if result.success else None
@@ -2112,17 +2226,27 @@ class AgentExecutionLoop:
             return None
 
         # Helper to find non-skipped phase
-        def find_next_non_skipped(phase: CyclePhase) -> Optional[CyclePhase]:
+        def find_next_non_skipped(
+            phase: CyclePhase,
+            visited: Optional[Set[CyclePhase]] = None,
+        ) -> Optional[CyclePhase]:
             """Recursively find the next phase that isn't in skip_phases."""
             if phase.value not in skip_phases:
                 return phase
+            # Track visited phases to prevent infinite recursion on cycles
+            # (e.g. CLARIFYING→CLARIFYING, TESTING→FIXING→TESTING)
+            if visited is None:
+                visited = set()
+            if phase in visited:
+                return None
+            visited = visited | {phase}
             # Phase should be skipped - find its successor
             successor_transitions = VALID_TRANSITIONS.get(phase, [])
             for successor in successor_transitions:
                 # Skip terminal states when searching for next phase
                 if successor in (CyclePhase.CANCELLED, CyclePhase.FAILED):
                     continue
-                result_phase = find_next_non_skipped(successor)
+                result_phase = find_next_non_skipped(successor, visited)
                 if result_phase:
                     return result_phase
             return None
@@ -2198,6 +2322,79 @@ class AgentExecutionLoop:
             self._run_post_run_reflection(run_id, phase_outputs)
         except Exception:
             logger.debug("Post-run reflection failed for run %s", run_id, exc_info=True)
+
+    def _try_post_run_wiki_reflection(
+        self,
+        run_id: str,
+        phase_outputs: Dict[CyclePhase, Dict[str, Any]],
+    ) -> None:
+        """Check whether the completed run touched AI concepts and nudge wiki update.
+
+        Gated by feature.wiki_reflection flag. Failures are logged but never
+        block the run completion path.
+        """
+        if not self._feature_flags.is_enabled("feature.wiki_reflection"):
+            return
+
+        try:
+            self._run_post_run_wiki_reflection(run_id, phase_outputs)
+        except Exception:
+            logger.debug("Post-run wiki reflection failed for run %s", run_id, exc_info=True)
+
+    def _run_post_run_wiki_reflection(
+        self,
+        run_id: str,
+        phase_outputs: Dict[CyclePhase, Dict[str, Any]],
+    ) -> None:
+        """Core wiki-reflection logic — analyses run outputs for AI-related changes.
+
+        Scans phase outputs for AI-related keywords and file paths. When matches
+        are found, appends a wiki-update reminder to the run metadata so the
+        completion summary includes an actionable nudge.
+        """
+        ai_keywords = {
+            "embedding", "retrieval", "rag", "prompt", "llm", "vector",
+            "agent", "orchestrat", "bci", "behavior", "reflection",
+            "token", "model", "inference", "fine-tun", "evaluation",
+            "wiki", "knowledge pack", "semantic search",
+        }
+        ai_paths = {"wiki/ai-learning", "bci_service", "behavior_service",
+                    "reflection_service", "advanced_retrieval", "embedding"}
+
+        # Build a single text blob from phase outputs for keyword scanning
+        text_parts: list[str] = []
+        for phase_out in phase_outputs.values():
+            if isinstance(phase_out, dict):
+                for v in phase_out.values():
+                    if isinstance(v, str):
+                        text_parts.append(v)
+                    elif isinstance(v, list):
+                        for item in v:
+                            if isinstance(item, dict):
+                                text_parts.append(str(item.get("file", "")))
+                                text_parts.append(str(item.get("description", "")))
+
+        blob = " ".join(text_parts).lower()
+
+        matched_keywords = [kw for kw in ai_keywords if kw in blob]
+        matched_paths = [p for p in ai_paths if p in blob]
+
+        if matched_keywords or matched_paths:
+            nudge = (
+                "\n### 📚 AI Learning Wiki Reminder\n"
+                "This run touched AI-related concepts or files. "
+                "Per `behavior_maintain_ai_learning_wiki`, please:\n"
+                "1. Search existing wiki pages: `ai_learning_wiki.query`\n"
+                "2. Update or create relevant pages using the `wiki-contributor` skill\n"
+                "3. Run `ai_learning_wiki.lint` before handoff\n"
+                f"\n**Matched signals:** {', '.join(matched_keywords + matched_paths)}\n"
+            )
+            # Store nudge in completing phase output for summary generation
+            completing_out = phase_outputs.get(CyclePhase.COMPLETING, {})
+            completing_out["wiki_reflection_nudge"] = nudge
+            phase_outputs[CyclePhase.COMPLETING] = completing_out
+            logger.info("Wiki reflection nudge generated for run %s (signals: %s)",
+                        run_id, matched_keywords + matched_paths)
 
     def _run_post_run_reflection(
         self,
@@ -2659,5 +2856,10 @@ Run verification checks:
             lines.append(f"")
             lines.append(f"### Tests")
             lines.append(f"- Status: {'✅ Passed' if tests_passed else '❌ Failed'}")
+
+        # Add wiki reflection nudge if present
+        wiki_nudge = previous_outputs.get(CyclePhase.COMPLETING, {}).get("wiki_reflection_nudge")
+        if wiki_nudge:
+            lines.append(wiki_nudge)
 
         return "\n".join(lines)

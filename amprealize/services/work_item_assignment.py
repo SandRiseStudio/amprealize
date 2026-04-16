@@ -11,13 +11,13 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from amprealize.multi_tenant.board_contracts import (
+from amprealize.boards.contracts import (
     AssigneeType,
     AssignWorkItemRequest,
     WorkItem,
     WorkItemType,
 )
-from amprealize.multi_tenant.contracts import Agent, AgentStatus
+from amprealize.projects.contracts import Agent, AgentStatus
 from amprealize.services.board_service import Actor, BoardService
 
 logger = logging.getLogger(__name__)

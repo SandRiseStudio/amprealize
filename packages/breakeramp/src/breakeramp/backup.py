@@ -4,15 +4,20 @@ Uses pg_dump/pg_restore (logical backups) executed inside running containers
 via `podman exec`. Designed for local development — portable, version-tolerant,
 and survives Podman machine rebuilds.
 
+Also supports cloud database backup/restore via direct DSN connection when
+no local containers are running but DATABASE_URL is available (e.g., Neon).
+
 Backup location: ~/.amprealize/backups/<timestamp>/
 """
 
 import gzip
+import os
 import subprocess
 import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
+from urllib.parse import urlparse
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +41,14 @@ DEFAULT_DB_CONTAINERS: List[Dict[str, str]] = [
         "pg_user": "telemetry",
         "label": "telemetry-db (TimescaleDB)",
     },
+]
+
+# Environment variables that may contain cloud DSNs
+# Checked in order; first non-empty DSN is used
+CLOUD_DSN_ENV_VARS = [
+    "DATABASE_URL",
+    "AMPREALIZE_PG_DSN",
+    "AMPREALIZE_MAIN_PG_DSN",
 ]
 
 
@@ -125,6 +138,168 @@ def _reset_database(
         return f"CREATE failed: {proc.stderr.strip()[:200]}"
 
     return None
+
+
+def _get_cloud_dsn() -> Optional[str]:
+    """Return the first non-empty cloud DSN from environment variables."""
+    for env_var in CLOUD_DSN_ENV_VARS:
+        dsn = os.environ.get(env_var, "").strip()
+        if dsn and _is_cloud_dsn(dsn):
+            return dsn
+    return None
+
+
+def _is_cloud_dsn(dsn: str) -> bool:
+    """Return True if the DSN hostname is not a local address."""
+    try:
+        host = (urlparse(dsn).hostname or "").lower()
+        return bool(host) and host not in ("localhost", "127.0.0.1", "::1")
+    except Exception:
+        return False
+
+
+def _parse_dsn(dsn: str) -> Dict[str, str]:
+    """Parse a PostgreSQL DSN into components for pg_dump/psql commands."""
+    parsed = urlparse(dsn)
+    return {
+        "host": parsed.hostname or "localhost",
+        "port": str(parsed.port or 5432),
+        "dbname": (parsed.path or "/").lstrip("/") or "postgres",
+        "user": parsed.username or "",
+        "password": parsed.password or "",
+    }
+
+
+def _backup_cloud_database(
+    dsn: str,
+    dump_file: Path,
+    label: str = "cloud",
+) -> Dict[str, Any]:
+    """Backup a cloud database via direct pg_dump connection.
+
+    Returns ``{"ok": True/False, "message": str, "size_kb": float}``.
+    """
+    params = _parse_dsn(dsn)
+    env = os.environ.copy()
+    env["PGPASSWORD"] = params["password"]
+
+    try:
+        # pg_dump → gzip to file
+        proc = subprocess.run(
+            [
+                "pg_dump",
+                "-h", params["host"],
+                "-p", params["port"],
+                "-U", params["user"],
+                "-d", params["dbname"],
+                "--no-owner", "--no-acl", "--clean", "--if-exists",
+            ],
+            capture_output=True,
+            timeout=600,  # 10 min ceiling for cloud latency
+            env=env,
+        )
+        if proc.returncode != 0:
+            stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+            return {
+                "ok": False,
+                "message": f"{label}: pg_dump failed — {stderr[:300]}",
+                "size_kb": 0,
+            }
+
+        dump_file.write_bytes(gzip.compress(proc.stdout))
+        size_kb = dump_file.stat().st_size / 1024
+        return {
+            "ok": True,
+            "message": f"{label} → {dump_file.name} ({size_kb:.1f} KB)",
+            "size_kb": size_kb,
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "message": f"{label}: pg_dump timed out", "size_kb": 0}
+    except OSError as exc:
+        return {"ok": False, "message": f"{label}: {exc}", "size_kb": 0}
+
+
+def _restore_cloud_database(
+    dsn: str,
+    dump_file: Path,
+    label: str = "cloud",
+    truncate_schemas: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Restore a backup to a cloud database via direct psql connection.
+
+    When *truncate_schemas* is provided, TRUNCATE TABLE ... CASCADE is run
+    for all tables in those schemas before restoring. This avoids issues
+    with foreign key constraints when restoring subsets of data.
+
+    Returns ``{"ok": True/False, "message": str}``.
+    """
+    params = _parse_dsn(dsn)
+    env = os.environ.copy()
+    env["PGPASSWORD"] = params["password"]
+
+    # Pre-truncate specified schemas if requested
+    if truncate_schemas:
+        for schema in truncate_schemas:
+            try:
+                # Get all tables in schema
+                list_proc = subprocess.run(
+                    [
+                        "psql",
+                        "-h", params["host"],
+                        "-p", params["port"],
+                        "-U", params["user"],
+                        "-d", params["dbname"],
+                        "-t", "-A", "-c",
+                        f"SELECT tablename FROM pg_tables WHERE schemaname = '{schema}';",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    env=env,
+                )
+                tables = [t.strip() for t in list_proc.stdout.strip().split("\n") if t.strip()]
+                if tables:
+                    truncate_sql = ", ".join(f'"{schema}"."{t}"' for t in tables)
+                    subprocess.run(
+                        [
+                            "psql",
+                            "-h", params["host"],
+                            "-p", params["port"],
+                            "-U", params["user"],
+                            "-d", params["dbname"],
+                            "-c", f"TRUNCATE TABLE {truncate_sql} CASCADE;",
+                        ],
+                        capture_output=True,
+                        timeout=120,
+                        env=env,
+                    )
+            except Exception:
+                pass  # Non-fatal — restore will handle it
+
+    try:
+        # gunzip | psql
+        raw_sql = gzip.decompress(dump_file.read_bytes())
+        proc = subprocess.run(
+            [
+                "psql",
+                "-h", params["host"],
+                "-p", params["port"],
+                "-U", params["user"],
+                "-d", params["dbname"],
+            ],
+            input=raw_sql,
+            capture_output=True,
+            timeout=600,
+            env=env,
+        )
+        stderr = proc.stderr.decode("utf-8", errors="replace").strip()
+        if proc.returncode != 0 and "ERROR" in stderr:
+            return {"ok": False, "message": f"{label}: restore failed — {stderr[:300]}"}
+        return {"ok": True, "message": f"{label}: restored from {dump_file.name}"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "message": f"{label}: restore timed out"}
+    except (gzip.BadGzipFile, OSError) as exc:
+        return {"ok": False, "message": f"{label}: {exc}"}
 
 
 # ---------------------------------------------------------------------------
@@ -247,8 +422,12 @@ def backup_databases(
     tag: str = "auto",
     containers: Optional[List[Dict[str, str]]] = None,
     quiet: bool = False,
+    allow_cloud: bool = True,
 ) -> Dict[str, Any]:
     """Dump every reachable database to ``~/.amprealize/backups/<ts>_<tag>/``.
+
+    When *allow_cloud* is True (default) and no local containers are running,
+    attempts to backup from cloud DSN (DATABASE_URL or similar) if available.
 
     Returns a dict with ``path``, ``databases`` (list of what was backed up),
     and ``errors`` (list of failures).
@@ -261,7 +440,11 @@ def backup_databases(
         "databases": [],
         "errors": [],
         "skipped": [],
+        "cloud": False,
     }
+
+    # Track if any container is running (for cloud fallback)
+    any_container_running = False
 
     for target in targets:
         container = _find_running_container(target["container_pattern"])
@@ -271,6 +454,7 @@ def backup_databases(
             )
             continue
 
+        any_container_running = True
         dump_file = backup_dir / f"{target['db_name']}.sql.gz"
         try:
             # pg_dump → gzip inside the container, stream to host file
@@ -299,8 +483,21 @@ def backup_databases(
         except OSError as exc:
             result["errors"].append(f"{target['label']}: {exc}")
 
+    # Cloud fallback: backup from DATABASE_URL when no containers are running
+    if allow_cloud and not any_container_running:
+        cloud_dsn = _get_cloud_dsn()
+        if cloud_dsn:
+            dump_file = backup_dir / "cloud.sql.gz"
+            cloud_result = _backup_cloud_database(cloud_dsn, dump_file, label="cloud-db")
+            if cloud_result["ok"]:
+                result["databases"].append(cloud_result["message"])
+                result["cloud"] = True
+            else:
+                result["errors"].append(cloud_result["message"])
+
     # Post-backup validation — verify what we just wrote is restorable
-    if result["databases"] and not result["errors"]:
+    # Skip validation for cloud backups (no container to validate against)
+    if result["databases"] and not result["errors"] and not result.get("cloud"):
         check = validate_backup(backup_dir)
         if not check["ok"]:
             result["errors"].append(
@@ -317,11 +514,16 @@ def restore_databases(
     backup_path: Path,
     containers: Optional[List[Dict[str, str]]] = None,
     auto_backup: bool = True,
+    to_cloud: bool = False,
+    cloud_dsn: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Restore databases from a backup directory.
 
     Each ``<db_name>.sql.gz`` in *backup_path* is gunzipped and piped into
     ``psql`` inside the matching container.
+
+    When *to_cloud* is True, restores to a cloud database instead of containers.
+    Uses *cloud_dsn* if provided, otherwise reads from environment.
 
     When *auto_backup* is ``True`` (the default), a safety snapshot is taken
     before any database is dropped.  This ensures you can always recover the
@@ -341,6 +543,46 @@ def restore_databases(
         result["errors"].append(f"Backup directory not found: {backup_path}")
         return result
 
+    # --- CLOUD RESTORE PATH ---
+    if to_cloud:
+        dsn = cloud_dsn or _get_cloud_dsn()
+        if not dsn:
+            result["errors"].append(
+                "Cloud restore requested but no DSN available "
+                "(set DATABASE_URL or pass --to-cloud-dsn)"
+            )
+            return result
+
+        # Find the dump file — could be cloud.sql.gz or amprealize.sql.gz
+        dump_file = backup_path / "cloud.sql.gz"
+        if not dump_file.exists():
+            dump_file = backup_path / "amprealize.sql.gz"
+        if not dump_file.exists():
+            # Try any .sql.gz file
+            candidates = list(backup_path.glob("*.sql.gz"))
+            if candidates:
+                dump_file = candidates[0]
+            else:
+                result["errors"].append(
+                    f"No .sql.gz files found in {backup_path}"
+                )
+                return result
+
+        # Safety backup before cloud restore (if auto_backup and DSN is available)
+        if auto_backup:
+            safety = backup_databases(tag="pre-cloud-restore", allow_cloud=True, quiet=True)
+            if safety["databases"]:
+                result["safety_backup"] = safety["path"]
+
+        cloud_result = _restore_cloud_database(dsn, dump_file, label="cloud-db")
+        if cloud_result["ok"]:
+            result["restored"].append(cloud_result["message"])
+            result["cloud"] = True
+        else:
+            result["errors"].append(cloud_result["message"])
+        return result
+
+    # --- CONTAINER RESTORE PATH ---
     # Pre-flight: validate backup integrity before touching any database
     preflight = validate_backup(backup_path, targets)
     if not preflight["ok"]:

@@ -63,6 +63,7 @@ __all__ = [
     "get_context_indicator",
     "check_port_conflicts",
     "validate_context_connection",
+    "apply_context_to_environment",
 ]
 
 # Path to user config file
@@ -474,6 +475,8 @@ def add_context(
     storage_backend: str = "sqlite",
     dsn: Optional[str] = None,
     sqlite_path: Optional[str] = None,
+    telemetry_dsn: Optional[str] = None,
+    description: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """Add a new named context.
 
@@ -482,6 +485,8 @@ def add_context(
         storage_backend: 'postgres', 'sqlite', or 'memory'.
         dsn: PostgreSQL DSN (required if backend is postgres).
         sqlite_path: SQLite file path (optional, has default).
+        telemetry_dsn: Telemetry database DSN (optional).
+        description: Human-readable description for this context.
 
     Returns:
         (success, message)
@@ -507,10 +512,16 @@ def add_context(
     if storage_backend == "postgres":
         if not dsn:
             return False, "PostgreSQL backend requires --dsn"
-        ctx_config["storage"]["postgres"] = {"dsn": dsn}
+        pg_config: Dict[str, Any] = {"dsn": dsn}
+        if telemetry_dsn:
+            pg_config["telemetry_dsn"] = telemetry_dsn
+        ctx_config["storage"]["postgres"] = pg_config
     elif storage_backend == "sqlite":
         path = sqlite_path or f"~/.amprealize/data/{name}.db"
         ctx_config["storage"]["sqlite"] = {"path": path}
+
+    if description:
+        ctx_config["description"] = description
 
     # Validate before saving
     try:
@@ -553,3 +564,106 @@ def remove_context(name: str) -> Tuple[bool, str]:
     _save_raw_config(data)
 
     return True, f"Removed context '{name}'"
+
+
+def _build_service_dsn(base_dsn: str, search_path: Optional[str]) -> str:
+    """Build a per-service DSN from a base DSN by appending search_path options.
+
+    If ``search_path`` is None the base DSN is returned unchanged.
+    If the base DSN already contains an ``options=`` query parameter it is
+    replaced with the correct ``search_path`` value.
+    """
+    if not search_path:
+        return base_dsn
+
+    from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+
+    parsed = urlparse(base_dsn)
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    qs["options"] = [f"-csearch_path={search_path}"]
+    new_query = urlencode(qs, doseq=True)
+    return urlunparse(parsed._replace(query=new_query))
+
+
+# Map of per-service env vars → search_path schema (None = no search_path).
+# This is the single source of truth for how the context system derives
+# per-service DSNs from the base context DSN.
+_SERVICE_DSN_MAP: Dict[str, Optional[str]] = {
+    # Core services with schema isolation
+    "AMPREALIZE_AUTH_PG_DSN": "auth",
+    "AMPREALIZE_ORG_PG_DSN": "auth",
+    "AMPREALIZE_MULTI_TENANT_PG_DSN": "auth",
+    "AMPREALIZE_AGENTAUTH_PG_DSN": "auth",
+    "AMPREALIZE_BOARD_PG_DSN": "board",
+    "AMPREALIZE_BEHAVIOR_PG_DSN": "behavior",
+    "AMPREALIZE_ACTION_PG_DSN": "execution",
+    "AMPREALIZE_RUN_PG_DSN": "execution",
+    "AMPREALIZE_EXECUTION_PG_DSN": "execution",
+    "AMPREALIZE_WORKFLOW_PG_DSN": "workflow",
+    "AMPREALIZE_COMPLIANCE_PG_DSN": "compliance",
+    "AMPREALIZE_CONSENT_PG_DSN": "consent",
+    "AMPREALIZE_AUDIT_PG_DSN": "audit",
+    "AMPREALIZE_MESSAGING_PG_DSN": "messaging",
+    "AMPREALIZE_RESEARCH_PG_DSN": "research",
+    "AMPREALIZE_COLLABORATION_PG_DSN": None,
+    "AMPREALIZE_REFLECTION_PG_DSN": None,
+    "AMPREALIZE_TRACE_ANALYSIS_PG_DSN": None,
+    # Services that use public schema / no search_path
+    "AMPREALIZE_PG_DSN": None,
+    "AMPREALIZE_TASK_PG_DSN": None,
+    "AMPREALIZE_METRICS_PG_DSN": None,
+    "AMPREALIZE_AGENT_REGISTRY_PG_DSN": None,
+    "AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN": None,
+    "AMPREALIZE_WHITEBOARD_PG_DSN": None,
+}
+
+
+def apply_context_to_environment(force: bool = False) -> Optional[str]:
+    """Apply the active context's DSN(s) to environment variables.
+
+    This bridges the gap between the context system (config.yaml) and the
+    service layer (which reads DATABASE_URL / AMPREALIZE_*_PG_DSN env vars).
+
+    Sets:
+        DATABASE_URL              — main DB DSN (universal fallback)
+        TELEMETRY_DATABASE_URL    — telemetry DB DSN
+        AMPREALIZE_*_PG_DSN       — every per-service DSN (with correct search_path)
+
+    When force=False (default), only sets env vars that are NOT already
+    explicitly set, so .env / CLI flags still take precedence.
+
+    When force=True, always overwrites — used by explicit context commands
+    like ``context migrate`` where the user intends to target the active context.
+
+    Returns:
+        Name of the applied context, or None if no postgres context is active.
+    """
+    name, cfg = get_current_context()
+
+    if cfg.storage.backend != "postgres":
+        return None
+
+    dsn = cfg.storage.postgres.dsn
+    telemetry_dsn = cfg.storage.postgres.telemetry_dsn
+
+    # Set DATABASE_URL as universal fallback (dsn.py checks this)
+    if force or not os.environ.get("DATABASE_URL"):
+        os.environ["DATABASE_URL"] = dsn
+
+    # Set telemetry DSN if available and not already set
+    if telemetry_dsn and (force or not os.environ.get("TELEMETRY_DATABASE_URL")):
+        os.environ["TELEMETRY_DATABASE_URL"] = telemetry_dsn
+
+    # Set ALL per-service DSNs so that services which read their own
+    # AMPREALIZE_*_PG_DSN env var (before DATABASE_URL fallback) also pick up
+    # the context DSN.  Each service gets its appropriate search_path suffix.
+    for env_var, search_path in _SERVICE_DSN_MAP.items():
+        if force or not os.environ.get(env_var):
+            os.environ[env_var] = _build_service_dsn(dsn, search_path)
+
+    # Telemetry-specific services point to telemetry DB when available
+    telemetry_target = telemetry_dsn or dsn
+    if force or not os.environ.get("AMPREALIZE_TELEMETRY_PG_DSN"):
+        os.environ["AMPREALIZE_TELEMETRY_PG_DSN"] = telemetry_target
+
+    return name

@@ -7,9 +7,8 @@ with consumer groups for horizontal scaling.
 import asyncio
 import logging
 import os
-import signal
 from datetime import datetime, timezone
-from typing import Awaitable, Callable, List, Optional, Tuple
+from typing import Awaitable, Callable, Dict, List, Optional
 
 import redis.asyncio as redis
 
@@ -54,6 +53,8 @@ class ExecutionQueueConsumer:
         redis_client: Optional[redis.Redis] = None,
         consumer_group: str = "execution-workers",
         consumer_name: Optional[str] = None,
+        group_name: Optional[str] = None,
+        worker_id: Optional[str] = None,
         stream_prefix: str = "amprealize:executions",
         block_ms: int = 5000,
         batch_size: int = 1,
@@ -66,11 +67,18 @@ class ExecutionQueueConsumer:
             redis_client: Existing Redis client
             consumer_group: Consumer group name for XREADGROUP
             consumer_name: Unique name for this consumer (default: auto-generated)
+            group_name: Backward-compatible alias for consumer_group
+            worker_id: Backward-compatible alias for consumer_name
             stream_prefix: Prefix for stream keys
             block_ms: Milliseconds to block waiting for messages
             batch_size: Max messages to read per XREADGROUP call
             max_retries: Max retries before sending to DLQ
         """
+        if group_name is not None:
+            consumer_group = group_name
+        if worker_id is not None:
+            consumer_name = worker_id
+
         self._redis_url = redis_url or os.environ.get("REDIS_URL", "redis://localhost:6379")
         self._redis: Optional[redis.Redis] = redis_client
         self._owns_redis = redis_client is None
@@ -82,6 +90,8 @@ class ExecutionQueueConsumer:
         self._max_retries = max_retries
         self._running = False
         self._current_job: Optional[ExecutionJob] = None
+        self._claimed_messages: Dict[str, tuple[str, ExecutionJob]] = {}
+        self._created_at = datetime.now(timezone.utc)
 
     async def _get_redis(self) -> redis.Redis:
         """Get or create Redis connection."""
@@ -268,6 +278,90 @@ class ExecutionQueueConsumer:
         """
         r = await self._get_redis()
         await r.xack(stream_key, self._consumer_group, message_id)
+        self._claimed_messages.pop(message_id, None)
+
+    async def claim_job(
+        self,
+        timeout_ms: Optional[int] = None,
+        priorities: Optional[List[Priority]] = None,
+    ) -> Optional[ExecutionJob]:
+        """Claim a single job from the queue.
+
+        This preserves the older one-shot consumer API that integration tests and
+        downstream callers still use.
+        """
+        await self._ensure_consumer_groups()
+        priorities = priorities or [Priority.HIGH, Priority.NORMAL, Priority.LOW]
+        r = await self._get_redis()
+        deadline = None
+        if timeout_ms is not None:
+            deadline = asyncio.get_running_loop().time() + (timeout_ms / 1000)
+
+        while True:
+            streams = {self._get_stream_key(priority): ">" for priority in priorities}
+            block_ms = self._block_ms if deadline is None else max(1, int((deadline - asyncio.get_running_loop().time()) * 1000))
+            if deadline is not None and block_ms <= 0:
+                return None
+
+            results = await r.xreadgroup(
+                self._consumer_group,
+                self._consumer_name,
+                streams,
+                count=1,
+                block=block_ms,
+            )
+            if not results:
+                return None
+
+            for stream_key, messages in results:
+                if not messages:
+                    continue
+
+                for message_id, data in messages:
+                    stream_name = stream_key.decode("utf-8") if isinstance(stream_key, bytes) else str(stream_key)
+                    message_name = message_id.decode("utf-8") if isinstance(message_id, bytes) else str(message_id)
+                    job = ExecutionJob.from_dict(data)
+
+                    if job.submitted_at < self._created_at:
+                        logger.info(
+                            "Skipping stale job claimed by one-shot helper",
+                            extra={
+                                "job_id": job.job_id,
+                                "stream": stream_name,
+                                "message_id": message_name,
+                                "submitted_at": job.submitted_at.isoformat(),
+                                "consumer_created_at": self._created_at.isoformat(),
+                            },
+                        )
+                        await self.ack(stream_name, message_name)
+                        continue
+
+                    self._current_job = job
+                    self._claimed_messages[message_name] = (stream_name, job)
+                    return job
+
+            if deadline is not None and asyncio.get_running_loop().time() >= deadline:
+                return None
+
+    async def ack_job(
+        self,
+        message_id: str,
+        stream_key: str,
+        result: ExecutionResult,
+    ) -> None:
+        """Acknowledge or requeue a previously claimed job.
+
+        Backward-compatible helper used by older integration tests.
+        """
+        claimed = self._claimed_messages.get(message_id)
+        job = claimed[1] if claimed is not None else self._current_job
+        if result.status == ExecutionStatus.SUCCESS:
+            await self.ack(stream_key, message_id)
+            return
+        if job is None:
+            await self.ack(stream_key, message_id)
+            return
+        await self.nack(stream_key, message_id, job, result.error_message or "Unknown error")
 
     async def nack(
         self,
@@ -302,6 +396,7 @@ class ExecutionQueueConsumer:
 
             # ACK to remove from original stream
             await r.xack(stream_key, self._consumer_group, message_id)
+            self._claimed_messages.pop(message_id, None)
         else:
             # Leave in pending for retry (will be picked up by recovery)
             logger.info(

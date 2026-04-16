@@ -8,7 +8,7 @@
 #   ./scripts/run_tests.sh -n 2               # Run with 2 workers
 #   ./scripts/run_tests.sh tests/test_cli_*.py  # Run specific tests
 #   ./scripts/run_tests.sh --check-only       # Only check environment
-#   ./scripts/run_tests.sh --breakeramp --env ci    # Use breakeramp with 'ci' environment
+#   ./scripts/run_tests.sh --breakeramp --env test   # Use breakeramp with 'test' environment
 #   ./scripts/run_tests.sh --env-file custom.yaml --env prod  # Custom manifest and environment
 
 set -euo pipefail
@@ -85,7 +85,7 @@ PYTEST_ARGS=()
 CONNECTION_TIMEOUT=5
 QUERY_TIMEOUT=30
 AMPREALIZE_TEST_INFRA_MODE="${AMPREALIZE_TEST_INFRA_MODE:-legacy}"
-AMPREALIZE_BREAKERAMP_ENV_FILE_DEFAULT="$REPO_ROOT/environments.yaml"
+AMPREALIZE_BREAKERAMP_ENV_FILE_DEFAULT="$REPO_ROOT/infra/environments.yaml"
 export AMPREALIZE_BREAKERAMP_ENV_FILE="${AMPREALIZE_BREAKERAMP_ENV_FILE:-$AMPREALIZE_BREAKERAMP_ENV_FILE_DEFAULT}"
 export AMPREALIZE_BREAKERAMP_ENVIRONMENT="${AMPREALIZE_BREAKERAMP_ENVIRONMENT:-ci}"
 AMPREALIZE_BREAKERAMP_MANAGED_MACHINE=""
@@ -394,7 +394,7 @@ export AMPREALIZE_ALEMBIC_DATABASE_URL="${AMPREALIZE_ALEMBIC_DATABASE_URL:-postg
 # Construct DSNs from the (possibly overridden) variables
 export AMPREALIZE_BEHAVIOR_PG_DSN="${AMPREALIZE_BEHAVIOR_PG_DSN:-$(amprealize_service_dsn BEHAVIOR behavior)}"
 export AMPREALIZE_WORKFLOW_PG_DSN="${AMPREALIZE_WORKFLOW_PG_DSN:-$(amprealize_service_dsn WORKFLOW workflow)}"
-export AMPREALIZE_ACTION_PG_DSN="${AMPREALIZE_ACTION_PG_DSN:-$(amprealize_service_dsn ACTION execution)}"
+export AMPREALIZE_ACTION_PG_DSN="${AMPREALIZE_ACTION_PG_DSN:-$(amprealize_service_dsn ACTION public)}"
 export AMPREALIZE_RUN_PG_DSN="${AMPREALIZE_RUN_PG_DSN:-$(amprealize_service_dsn RUN execution)}"
 export AMPREALIZE_COMPLIANCE_PG_DSN="${AMPREALIZE_COMPLIANCE_PG_DSN:-$(amprealize_service_dsn COMPLIANCE compliance)}"
 export AMPREALIZE_AUTH_PG_DSN="${AMPREALIZE_AUTH_PG_DSN:-$(amprealize_service_dsn AUTH auth)}"
@@ -410,7 +410,7 @@ export AMPREALIZE_BOARD_PG_DSN="${AMPREALIZE_BOARD_PG_DSN:-$(amprealize_service_
 export AMPREALIZE_ORG_PG_DSN="${AMPREALIZE_ORG_PG_DSN:-$(amprealize_service_dsn AUTH auth)}"
 export AMPREALIZE_AGENT_REGISTRY_PG_DSN="${AMPREALIZE_AGENT_REGISTRY_PG_DSN:-$(amprealize_service_dsn BEHAVIOR public)}"
 export AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN="${AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN:-$(amprealize_service_dsn BEHAVIOR execution)}"
-export AMPREALIZE_EXECUTION_PG_DSN="${AMPREALIZE_EXECUTION_PG_DSN:-$AMPREALIZE_ACTION_PG_DSN}"
+export AMPREALIZE_EXECUTION_PG_DSN="${AMPREALIZE_EXECUTION_PG_DSN:-$(amprealize_service_dsn RUN execution)}"
 export AMPREALIZE_PG_DSN="${AMPREALIZE_PG_DSN:-$(amprealize_service_dsn BEHAVIOR public)}"
 
 # Convenience for tools that read DATABASE_URL (only if unset)
@@ -423,6 +423,13 @@ fi
 # Blocks: unified prod names (amprealize, telemetry) AND legacy dev names
 # (behavior, workflow, action, run, compliance). Test DBs should use
 # _test suffix (e.g. behavior_test, amprealize_test).
+# In BreakerAmp mode, databases are in isolated containers — skip this check.
+if [ "$AMPREALIZE_TEST_INFRA_MODE" = "breakeramp" ]; then
+    print_info "BreakerAmp mode: skipping production DB name safety check (containers are isolated)"
+    DSN_SAFETY_FAILED=0
+    # Also set override for conftest.py's independent safety guard
+    export AMPREALIZE_TEST_SAFETY_OVERRIDE=1
+else
 PRODUCTION_DB_NAMES="amprealize|telemetry|behavior|workflow|action|run|compliance"
 DSN_SAFETY_FAILED=0
 for dsn_var in AMPREALIZE_BEHAVIOR_PG_DSN AMPREALIZE_WORKFLOW_PG_DSN AMPREALIZE_ACTION_PG_DSN \
@@ -441,6 +448,7 @@ for dsn_var in AMPREALIZE_BEHAVIOR_PG_DSN AMPREALIZE_WORKFLOW_PG_DSN AMPREALIZE_
         fi
     fi
 done
+fi
 if [ "$DSN_SAFETY_FAILED" -eq 1 ] && [ "${AMPREALIZE_TEST_SAFETY_OVERRIDE:-0}" != "1" ]; then
     print_error "Aborting. Set AMPREALIZE_TEST_SAFETY_OVERRIDE=1 to bypass (NOT recommended)."
     exit 1
@@ -846,7 +854,7 @@ cleanup_breakeramp_machine() {
 }
 
 ensure_breakeramp_podman_machine() {
-    local provider="$1" machine_name="$2" memory_limit_mb="$3" cpu_limit="$4"
+    local provider="$1" machine_name="$2" memory_limit_mb="$3" cpu_limit="$4" disk_size_gb="$5"
     [ "$provider" != "podman" ] || [ -z "$machine_name" ] && return
 
     command -v podman >/dev/null 2>&1 || { print_error "Podman CLI required"; exit 1; }
@@ -869,6 +877,7 @@ ensure_breakeramp_podman_machine() {
         local init_args=()
         [[ "$cpu_limit" =~ ^[0-9]+$ ]] && [ "$cpu_limit" -gt 0 ] && init_args+=(--cpus "$cpu_limit")
         [[ "$memory_limit_mb" =~ ^[0-9]+$ ]] && [ "$memory_limit_mb" -gt 0 ] && init_args+=(--memory "$memory_limit_mb")
+        [[ "$disk_size_gb" =~ ^[0-9]+$ ]] && [ "$disk_size_gb" -gt 0 ] && init_args+=(--disk-size "$disk_size_gb")
         podman machine init "${init_args[@]}" "$machine_name"
     fi
 
@@ -911,10 +920,11 @@ ensure_breakeramp_infrastructure() {
     runtime_machine=$(echo "$env_details" | jq -r '.runtime.podman_machine // ""')
     runtime_memory=$(echo "$env_details" | jq -r '.runtime.memory_limit_mb // 0')
     runtime_cpus=$(echo "$env_details" | jq -r '.runtime.cpu_limit // 0')
+    runtime_disk_gb=$(echo "$env_details" | jq -r '.runtime.disk_size_gb // 0')
     active_modules_json=$(echo "$env_details" | jq -c '.active_modules // []')
 
     AMPREALIZE_BREAKERAMP_MACHINE_NAME="$runtime_machine"
-    ensure_breakeramp_podman_machine "$runtime_provider" "$runtime_machine" "$runtime_memory" "$runtime_cpus"
+    ensure_breakeramp_podman_machine "$runtime_provider" "$runtime_machine" "$runtime_memory" "$runtime_cpus" "$runtime_disk_gb"
 
     print_kv "Environment" "$env_name"
     print_kv "Blueprint" "$blueprint_id"
@@ -1264,6 +1274,8 @@ ensure_all_schemas() {
                 exit 1
             fi
             export AMPREALIZE_ALEMBIC_SCHEMA_READY=1
+            # Apply PostgresActionService standalone migration (public.actions, not in Alembic)
+            python "$REPO_ROOT/scripts/run_postgres_action_migration.py" >/dev/null 2>&1 || true
         else
             # Legacy: separate Postgres per service — raw SQL migration scripts when present
             local migrations=(

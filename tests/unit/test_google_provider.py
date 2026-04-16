@@ -429,7 +429,15 @@ class TestGoogleProviderIntegration:
     @pytest.mark.asyncio
     async def test_real_device_flow_start(self, real_provider):
         """Test starting real device flow (requires manual authorization)."""
-        result = await real_provider.start_device_flow()
+        try:
+            result = await real_provider.start_device_flow()
+        except OAuthError as exc:
+            message = str(exc)
+            if "invalid_client" in message and "Limited Input" in message:
+                pytest.skip(
+                    "Configured Google OAuth client is not a TVs/Limited Input device client"
+                )
+            raise
 
         assert result.device_code
         assert result.user_code

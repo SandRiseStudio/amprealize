@@ -147,13 +147,28 @@ def unique_username():
 class TestInternalAuthAPI:
     """Test internal authentication API endpoints."""
 
+    @staticmethod
+    def _assert_deprecated_oauth_response(result: Dict[str, Any]) -> None:
+        """Assert deprecated internal auth endpoints return OAuth guidance."""
+        assert result["status_code"] == 400
+        detail = result["data"]["detail"].lower()
+        assert "deprecated" in detail
+        assert "oauth" in detail
+
     def test_list_providers(self, api_client):
-        """Test GET /api/v1/auth/providers returns both GitHub and internal providers."""
+        """Test GET /api/v1/auth/providers returns required providers.
+
+        Additional configured OAuth providers (for example Google) may also be
+        present, so this test validates the required baseline providers without
+        assuming a fixed total count.
+        """
         result = api_client.list_providers()
 
         assert "providers" in result
         providers = result["providers"]
-        assert len(providers) == 2
+        assert len(providers) >= 2
+        provider_names = {provider["name"] for provider in providers}
+        assert {"github", "internal"}.issubset(provider_names)
 
         # Check GitHub provider
         github = next((p for p in providers if p["name"] == "github"), None)
@@ -170,50 +185,28 @@ class TestInternalAuthAPI:
         assert internal["enabled"] is True
 
     def test_register_success(self, api_client, unique_username):
-        """Test successful user registration returns tokens."""
+        """Test internal registration returns deprecation guidance."""
         result = api_client.register(
             username=unique_username,
             password="TestPassword123!",
             email=f"{unique_username}@example.com",
         )
 
-        assert result["status_code"] == 201
-        data = result["data"]
-
-        # Validate response structure
-        assert data["status"] == "registered"
-        assert data["username"] == unique_username
-        assert data["provider"] == "internal"
-        assert "access_token" in data
-        assert "refresh_token" in data
-        assert data["token_type"] == "Bearer"
-        assert "expires_in" in data
-        assert "expires_at" in data
-        assert "refresh_expires_in" in data
-        assert "refresh_expires_at" in data
-
-        # Validate tokens (JWT format starts with 'eyJ')
-        assert data["access_token"].startswith("eyJ")
-        assert data["refresh_token"].startswith("eyJ")
-        assert data["expires_in"] > 0
-        assert data["refresh_expires_in"] > 0
+        self._assert_deprecated_oauth_response(result)
 
     def test_register_duplicate_user(self, api_client, unique_username):
-        """Test registering duplicate username returns 409 Conflict."""
-        # First registration
+        """Test duplicate registration also returns deprecation guidance."""
         result1 = api_client.register(
             username=unique_username,
             password="TestPassword123!",
         )
-        assert result1["status_code"] == 201
+        self._assert_deprecated_oauth_response(result1)
 
-        # Duplicate registration
         result2 = api_client.register(
             username=unique_username,
             password="DifferentPassword456!",
         )
-        assert result2["status_code"] == 409
-        assert "already exists" in result2["data"]["detail"].lower()
+        self._assert_deprecated_oauth_response(result2)
 
     def test_register_validation_short_username(self, api_client):
         """Test registration with short username returns 400."""
@@ -234,51 +227,24 @@ class TestInternalAuthAPI:
         assert "at least 8 characters" in result["data"]["detail"]
 
     def test_login_success(self, api_client, unique_username):
-        """Test successful login returns tokens."""
+        """Test internal login returns deprecation guidance."""
         password = "TestPassword123!"
 
-        # Register user first
-        reg_result = api_client.register(username=unique_username, password=password)
-        assert reg_result["status_code"] == 201
-
-        # Login with same credentials
         login_result = api_client.login(username=unique_username, password=password)
-
-        assert login_result["status_code"] == 200
-        data = login_result["data"]
-
-        # Validate response structure
-        assert data["status"] == "authenticated"
-        assert data["username"] == unique_username
-        assert data["provider"] == "internal"
-        assert "access_token" in data
-        assert "refresh_token" in data
-        assert data["token_type"] == "Bearer"
-        assert data["expires_in"] > 0
-
-        # Tokens should be different from registration tokens
-        assert data["access_token"] != reg_result["data"]["access_token"]
+        self._assert_deprecated_oauth_response(login_result)
 
     def test_login_invalid_credentials(self, api_client, unique_username):
-        """Test login with invalid credentials returns 401."""
-        password = "TestPassword123!"
-
-        # Register user
-        reg_result = api_client.register(username=unique_username, password=password)
-        assert reg_result["status_code"] == 201
-
-        # Login with wrong password
+        """Test login with invalid credentials still returns deprecation guidance."""
         login_result = api_client.login(username=unique_username, password="WrongPassword!")
-        assert login_result["status_code"] == 401
-        assert "invalid" in login_result["data"]["detail"].lower()
+        self._assert_deprecated_oauth_response(login_result)
 
     def test_login_nonexistent_user(self, api_client):
-        """Test login with nonexistent user returns 401."""
+        """Test login with nonexistent user returns deprecation guidance."""
         result = api_client.login(
             username="nonexistent_user_xyz",
             password="SomePassword123!",
         )
-        assert result["status_code"] == 401
+        self._assert_deprecated_oauth_response(result)
 
     def test_login_missing_fields(self, api_client):
         """Test login with missing username or password returns 400."""
@@ -500,39 +466,21 @@ class TestEndToEndFlow:
     """Test complete end-to-end authentication workflows."""
 
     def test_register_login_workflow(self, api_client, unique_username):
-        """Test complete workflow: register -> login -> verify tokens."""
+        """Test deprecated internal auth workflow returns OAuth guidance."""
         password = "CompleteFlow123!"
 
-        # Step 1: Register
         reg_result = api_client.register(
             username=unique_username,
             password=password,
             email=f"{unique_username}@example.com",
         )
-        assert reg_result["status_code"] == 201
-        reg_data = reg_result["data"]
-        reg_access_token = reg_data["access_token"]
+        TestInternalAuthAPI._assert_deprecated_oauth_response(reg_result)
 
-        # Step 2: Login (should get new tokens)
         login_result = api_client.login(username=unique_username, password=password)
-        assert login_result["status_code"] == 200
-        login_data = login_result["data"]
-        login_access_token = login_data["access_token"]
-
-        # Verify tokens are different (new session)
-        assert login_access_token != reg_access_token
-
-        # Step 3: Verify token structure
-        assert login_data["username"] == unique_username
-        assert login_data["provider"] == "internal"
-        assert login_data["token_type"] == "Bearer"
-
-        # Verify expiry is in the future
-        expires_at = datetime.fromisoformat(login_data["expires_at"].replace("Z", "+00:00"))
-        assert expires_at > datetime.now(timezone.utc)
+        TestInternalAuthAPI._assert_deprecated_oauth_response(login_result)
 
     def test_concurrent_registrations(self, api_client):
-        """Test that concurrent registrations handle race conditions properly."""
+        """Test concurrent internal registrations all return deprecation guidance."""
         import concurrent.futures
         import uuid
 
@@ -547,12 +495,9 @@ class TestEndToEndFlow:
             futures = [executor.submit(attempt_register) for _ in range(5)]
             results = [f.result() for f in concurrent.futures.as_completed(futures)]
 
-        # Exactly one should succeed (201), others should fail (409)
-        success_count = sum(1 for r in results if r["status_code"] == 201)
-        conflict_count = sum(1 for r in results if r["status_code"] == 409)
-
-        assert success_count == 1
-        assert conflict_count == 4
+        assert len(results) == 5
+        for result in results:
+            TestInternalAuthAPI._assert_deprecated_oauth_response(result)
 
 
 if __name__ == "__main__":

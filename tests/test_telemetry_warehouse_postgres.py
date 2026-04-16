@@ -37,9 +37,28 @@ def pg_dsn() -> str:
     return dsn
 
 
+def _telemetry_tables_exist(dsn: str) -> bool:
+    """Check whether the telemetry warehouse tables have been created."""
+    try:
+        import psycopg2
+        with psycopg2.connect(dsn, connect_timeout=3) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT to_regclass('public.telemetry_events')"
+                )
+                return cur.fetchone()[0] is not None
+    except Exception:
+        return False
+
+
 @pytest.fixture
 def warehouse(pg_dsn: str) -> Generator[PostgresTelemetryWarehouse, None, None]:
     """Provide a connected PostgresTelemetryWarehouse instance."""
+    if not _telemetry_tables_exist(pg_dsn):
+        pytest.skip(
+            "telemetry_events table not found — "
+            "schema/migrations/014_create_telemetry_warehouse_timescale.sql not applied"
+        )
     wh = PostgresTelemetryWarehouse(pg_dsn, connect_timeout=5)
     yield wh
     wh.close()
@@ -48,6 +67,11 @@ def warehouse(pg_dsn: str) -> Generator[PostgresTelemetryWarehouse, None, None]:
 @pytest.fixture
 def sink(pg_dsn: str) -> Generator[PostgresTelemetrySink, None, None]:
     """Provide a PostgresTelemetrySink instance."""
+    if not _telemetry_tables_exist(pg_dsn):
+        pytest.skip(
+            "telemetry_events table not found — "
+            "schema/migrations/014_create_telemetry_warehouse_timescale.sql not applied"
+        )
     s = PostgresTelemetrySink(pg_dsn, connect_timeout=5)
     yield s
     s.close()

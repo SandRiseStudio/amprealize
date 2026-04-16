@@ -18,7 +18,7 @@ import {
   useUpdateRegistryAgent,
   useCreateRegistryAgentVersion,
   usePublishRegistryAgent,
-  useProjectAgents,
+  useAllProjectAgents,
   useAssignAgent,
   useUnassignAgent,
   type AgentRegistryEntry,
@@ -298,7 +298,7 @@ export function AgentsPage(): React.JSX.Element {
   // Fetch ALL user projects for the assignment panel.
   const { data: assignmentProjects = [] } = useProjects();
   // Single source of truth: junction table assignments via /v1/projects/agents.
-  const { data: assignmentAgents = [] } = useProjectAgents();
+  const { data: assignmentAgents = [] } = useAllProjectAgents();
 
   const assignmentIndex = useMemo(() => {
     const map = new Map<string, { projects: number }>();

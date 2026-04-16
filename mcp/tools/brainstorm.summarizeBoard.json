@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "brainstorm.summarizeBoard",
+  "description": "Summarize the brainstorm board into ideas, themes, and connections so an agent can synthesize the current session state.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "room_id": {
+        "type": "string",
+        "description": "Whiteboard room ID to summarize."
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID for scoping (optional, uses session)."
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID for scoping (optional, uses session)."
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "room_id": { "type": "string" },
+      "shape_count": { "type": "integer" },
+      "ideas": {
+        "type": "array",
+        "items": { "type": "object" }
+      },
+      "themes": {
+        "type": "array",
+        "items": { "type": "object" }
+      },
+      "connections": {
+        "type": "array",
+        "items": { "type": "object" }
+      },
+      "summary": { "type": "object" },
+      "message": { "type": "string" }
+    }
+  }
+}

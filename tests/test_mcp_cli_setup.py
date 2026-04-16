@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import io
+import json
+import os
+import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -136,3 +140,88 @@ def test_run_mcp_smoke_test_reports_tool_summary(monkeypatch) -> None:
         "tool_count": 2,
         "sample_tools": ["auth_authstatus", "projects_list"],
     }
+
+
+def test_mcp_server_bootstraps_monorepo_packages_for_brainstorm_tools() -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    script = """
+import asyncio
+import json
+import os
+
+os.environ.setdefault("MCP_REQUIRE_AUTH", "false")
+os.environ.setdefault("MCP_PREWARM_POOLS", "false")
+os.environ.setdefault("MCP_RESTORE_SESSION_ON_STARTUP", "false")
+
+from amprealize.mcp_server import MCPServer
+
+
+async def main() -> None:
+    server = MCPServer()
+    tools_response = json.loads(server._handle_tools_list("list-1"))
+    tool_names = {tool["name"] for tool in tools_response["result"]["tools"]}
+    assert "brainstorm_openwhiteboard" in tool_names, sorted(tool_names)
+
+    response = json.loads(
+        await server._dispatch_tool_call(
+            "call-1",
+            "brainstorm_openwhiteboard",
+            {"topic": "Bootstrap smoke test", "session_id": "bootstrap-test"},
+            trace_id="bootstrap",
+        )
+    )
+    assert "error" not in response, response
+
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["room_id"]
+    print(
+        "RESULT_JSON="
+        + json.dumps(
+            {
+                "room_id": payload["room_id"],
+                "tool_count": len(tool_names),
+            }
+        )
+    )
+
+
+asyncio.run(main())
+"""
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(repo_root)
+    env["MCP_REQUIRE_AUTH"] = "false"
+    env["MCP_PREWARM_POOLS"] = "false"
+    env["MCP_RESTORE_SESSION_ON_STARTUP"] = "false"
+    for key in (
+        "DATABASE_URL",
+        "AMPREALIZE_PG_DSN",
+        "AMPREALIZE_WHITEBOARD_PG_DSN",
+        "AMPREALIZE_PG_HOST_WHITEBOARD",
+        "AMPREALIZE_PG_PORT_WHITEBOARD",
+        "AMPREALIZE_PG_USER_WHITEBOARD",
+        "AMPREALIZE_PG_PASS_WHITEBOARD",
+        "AMPREALIZE_PG_DB_WHITEBOARD",
+        "AMPREALIZE_PG_PARAMS_WHITEBOARD",
+    ):
+        env.pop(key, None)
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+
+    combined_output = f"{completed.stdout}\n{completed.stderr}"
+    assert completed.returncode == 0, combined_output
+
+    match = re.search(r"RESULT_JSON=(\{.*\})", combined_output)
+    assert match, combined_output
+
+    result = json.loads(match.group(1))
+    assert result["room_id"]
+    assert result["tool_count"] > 0

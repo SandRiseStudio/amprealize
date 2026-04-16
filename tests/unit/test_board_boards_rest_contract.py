@@ -5,7 +5,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from amprealize.multi_tenant.board_contracts import Board, BoardSettings
+from amprealize.boards.contracts import Board, BoardSettings
 from amprealize.services.board_api_v2 import create_board_routes
 from amprealize.services.board_service import BoardService
 

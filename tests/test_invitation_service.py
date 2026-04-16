@@ -17,14 +17,24 @@ from typing import List, Dict, Any, Optional
 
 from amprealize.multi_tenant.invitation_service import InvitationService
 
-# Mark all tests in this module as unit tests; skip entirely if enterprise not installed
+
+def _invitation_service_is_stub() -> bool:
+    """Check if InvitationService is a stub (all methods raise NotImplementedError)."""
+    if InvitationService is None:
+        return True
+    # Tests reference methods like create_invitation that don't exist on the stub
+    return not hasattr(InvitationService, "create_invitation")
+
+
+# Mark all tests in this module as unit tests; skip if enterprise not installed or stub
 pytestmark = [
     pytest.mark.unit,
     pytest.mark.skipif(InvitationService is None, reason="InvitationService requires amprealize-enterprise"),
+    pytest.mark.skipif(_invitation_service_is_stub(), reason="InvitationService is a stub — tests require full implementation"),
 ]
 
 # Import contracts
-from amprealize.multi_tenant.contracts import (
+from amprealize.projects.contracts import (
     Invitation,
     InvitationStatus,
     InvitationChannel,

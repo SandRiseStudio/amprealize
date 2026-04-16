@@ -12,9 +12,11 @@ import socket
 import sys
 import time
 import uuid
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Set, Tuple
 
 import yaml
 
@@ -35,14 +37,17 @@ from .models import (
     InfrastructureConfig,
     MigrationConfig,
     MigrationSpec,
+    NoOpProgress,
     PlanForTestsRequest,
     PlanForTestsResponse,
     PlanRequest,
     PlanResponse,
+    ProgressCallback,
     RunTestsRequest,
     RunTestsResponse,
     RuntimeConfig,
     ServiceSpec,
+    ServiceStatus,
     StatusEvent,
     StatusResponse,
     TelemetryData,
@@ -635,7 +640,7 @@ class BreakerAmpService:
 
         if not machine:
             if runtime.auto_init:
-                disk_gb = runtime.disk_size_gb or 20  # Default to 20GB if not specified
+                disk_gb = runtime.machine_disk_size_gb or 20  # Default to 20GB if not specified
                 print(
                     f"Auto-initializing Podman machine '{machine_name}' "
                     f"(CPUs: {runtime.cpu_limit or 'default'}, "
@@ -1319,7 +1324,7 @@ class BreakerAmpService:
 
         # Apply CLI override for disk size if provided
         if request.machine_disk_size_gb is not None:
-            env_def.runtime.disk_size_gb = request.machine_disk_size_gb
+            env_def.runtime.machine_disk_size_gb = request.machine_disk_size_gb
 
         self._ensure_runtime_ready(env_def, force=request.force_podman)
 
@@ -1779,11 +1784,12 @@ class BreakerAmpService:
             errors=errors,
         )
 
-    def apply(self, request: ApplyRequest) -> ApplyResponse:
+    def apply(self, request: ApplyRequest, progress: Optional[ProgressCallback] = None) -> ApplyResponse:
         """Apply a plan and provision the environment.
 
         Args:
             request: Apply request with plan_id or manifest
+            progress: Optional callback for progress reporting
 
         Returns:
             Apply response with environment outputs
@@ -1792,6 +1798,7 @@ class BreakerAmpService:
             ValueError: If plan not found
             RuntimeError: If provisioning fails
         """
+        prog = progress or NoOpProgress()
         plan_id = request.plan_id
         manifest = request.manifest
 
@@ -1845,6 +1852,8 @@ class BreakerAmpService:
 
         # Proactive cleanup: clean BEFORE checking resources (maximizes available resources)
         if request.proactive_cleanup and isinstance(self.executor, ResourceCapableExecutor):
+            prog.on_phase("cleanup", "Cleaning up resources")
+            prog.on_step("proactive_cleanup", "Proactive cleanup")
             self.hooks.emit_metric(
                 "breakeramp.apply.proactive_cleanup_started",
             )
@@ -1866,7 +1875,9 @@ class BreakerAmpService:
                     containers_removed=cleanup_result.containers_removed,
                     images_removed=cleanup_result.images_removed,
                 )
+                prog.on_step_done("proactive_cleanup")
             except Exception as e:
+                prog.on_warning(f"Proactive cleanup error: {e}")
                 self.hooks.emit_metric(
                     "breakeramp.apply.proactive_cleanup_error",
                     error=str(e),
@@ -1874,6 +1885,7 @@ class BreakerAmpService:
 
         # Pre-flight resource health check with tiered auto-remediation
         if not request.skip_resource_check:
+            prog.on_step("resource_check", "Checking resources")
             if isinstance(self.executor, ResourceCapableExecutor):
                 try:
                     healthy, warnings = self.executor.check_resource_health(
@@ -1909,6 +1921,7 @@ class BreakerAmpService:
                         "breakeramp.apply.resource_check_error",
                         error=str(e),
                     )
+            prog.on_step_done("resource_check")
 
         amp_run_id = manifest.get("amp_run_id") or f"amp-{uuid.uuid4()}"
         checklist_id = manifest.get("checklist_id")
@@ -2026,26 +2039,18 @@ class BreakerAmpService:
             timeout_s: int,
             executor: Any,
         ) -> None:
-            """Wait for a container's healthcheck to pass before proceeding.
+            """Wait for a container's healthcheck to pass with adaptive polling.
 
-            Uses the healthcheck.test command from the blueprint spec to verify
-            the service is ready (e.g., pg_isready for Postgres).
-
-            Args:
-                container_name: Name of the container to check
-                healthcheck_spec: Healthcheck specification dict with 'test' command
-                timeout_s: Max seconds to wait for healthcheck to pass
-                executor: The executor (PodmanExecutor) to run commands
+            Starts polling at 0.5s intervals and geometrically backs off to the
+            spec-defined interval, reducing startup latency for fast services.
             """
             if not healthcheck_spec:
-                return  # No healthcheck defined, skip
+                return
 
             test_cmd = healthcheck_spec.get("test")
             if not test_cmd:
-                return  # No test command defined
+                return
 
-            # Parse healthcheck command (Docker/Podman compose format)
-            # Formats: ["CMD-SHELL", "cmd"], ["CMD", "cmd", "arg1"], or just "cmd"
             if isinstance(test_cmd, str):
                 shell_cmd = test_cmd
             elif isinstance(test_cmd, list) and len(test_cmd) >= 2:
@@ -2056,15 +2061,16 @@ class BreakerAmpService:
                 else:
                     shell_cmd = " ".join(test_cmd)
             else:
-                return  # Invalid format
+                return
 
-            # Parse interval from spec (e.g., "5s" -> 5)
             interval_str = healthcheck_spec.get("interval", "2s")
             try:
-                interval = int(interval_str.rstrip("smh"))  # Strip time suffix
+                max_interval = int(interval_str.rstrip("smh"))
             except ValueError:
-                interval = 2
+                max_interval = 2
 
+            # Adaptive polling: start fast, back off to spec interval
+            poll_interval = 0.5
             retries = healthcheck_spec.get("retries", 5)
             deadline = time.time() + max(timeout_s, 1)
             attempts = 0
@@ -2074,7 +2080,6 @@ class BreakerAmpService:
                 attempts += 1
                 try:
                     if hasattr(executor, "exec_in_container"):
-                        # Run healthcheck command inside container
                         executor.exec_in_container(
                             container_name,
                             ["sh", "-c", shell_cmd],
@@ -2083,9 +2088,10 @@ class BreakerAmpService:
                 except Exception as exc:
                     last_err = str(exc)
                     if attempts >= retries:
-                        # Log but continue waiting until deadline
                         pass
-                time.sleep(interval)
+                time.sleep(poll_interval)
+                # Geometric backoff: 0.5 → 1.0 → 2.0 → ... → max_interval
+                poll_interval = min(poll_interval * 2, max_interval)
 
             raise RuntimeError(
                 f"Healthcheck failed for {container_name} after {timeout_s}s "
@@ -2103,186 +2109,215 @@ class BreakerAmpService:
             else:
                 network_name = None  # Non-Podman executors don't need this
 
-            # Start core services first, then optional modules, then console/UI.
-            # This reduces race conditions where UI/API containers start before Postgres/Redis.
-            ordered_services: List[Tuple[str, Dict[str, Any]]] = []
-            for name, spec in services.items():
-                module = spec.get("module")
-                if module in (None, "core"):
-                    group = 0
-                elif module == "console":
-                    group = 2
-                else:
-                    group = 1
-                ordered_services.append((name, spec | {"__amp_group": group}))
-            ordered_services.sort(key=lambda item: int(item[1].get("__amp_group", 1)))
+            # ── DAG-based parallel service startup ──────────────────────
+            # Build dependency graph from `depends_on` so independent services
+            # start concurrently while respecting ordering constraints.
+            dep_graph: Dict[str, List[str]] = {}
+            for svc_name, svc_spec in services.items():
+                deps = svc_spec.get("depends_on", [])
+                # Filter out deps that aren't in the service list
+                dep_graph[svc_name] = [d for d in deps if d in services]
 
-            for name, spec in ordered_services:
+            # Pre-register services for progress display
+            service_ports: Dict[str, Optional[int]] = {}
+            for svc_name, svc_spec in services.items():
+                ports = svc_spec.get("ports", []) or []
+                host_port = _parse_host_port(str(ports[0])) if ports else None
+                service_ports[svc_name] = host_port
+                prog.on_service_status(svc_name, ServiceStatus.WAITING)
+
+            prog.on_phase("services", "Starting services", total_steps=len(services))
+
+            # Shared state for DAG scheduling (protected by GIL for simple flags)
+            healthy_services: Set[str] = set()
+            failed_services: Dict[str, str] = {}  # name -> error message
+            service_lock = __import__("threading").Lock()
+
+            def _start_service(name: str, spec: Dict[str, Any]) -> None:
+                """Start a single service: build → run → port wait → healthcheck → post-start."""
                 container_name = f"{amp_run_id}-{name}"
+                try:
+                    # Stop existing if any (simple reconciliation)
+                    self.executor.stop_container(container_name)
+                    self.executor.remove_container(container_name)
 
-                # Stop existing if any (simple reconciliation)
-                self.executor.stop_container(container_name)
-                self.executor.remove_container(container_name)
+                    # Build image if needed
+                    build_spec = spec.get("build")
+                    if build_spec:
+                        image = spec.get("image")
+                        if not image:
+                            raise ValueError(f"Service '{name}' is missing required image tag for build")
 
-                build_spec = spec.get("build")
-                if build_spec:
-                    image = spec.get("image")
-                    if not image:
-                        raise ValueError(f"Service '{name}' is missing required image tag for build")
+                        rebuild = request.rebuild_images or bool(build_spec.get("rebuild", False))
+                        should_build = rebuild
+                        if not should_build and hasattr(self.executor, "image_exists"):
+                            try:
+                                should_build = not bool(self.executor.image_exists(image))
+                            except Exception:
+                                should_build = True
 
-                    # Force rebuild if requested at apply level OR in build spec
-                    rebuild = request.rebuild_images or bool(build_spec.get("rebuild", False))
-                    should_build = rebuild
-                    if not should_build and hasattr(self.executor, "image_exists"):
-                        try:
-                            should_build = not bool(self.executor.image_exists(image))  # type: ignore[attr-defined]
-                        except Exception:
-                            should_build = True
-
-                    if should_build:
-                        if not hasattr(self.executor, "build_image"):
-                            raise RuntimeError(
-                                "Executor does not support image builds; "
-                                f"cannot build image for service '{name}'"
+                        if should_build:
+                            prog.on_service_status(name, ServiceStatus.BUILDING, detail=image)
+                            if not hasattr(self.executor, "build_image"):
+                                raise RuntimeError(
+                                    "Executor does not support image builds; "
+                                    f"cannot build image for service '{name}'"
+                                )
+                            self.hooks.emit_metric(
+                                "breakeramp.apply.build.started",
+                                plan_id=plan_id, amp_run_id=amp_run_id,
+                                service=name, image=image,
                             )
-                        self.hooks.emit_metric(
-                            "breakeramp.apply.build.started",
-                            plan_id=plan_id,
-                            amp_run_id=amp_run_id,
-                            service=name,
-                            image=image,
-                        )
-                        self.executor.build_image(  # type: ignore[attr-defined]
-                            image=image,
-                            context=str(build_spec.get("context", ".")),
-                            dockerfile=build_spec.get("dockerfile"),
-                            build_args=build_spec.get("build_args") or {},
-                            pull=bool(build_spec.get("pull", False)),
-                        )
-                        self.hooks.emit_metric(
-                            "breakeramp.apply.build.completed",
-                            plan_id=plan_id,
-                            amp_run_id=amp_run_id,
-                            service=name,
-                            image=image,
-                        )
+                            self.executor.build_image(
+                                image=image,
+                                context=str(build_spec.get("context", ".")),
+                                dockerfile=build_spec.get("dockerfile"),
+                                build_args=build_spec.get("build_args") or {},
+                                pull=bool(build_spec.get("pull", False)),
+                            )
+                            self.hooks.emit_metric(
+                                "breakeramp.apply.build.completed",
+                                plan_id=plan_id, amp_run_id=amp_run_id,
+                                service=name, image=image,
+                            )
 
-                # Build run config
-                # Use the service name as a network alias so containers can reference
-                # each other by simple names (e.g., "zookeeper" instead of "amp-xxx-zookeeper")
-                config = ContainerRunConfig(
-                    image=spec.get("image"),
-                    name=container_name,
-                    ports=spec.get("ports", []),
-                    environment=spec.get("environment", {}),
-                    volumes=spec.get("volumes", []),
-                    command=spec.get("command"),
-                    workdir=spec.get("workdir"),
-                    detach=True,
-                    network=network_name,
-                    network_aliases=[name] if network_name else [],
-                    privileged=bool(spec.get("privileged", False)),
-                    extra_hosts=spec.get("extra_hosts", []),
-                )
-
-                container_id = self.executor.run_container(config)
-                outputs[name] = {"container_id": container_id, "status": "running"}
-
-                timeout_s = int(spec.get("healthcheck_timeout_s") or 0)
-                ports = spec.get("ports", []) or []
-                if should_wait_for_ports and timeout_s > 0 and ports:
-                    host_port = _parse_host_port(str(ports[0]))
-                    if host_port is not None:
-                        _wait_for_port(host_port, timeout_s)
-
-                # Wait for healthcheck to pass before proceeding to next service
-                # This ensures services like Postgres are actually ready (not just listening)
-                # so dependent services can connect immediately on startup
-                healthcheck_spec = spec.get("healthcheck")
-                if healthcheck_spec:
-                    healthcheck_timeout = timeout_s if timeout_s > 0 else 60
-                    self.hooks.emit_metric(
-                        "breakeramp.apply.healthcheck.waiting",
-                        plan_id=plan_id,
-                        amp_run_id=amp_run_id,
-                        service=name,
-                        timeout_s=healthcheck_timeout,
+                    # Run container
+                    prog.on_service_status(name, ServiceStatus.STARTING)
+                    run_config = ContainerRunConfig(
+                        image=spec.get("image"),
+                        name=container_name,
+                        ports=spec.get("ports", []),
+                        environment=spec.get("environment", {}),
+                        volumes=spec.get("volumes", []),
+                        command=spec.get("command"),
+                        workdir=spec.get("workdir"),
+                        detach=True,
+                        network=network_name,
+                        network_aliases=[name] if network_name else [],
+                        privileged=bool(spec.get("privileged", False)),
+                        extra_hosts=spec.get("extra_hosts", []),
                     )
-                    try:
+                    container_id = self.executor.run_container(run_config)
+                    outputs[name] = {"container_id": container_id, "status": "running"}
+
+                    # Wait for port
+                    timeout_s = int(spec.get("healthcheck_timeout_s") or 0)
+                    ports = spec.get("ports", []) or []
+                    if should_wait_for_ports and timeout_s > 0 and ports:
+                        host_port = _parse_host_port(str(ports[0]))
+                        if host_port is not None:
+                            _wait_for_port(host_port, timeout_s)
+
+                    # Healthcheck with adaptive polling
+                    healthcheck_spec = spec.get("healthcheck")
+                    if healthcheck_spec:
+                        prog.on_service_status(name, ServiceStatus.HEALTH_CHECKING)
+                        healthcheck_timeout = timeout_s if timeout_s > 0 else 60
+                        self.hooks.emit_metric(
+                            "breakeramp.apply.healthcheck.waiting",
+                            plan_id=plan_id, amp_run_id=amp_run_id,
+                            service=name, timeout_s=healthcheck_timeout,
+                        )
                         _wait_for_healthcheck(
-                            container_name,
-                            healthcheck_spec,
-                            healthcheck_timeout,
-                            self.executor,
+                            container_name, healthcheck_spec,
+                            healthcheck_timeout, self.executor,
                         )
                         self.hooks.emit_metric(
                             "breakeramp.apply.healthcheck.passed",
-                            plan_id=plan_id,
-                            amp_run_id=amp_run_id,
-                            service=name,
+                            plan_id=plan_id, amp_run_id=amp_run_id, service=name,
                         )
-                    except RuntimeError as hc_err:
+
+                    # Post-start commands (e.g., Alembic migrations)
+                    post_start_commands = spec.get("post_start_commands", [])
+                    if post_start_commands:
+                        prog.on_service_status(name, ServiceStatus.RUNNING_POST_START)
+                    for cmd_spec in post_start_commands:
+                        cmd_description = cmd_spec.get("description", "post-start command")
+                        cmd = cmd_spec.get("command", [])
+                        if not cmd:
+                            continue
+                        prog.on_service_status(name, ServiceStatus.RUNNING_POST_START, detail=cmd_description)
                         self.hooks.emit_metric(
-                            "breakeramp.apply.healthcheck.failed",
-                            plan_id=plan_id,
-                            amp_run_id=amp_run_id,
-                            service=name,
-                            error=str(hc_err),
+                            "breakeramp.apply.post_start_command.started",
+                            plan_id=plan_id, amp_run_id=amp_run_id,
+                            service=name, description=cmd_description,
                         )
-                        raise
-
-                # Execute post-start commands (e.g., Alembic migrations)
-                post_start_commands = spec.get("post_start_commands", [])
-                for cmd_spec in post_start_commands:
-                    cmd_description = cmd_spec.get("description", "post-start command")
-                    cmd = cmd_spec.get("command", [])
-                    cmd_timeout = int(cmd_spec.get("timeout_s", 300))
-
-                    if not cmd:
-                        continue
-
-                    self.hooks.emit_metric(
-                        "breakeramp.apply.post_start_command.started",
-                        plan_id=plan_id,
-                        amp_run_id=amp_run_id,
-                        service=name,
-                        description=cmd_description,
-                    )
-
-                    try:
                         if hasattr(self.executor, "exec_in_container"):
-                            output = self.executor.exec_in_container(
-                                container_name,
-                                cmd,
-                            )
+                            output = self.executor.exec_in_container(container_name, cmd)
                             self.hooks.emit_metric(
                                 "breakeramp.apply.post_start_command.completed",
-                                plan_id=plan_id,
-                                amp_run_id=amp_run_id,
-                                service=name,
-                                description=cmd_description,
+                                plan_id=plan_id, amp_run_id=amp_run_id,
+                                service=name, description=cmd_description,
                                 output_preview=output[:500] if output else "",
                             )
                         else:
                             self.hooks.emit_metric(
                                 "breakeramp.apply.post_start_command.skipped",
-                                plan_id=plan_id,
-                                amp_run_id=amp_run_id,
-                                service=name,
-                                reason="executor does not support exec_in_container",
+                                plan_id=plan_id, amp_run_id=amp_run_id,
+                                service=name, reason="executor does not support exec_in_container",
                             )
-                    except Exception as cmd_error:
-                        self.hooks.emit_metric(
-                            "breakeramp.apply.post_start_command.failed",
-                            plan_id=plan_id,
-                            amp_run_id=amp_run_id,
-                            service=name,
-                            description=cmd_description,
-                            error=str(cmd_error),
-                        )
-                        raise RuntimeError(
-                            f"Post-start command failed for {name}: {cmd_description} - {cmd_error}"
-                        ) from cmd_error
+
+                    # Mark healthy
+                    prog.on_service_status(name, ServiceStatus.HEALTHY)
+                    with service_lock:
+                        healthy_services.add(name)
+
+                except Exception as svc_err:
+                    prog.on_service_status(name, ServiceStatus.FAILED, detail=str(svc_err))
+                    prog.on_error(str(svc_err), service=name)
+                    with service_lock:
+                        failed_services[name] = str(svc_err)
+                    raise
+
+            # ── DAG scheduler: launch services as their deps become healthy ──
+            remaining: Set[str] = set(services.keys())
+            max_workers = min(4, len(services))  # Cap thread count
+
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures: Dict[Any, str] = {}  # future -> service name
+
+                def _submit_ready() -> None:
+                    """Submit any services whose deps are all healthy."""
+                    to_submit = []
+                    with service_lock:
+                        for svc in list(remaining):
+                            deps = dep_graph.get(svc, [])
+                            if all(d in healthy_services for d in deps) and svc not in futures.values():
+                                to_submit.append(svc)
+                    for svc in to_submit:
+                        remaining.discard(svc)
+                        fut = pool.submit(_start_service, svc, services[svc])
+                        futures[fut] = svc
+
+                _submit_ready()  # Seed with zero-dep services
+
+                while futures:
+                    # Wait for any service to complete
+                    done_iter = as_completed(futures, timeout=600)
+                    for done_future in done_iter:
+                        svc_name = futures.pop(done_future)
+                        try:
+                            done_future.result()  # Re-raises exceptions
+                            prog.on_step_done(svc_name, service=svc_name)
+                        except Exception:
+                            # Service failed — propagated below
+                            pass
+                        # Submit newly-unblocked services
+                        _submit_ready()
+                        break  # Re-check after each completion
+
+                # Check for failures
+                if failed_services:
+                    first_name, first_err = next(iter(failed_services.items()))
+                    raise RuntimeError(
+                        f"Service startup failed for {first_name}: {first_err}"
+                    )
+
+                # Any services never submitted? (broken dep graph)
+                if remaining:
+                    raise RuntimeError(
+                        f"Circular dependency or missing services: {remaining}"
+                    )
 
         except Exception as e:
             self.hooks.emit_metric(
@@ -2291,6 +2326,7 @@ class BreakerAmpService:
                 amp_run_id=amp_run_id,
                 error=str(e),
             )
+            prog.on_error(str(e))
             if checklist_id:
                 self.hooks.record_compliance_step(
                     "apply_failed",
@@ -2299,12 +2335,15 @@ class BreakerAmpService:
                 )
             raise
 
+        prog.on_phase("finalizing", "Finalizing environment")
+
         # Run database migrations after all containers are healthy
         # Migrations run from host using Alembic against the database container
         environment_name = manifest.get("environment", "")
         env_def = self.environments.get(environment_name)
         migration_results: List[Dict[str, Any]] = []
         if env_def and env_def.migrations:
+            prog.on_step("migrations", "Running database migrations")
             migration_results = self._run_migrations(
                 env_def=env_def,
                 manifest=manifest,
@@ -2324,7 +2363,9 @@ class BreakerAmpService:
                         failed_names=[m["name"] for m in failed_migrations],
                     )
                     # Don't raise - migrations failure is non-fatal but logged
+                    prog.on_warning(error_msg)
                     print(f"Warning: {error_msg}", file=sys.stderr)
+            prog.on_step_done("migrations")
 
         manifest["phase"] = "APPLIED"
         manifest["environment_outputs"] = outputs
@@ -2369,25 +2410,55 @@ class BreakerAmpService:
             amp_run_id=amp_run_id,
         )
 
+    def resolve_run_id(self, amp_run_id: str) -> Tuple[str, Path]:
+        """Resolve a full or prefix run ID to its state file path.
+
+        Supports exact matches and unambiguous prefix matches. This allows
+        users to pass truncated IDs (e.g. from ``breakeramp list`` output).
+
+        Args:
+            amp_run_id: Full run ID or unique prefix
+
+        Returns:
+            Tuple of (resolved_full_id, state_file_path)
+
+        Raises:
+            FileNotFoundError: No matching run found
+            ValueError: Prefix matches multiple runs (ambiguous)
+        """
+        # Try exact match first
+        exact_path = self.environments_dir / f"{amp_run_id}.json"
+        if exact_path.exists():
+            return amp_run_id, exact_path
+
+        # Try prefix match
+        matches = list(self.environments_dir.glob(f"{amp_run_id}*.json"))
+        if len(matches) == 1:
+            full_id = matches[0].stem
+            return full_id, matches[0]
+        elif len(matches) > 1:
+            ids = [m.stem for m in matches]
+            raise ValueError(
+                f"Ambiguous run ID prefix '{amp_run_id}' matches {len(matches)} runs: "
+                + ", ".join(ids[:5])
+            )
+        else:
+            raise FileNotFoundError(f"No environment found for run ID '{amp_run_id}'")
+
     def status(self, amp_run_id: str) -> StatusResponse:
         """Get the status of an environment.
 
         Args:
-            amp_run_id: Run identifier
+            amp_run_id: Full run ID or unique prefix
 
         Returns:
             Status response with health checks and telemetry
-        """
-        env_path = self.environments_dir / f"{amp_run_id}.json"
 
-        if not env_path.exists():
-            return StatusResponse(
-                amp_run_id=amp_run_id,
-                phase="UNKNOWN",
-                progress_pct=0,
-                checks=[],
-                telemetry=None,
-            )
+        Raises:
+            FileNotFoundError: No matching run found
+            ValueError: Ambiguous prefix
+        """
+        amp_run_id, env_path = self.resolve_run_id(amp_run_id)
 
         with open(env_path, "r") as f:
             run = json.load(f)
@@ -2424,6 +2495,10 @@ class BreakerAmpService:
                 continue
 
             status = self.executor.get_container_status(container_id)
+            # "unknown" from the executor means podman can't find the container
+            # at all — it was removed, not just stopped.
+            if status == "unknown":
+                status = "removed"
             if status != "running":
                 all_running = False
 
@@ -2443,7 +2518,6 @@ class BreakerAmpService:
             phase=phase,
             progress_pct=100 if phase in ["APPLIED", "DEGRADED"] else 50,
             checks=checks,
-            telemetry=TelemetryData(token_savings_pct=0.3, behavior_reuse_pct=0.7),
             environment_outputs_path=str(env_path),
             audit_trail=[],
         )
@@ -2633,12 +2707,14 @@ class BreakerAmpService:
         result = []
         stale_paths = []
 
-        # Get actual running containers if we need to reconcile
+        # Get actual containers if we need to reconcile
         actual_containers: set[str] = set()
+        container_statuses: dict[str, str] = {}  # name -> status ("running", "exited", etc.)
         if reconcile:
             try:
                 containers = self.executor.list_containers(all_containers=True)
                 actual_containers = {c.name for c in containers}
+                container_statuses = {c.name: c.status.lower() for c in containers}
             except Exception:
                 # If we can't list containers (machine not running), skip reconciliation
                 reconcile = False
@@ -2655,20 +2731,29 @@ class BreakerAmpService:
             amp_run_id = data.get("amp_run_id", "")
             phase = data.get("phase", "UNKNOWN")
 
-            # Check if any containers for this run actually exist
+            # Check if any containers for this run actually exist and their health
             actual_status = "UNKNOWN"
             container_count = 0
+            running_count = 0
             if reconcile and amp_run_id:
                 # Containers are named: {amp_run_id}-{service_name}
                 run_containers = [c for c in actual_containers if c.startswith(f"{amp_run_id}-")]
                 container_count = len(run_containers)
+                running_count = sum(
+                    1 for c in run_containers
+                    if container_statuses.get(c, "") == "running"
+                )
 
                 if container_count == 0:
                     actual_status = "STALE"
                     if auto_cleanup:
                         stale_paths.append(path)
-                else:
+                elif running_count == container_count:
                     actual_status = "RUNNING"
+                elif running_count > 0:
+                    actual_status = "DEGRADED"
+                else:
+                    actual_status = "STOPPED"
 
             entry = {
                 "amp_run_id": amp_run_id,
@@ -2681,6 +2766,7 @@ class BreakerAmpService:
             if reconcile:
                 entry["actual_status"] = actual_status
                 entry["container_count"] = container_count
+                entry["running_count"] = running_count
 
             # Only include non-stale entries (or all if auto_cleanup is False)
             if not auto_cleanup or actual_status != "STALE":

@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "whiteboard.addShape",
+  "description": "Add a shape (sticky note, text, rectangle, etc.) to a whiteboard canvas. The shape is auto-positioned on a grid layout if no explicit position is given. Useful for agents to programmatically build out brainstorm boards.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "room_id": {
+        "type": "string",
+        "description": "Whiteboard room ID to add the shape to (optional, uses session)"
+      },
+      "shape_type": {
+        "type": "string",
+        "enum": ["note", "text", "geo"],
+        "description": "Type of shape: 'note' (sticky note), 'text' (text annotation), or 'geo' (geometric shape). Defaults to 'note'."
+      },
+      "text": {
+        "type": "string",
+        "description": "Text content for the shape"
+      },
+      "color": {
+        "type": "string",
+        "description": "Shape color (e.g. 'yellow', 'blue', 'red', 'green', 'violet', 'orange'). Defaults to 'yellow'."
+      },
+      "x": {
+        "type": "number",
+        "description": "Optional X position on canvas. Auto-positioned if omitted."
+      },
+      "y": {
+        "type": "number",
+        "description": "Optional Y position on canvas. Auto-positioned if omitted."
+      },
+      "width": {
+        "type": "number",
+        "description": "Optional shape width in pixels. Uses sensible defaults per shape type."
+      },
+      "height": {
+        "type": "number",
+        "description": "Optional shape height in pixels. Uses sensible defaults per shape type."
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Optional metadata to attach to the shape (e.g. category, source)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID for scoping (optional, uses session)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID for multi-tenant context (optional, uses session)"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "shape_id": { "type": "string" },
+      "room_id": { "type": "string" },
+      "message": { "type": "string" }
+    }
+  }
+}

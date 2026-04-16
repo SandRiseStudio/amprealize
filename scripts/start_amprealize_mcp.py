@@ -57,6 +57,23 @@ def main() -> int:
         if existing_pythonpath
         else str(repo_root)
     )
+
+    # Apply active context (e.g. "neon") to the env dict *before* os.execve
+    # so the child process inherits correct DSNs instead of .env localhost
+    # defaults.  The child's mcp_server.py also applies context at import
+    # time as a belt-and-suspenders measure.
+    try:
+        from amprealize.context import apply_context_to_environment as _apply_ctx
+        _apply_ctx(force=True)
+        # Propagate the now-overwritten env vars into the dict we'll pass
+        for key in list(env):
+            if "DSN" in key or key == "DATABASE_URL" or key == "TELEMETRY_DATABASE_URL":
+                current = os.environ.get(key)
+                if current:
+                    env[key] = current
+    except Exception as exc:
+        print(f"[start_amprealize_mcp] context bridge warning: {exc}", file=sys.stderr)
+
     os.chdir(repo_root)
     os.execve(
         sys.executable,

@@ -7,6 +7,8 @@ import { useApiCapabilities } from '../../api/capabilities';
 import { useModules } from '../../api/modules';
 import { loadProjectSortPreference, sortProjects } from '../../utils/projectSort';
 import { STORAGE_KEYS } from '../../config/storageKeys';
+import { type WikiDomain } from '../wiki/wikiData';
+import { preloadWhiteboardCanvas } from '../whiteboard/whiteboardCanvasLoader';
 import './SidebarNav.css';
 
 const STORAGE_KEY_SECTIONS = STORAGE_KEYS.sidebarSections;
@@ -26,10 +28,20 @@ interface SidebarNavProps {
 interface NavItemProps {
   label: string;
   icon: React.ReactNode;
+  description?: string;
+  ariaLabel?: string;
   active?: boolean;
   nested?: boolean;
   onClick: () => void;
   trailing?: React.ReactNode;
+  secondaryAction?: {
+    icon: React.ReactNode;
+    label: string;
+    title?: string;
+    onClick: () => void;
+  };
+  onMouseEnter?: () => void;
+  onFocus?: () => void;
   onKeyDown?: (event: React.KeyboardEvent<HTMLButtonElement>) => void;
   role?: string;
   level?: number;
@@ -99,6 +111,22 @@ const SparkIcon = () => (
   </svg>
 );
 
+const WikiIcon = () => (
+  <svg className="sidebar-nav-icon" viewBox="0 0 16 16" fill="none">
+    <path d="M3 3.5h4a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M8 4.5h5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H8" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M4.5 6.5h2M4.5 8.5h2M10 7h2.5M10 9h2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5" />
+  </svg>
+);
+
+const WhiteboardIcon = () => (
+  <svg className="sidebar-nav-icon" viewBox="0 0 16 16" fill="none">
+    <rect x="2" y="2" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M5 14h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <path d="M5 6l2 2-2 2M9 6h2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" opacity="0.5" />
+  </svg>
+);
+
 const ChevronIcon = ({ expanded }: { expanded: boolean }) => (
   <svg className={`sidebar-chevron ${expanded ? 'expanded' : ''}`} viewBox="0 0 16 16" fill="none">
     <path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -139,13 +167,33 @@ function loadProjectIdList(storageKey: string): string[] {
   }
 }
 
-const NavItem = memo(function NavItem({ label, icon, active, nested, onClick, trailing, onKeyDown, role, level, expanded, controls }: NavItemProps) {
-  return (
+const NavItem = memo(function NavItem({
+  label,
+  icon,
+  description,
+  ariaLabel,
+  active,
+  nested,
+  onClick,
+  trailing,
+  secondaryAction,
+  onMouseEnter,
+  onFocus,
+  onKeyDown,
+  role,
+  level,
+  expanded,
+  controls,
+}: NavItemProps) {
+  const button = (
     <button
       type="button"
-      className={`sidebar-nav-item ${active ? 'active' : ''} ${nested ? 'nested' : ''}`}
+      className={`sidebar-nav-item ${active ? 'active' : ''} ${nested ? 'nested' : ''} ${secondaryAction ? 'sidebar-nav-item--with-action' : ''}`}
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onFocus={onFocus}
       onKeyDown={onKeyDown}
+      aria-label={ariaLabel}
       aria-current={active ? 'page' : undefined}
       aria-expanded={expanded}
       aria-controls={controls}
@@ -157,10 +205,30 @@ const NavItem = memo(function NavItem({ label, icon, active, nested, onClick, tr
         <span className="sidebar-nav-icon-wrap">{icon}</span>
         <span className="sidebar-nav-copy">
           <span className="sidebar-nav-label">{label}</span>
+          {description && <span className="sidebar-nav-description">{description}</span>}
         </span>
       </span>
       {trailing && <span className="sidebar-nav-trailing">{trailing}</span>}
     </button>
+  );
+
+  if (!secondaryAction) {
+    return button;
+  }
+
+  return (
+    <div className={`sidebar-nav-row ${active ? 'active' : ''} ${nested ? 'nested' : ''}`}>
+      {button}
+      <button
+        type="button"
+        className="sidebar-nav-inline-action"
+        aria-label={secondaryAction.label}
+        title={secondaryAction.title ?? secondaryAction.label}
+        onClick={secondaryAction.onClick}
+      >
+        {secondaryAction.icon}
+      </button>
+    </div>
   );
 });
 
@@ -185,9 +253,12 @@ const SidebarProjectNode = memo(function SidebarProjectNode({
   onMoveFocus,
   variant = 'default',
 }: SidebarProjectNodeProps) {
-  const { data: boards = [] } = useBoards(project.id);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [shouldLoadBoards, setShouldLoadBoards] = useState(isActive);
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  const { data: boards = [] } = useBoards(project.id, {
+    enabled: shouldLoadBoards || pickerOpen || isActive,
+  });
 
   const defaultBoard = useMemo(() => boards.find((b) => b.is_default) ?? boards[0], [boards]);
   const hasMultipleBoards = boards.length > 1;
@@ -216,6 +287,16 @@ const SidebarProjectNode = memo(function SidebarProjectNode({
     };
   }, [pickerOpen]);
 
+  useEffect(() => {
+    if (isActive || pickerOpen) {
+      setShouldLoadBoards(true);
+    }
+  }, [isActive, pickerOpen]);
+
+  const primeBoards = useCallback(() => {
+    setShouldLoadBoards(true);
+  }, []);
+
   const handleProjectClick = useCallback(() => {
     if (defaultBoard) {
       onNavigate(`/projects/${project.id}/boards/${defaultBoard.board_id}`);
@@ -240,6 +321,8 @@ const SidebarProjectNode = memo(function SidebarProjectNode({
         type="button"
         className={`sidebar-nav-item project-item ${isActive ? 'active' : ''}`}
         onClick={handleProjectClick}
+        onMouseEnter={primeBoards}
+        onFocus={primeBoards}
         onKeyDown={handleKeyDown}
         aria-current={isActive ? 'page' : undefined}
         data-sidebar-focusable="true"
@@ -284,12 +367,14 @@ const SidebarProjectNode = memo(function SidebarProjectNode({
               title="Switch board"
               onClick={(event) => {
                 event.stopPropagation();
+                setShouldLoadBoards(true);
                 setPickerOpen((prev) => !prev);
               }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
                   event.stopPropagation();
+                  setShouldLoadBoards(true);
                   setPickerOpen((prev) => !prev);
                 }
               }}
@@ -351,6 +436,7 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
   const { isModuleEnabled } = useModules();
   const hasAgents = isModuleEnabled('agents');
   const hasBehaviors = isModuleEnabled('behaviors');
+  const hasWhiteboard = isModuleEnabled('whiteboard');
 
   const { data: projects = [] } = useProjects(currentOrgId ?? undefined);
 
@@ -369,6 +455,10 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
 
   const toggleSection = useCallback((section: keyof SectionState) => {
     setSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  }, []);
+
+  const handleWhiteboardIntent = useCallback(() => {
+    void preloadWhiteboardCanvas();
   }, []);
 
   const moveFocus = useCallback((current: HTMLElement, delta: number) => {
@@ -393,7 +483,7 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
   const visibleSections = useMemo(
     () => ({
       ...sections,
-      tools: pathname.startsWith('/bci') ? false : sections.tools,
+      tools: pathname.startsWith('/bci') || pathname.startsWith('/whiteboard') ? false : sections.tools,
       projects: pathname.startsWith('/projects') ? false : sections.projects,
     }),
     [pathname, sections]
@@ -644,11 +734,12 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
                   level={1}
                 />
                 )}
+              </div>
             </div>
           </div>
         )}
 
-        {hasBehaviors && (
+        {(hasBehaviors || hasWhiteboard) && (
         <div className="sidebar-section">
           <button
             type="button"
@@ -676,12 +767,13 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
           >
             <span className="sidebar-section-title-group">
               <span className="sidebar-section-dot" />
-              <span>Tools</span>
+              <span>Studio</span>
             </span>
             <ChevronIcon expanded={!visibleSections.tools} />
           </button>
           <div className={`sidebar-section-body ${visibleSections.tools ? 'collapsed' : ''}`}>
             <div className="sidebar-section-body-inner">
+              {hasBehaviors && (
               <NavItem
                 label="Behavior Search"
                 icon={<SearchIcon />}
@@ -699,6 +791,8 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
                 role="treeitem"
                 level={1}
               />
+              )}
+              {hasBehaviors && (
               <NavItem
                 label="Behavior Extraction"
                 icon={<SparkIcon />}
@@ -716,10 +810,87 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
                 role="treeitem"
                 level={1}
               />
+              )}
+              {hasWhiteboard && (
+              <NavItem
+                label="Whiteboard"
+                icon={<WhiteboardIcon />}
+                active={pathname.startsWith('/whiteboard')}
+                onClick={() => {
+                  handleWhiteboardIntent();
+                  onNavigate('/whiteboard');
+                }}
+                onMouseEnter={handleWhiteboardIntent}
+                onFocus={handleWhiteboardIntent}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    moveFocus(event.currentTarget, 1);
+                  } else if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    moveFocus(event.currentTarget, -1);
+                  }
+                }}
+                role="treeitem"
+                level={1}
+              />
+              )}
             </div>
           </div>
         </div>
         )}
+        <WikiSidebarSection pathname={pathname} onNavigate={onNavigate} moveFocus={moveFocus} />
+      </div>
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Wiki sidebar section — launcher, not full tree
+// ---------------------------------------------------------------------------
+
+const WikiSidebarSection = memo(function WikiSidebarSection({
+  pathname,
+  onNavigate,
+  moveFocus,
+}: {
+  pathname: string;
+  onNavigate: (path: string) => void;
+  moveFocus: (current: HTMLElement, delta: number) => void;
+}) {
+  const isWikiActive = pathname.startsWith('/wiki');
+  const activeDomain = useMemo((): WikiDomain | null => {
+    const match = pathname.match(/^\/wiki\/([^/]+)/);
+    if (!match) return null;
+    return match[1] as WikiDomain;
+  }, [pathname]);
+  const defaultDomain = activeDomain ?? 'infra';
+
+  return (
+    <div className="sidebar-section">
+      <div className="sidebar-section-body">
+        <div className="sidebar-section-body-inner">
+          <NavItem
+            label="Wiki"
+            description=""
+            icon={<WikiIcon />}
+            ariaLabel="Open wiki"
+            active={isWikiActive}
+            onClick={() => onNavigate(`/wiki/${defaultDomain}`)}
+            secondaryAction={{
+              icon: <SearchIcon />,
+              label: 'Open wiki search',
+              title: 'Open wiki search',
+              onClick: () => onNavigate(`/wiki/${defaultDomain}?search=1`),
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') { event.preventDefault(); moveFocus(event.currentTarget, 1); }
+              else if (event.key === 'ArrowUp') { event.preventDefault(); moveFocus(event.currentTarget, -1); }
+            }}
+            role="treeitem"
+            level={1}
+          />
+        </div>
       </div>
     </div>
   );

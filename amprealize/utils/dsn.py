@@ -122,7 +122,12 @@ def resolve_optional_postgres_dsn(
     Unlike resolve_postgres_dsn, this does not provide a default and can return None,
     allowing callers to handle the absence of database configuration gracefully.
     """
-    candidate = explicit_dsn or os.getenv(env_var) or build_dsn_from_components(service)
+    candidate = (
+        explicit_dsn
+        or os.getenv(env_var)
+        or build_dsn_from_components(service)
+        or os.getenv("DATABASE_URL")  # Fallback: active context or container default
+    )
     if not candidate:
         return None
     return apply_host_overrides(candidate, service)

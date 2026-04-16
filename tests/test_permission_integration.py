@@ -42,7 +42,7 @@ from amprealize.auth.middleware import (
     get_permission_service,
 )
 from amprealize.auth.jwt_service import JWTService
-from amprealize.multi_tenant.permissions import (
+from amprealize.tenant.permissions import (
     AsyncPermissionService,
     OrgPermission,
     ProjectPermission,
@@ -51,7 +51,7 @@ from amprealize.multi_tenant.permissions import (
     UserOrgContext,
     UserProjectContext,
 )
-from amprealize.multi_tenant.contracts import MemberRole, ProjectRole
+from amprealize.projects.contracts import MemberRole, ProjectRole
 
 
 # =============================================================================
@@ -417,7 +417,7 @@ class TestCrossSurfaceParity:
 
     def test_org_permission_enum_values(self):
         """OrgPermission enum should have expected values."""
-        from amprealize.multi_tenant.permissions import OrgPermission
+        from amprealize.tenant.permissions import OrgPermission
 
         # Core permissions should exist
         assert hasattr(OrgPermission, "VIEW_ORG")
@@ -426,7 +426,7 @@ class TestCrossSurfaceParity:
 
     def test_project_permission_enum_values(self):
         """ProjectPermission enum should have expected values."""
-        from amprealize.multi_tenant.permissions import ProjectPermission
+        from amprealize.tenant.permissions import ProjectPermission
 
         # Core permissions should exist
         assert hasattr(ProjectPermission, "VIEW_PROJECT")
@@ -435,7 +435,7 @@ class TestCrossSurfaceParity:
 
     def test_permission_service_types_compatible(self):
         """PermissionService and AsyncPermissionService should have same interface."""
-        from amprealize.multi_tenant.permissions import (
+        from amprealize.tenant.permissions import (
             PermissionService,
             AsyncPermissionService,
         )
@@ -511,7 +511,7 @@ class TestBillingPermissions:
 
     def test_owner_has_billing_permissions(self):
         """Owner role should have all billing permissions."""
-        from amprealize.multi_tenant.permissions import ORG_ROLE_PERMISSIONS
+        from amprealize.tenant.permissions import ORG_ROLE_PERMISSIONS
 
         owner_perms = ORG_ROLE_PERMISSIONS[MemberRole.OWNER]
 
@@ -522,7 +522,7 @@ class TestBillingPermissions:
 
     def test_member_limited_billing_permissions(self):
         """Member role should have limited billing permissions."""
-        from amprealize.multi_tenant.permissions import ORG_ROLE_PERMISSIONS
+        from amprealize.tenant.permissions import ORG_ROLE_PERMISSIONS
 
         member_perms = ORG_ROLE_PERMISSIONS[MemberRole.MEMBER]
 

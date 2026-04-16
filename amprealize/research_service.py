@@ -31,7 +31,7 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from amprealize.services.board_service import BoardService
-    from amprealize.multi_tenant.board_contracts import CreateWorkItemRequest
+    from amprealize.boards.contracts import CreateWorkItemRequest
 
 from amprealize.research_contracts import (
     AdoptionStrategy,
@@ -942,6 +942,25 @@ class ResearchService:
                     next_agent = recommendation.next_agent or "architect"
                     progress("Handoff", f"✓ Created work item → {next_agent} agent", 0.995)
 
+        # Auto-ingest into Research Wiki (unless opt-out)
+        if not getattr(request, "skip_wiki_ingest", False):
+            try:
+                from .wiki_service import WikiService
+
+                repo_root = os.environ.get("AMPREALIZE_REPO_ROOT", os.getcwd())
+                wiki = WikiService(repo_root=repo_root)
+                wiki.ingest_research_evaluation(
+                    paper_title=paper.metadata.title,
+                    paper_id=paper.id,
+                    verdict=recommendation.verdict.value,
+                    overall_score=evaluation.overall_score,
+                    markdown_report=report,
+                    sources=getattr(paper.metadata, "sources", None),
+                )
+                progress("Wiki", "✓ Ingested into Research Wiki", 0.997)
+            except Exception as wiki_err:
+                logger.warning(f"Wiki ingest failed (non-fatal): {wiki_err}")
+
         # Final summary
         verdict_emoji = {
             Verdict.ADOPT: "🎉",
@@ -1231,7 +1250,7 @@ class ResearchService:
 
         try:
             # Import here to avoid circular dependencies
-            from amprealize.multi_tenant.board_contracts import (
+            from amprealize.boards.contracts import (
                 CreateWorkItemRequest,
                 WorkItemType,
                 WorkItemPriority,

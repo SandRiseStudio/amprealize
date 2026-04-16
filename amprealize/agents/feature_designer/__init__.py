@@ -1,0 +1,41 @@
+"""Amprealize Feature Designer — structured feature intake models."""
+
+from amprealize.agents.feature_designer.models import (
+    AgentRole,
+    AuthLevel,
+    BehavioralContext,
+    ConfigItem,
+    DataChangeType,
+    DataModelChange,
+    Edition,
+    FeatureDefinition,
+    FeatureFlagStrategy,
+    OSSStubPattern,
+    SecurityClassification,
+    SecurityProfile,
+    ServiceImpact,
+    ServiceImpactType,
+    Surface,
+    SurfaceCoverage,
+    TestingRequirements,
+)
+
+__all__ = [
+    "AgentRole",
+    "AuthLevel",
+    "BehavioralContext",
+    "ConfigItem",
+    "DataChangeType",
+    "DataModelChange",
+    "Edition",
+    "FeatureDefinition",
+    "FeatureFlagStrategy",
+    "OSSStubPattern",
+    "SecurityClassification",
+    "SecurityProfile",
+    "ServiceImpact",
+    "ServiceImpactType",
+    "Surface",
+    "SurfaceCoverage",
+    "TestingRequirements",
+]

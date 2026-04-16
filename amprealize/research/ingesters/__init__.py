@@ -1,24 +1,27 @@
-"""Research ingesters - OSS Stub. Full implementation in amprealize-enterprise."""
+"""Research ingesters."""
 
-try:
-    from amprealize_enterprise.research.ingesters import (
-        BaseIngester,
-        MarkdownIngester,
-        URLIngester,
-        PDFIngester,
-        count_words,
-        extract_figure_captions,
-        extract_metadata_from_markdown,
-        extract_table_captions,
-        parse_markdown_sections,
-    )
-except ImportError:
-    BaseIngester = None  # type: ignore[assignment,misc]
-    MarkdownIngester = None  # type: ignore[assignment,misc]
-    URLIngester = None  # type: ignore[assignment,misc]
-    PDFIngester = None  # type: ignore[assignment,misc]
-    count_words = None  # type: ignore[assignment]
-    extract_figure_captions = None  # type: ignore[assignment]
-    extract_metadata_from_markdown = None  # type: ignore[assignment]
-    extract_table_captions = None  # type: ignore[assignment]
-    parse_markdown_sections = None  # type: ignore[assignment]
+from amprealize.research.ingesters.base import (
+    BaseIngester,
+    IngestResult,
+    count_words,
+    extract_figure_captions,
+    extract_metadata_from_markdown,
+    extract_table_captions,
+    parse_markdown_sections,
+)
+from amprealize.research.ingesters.markdown_ingester import MarkdownIngester
+from amprealize.research.ingesters.url_ingester import URLIngester
+from amprealize.research.ingesters.pdf_ingester import PDFIngester
+
+__all__ = [
+    "BaseIngester",
+    "IngestResult",
+    "MarkdownIngester",
+    "URLIngester",
+    "PDFIngester",
+    "count_words",
+    "extract_figure_captions",
+    "extract_metadata_from_markdown",
+    "extract_table_captions",
+    "parse_markdown_sections",
+]

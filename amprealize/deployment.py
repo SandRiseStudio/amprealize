@@ -2,16 +2,12 @@
 
 Maps the deployment mode (local / cloud / hybrid) to concrete endpoints
 for each service (storage, compute, auth).
-
-Part of Phase 1 of GUIDEAI-619 (Modular Installation System v3).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-
-from amprealize import HAS_ENTERPRISE
 
 if TYPE_CHECKING:
     from amprealize.config.schema import DeploymentConfig
@@ -80,10 +76,10 @@ def validate_deployment(config: DeploymentConfig) -> list[str]:
     """Return list of error messages, or empty list if valid."""
     errors: list[str] = []
 
-    if config.mode in ("cloud", "hybrid") and not HAS_ENTERPRISE:
+    if config.mode in ("cloud", "hybrid"):
         errors.append(
-            f"Deployment mode {config.mode!r} requires amprealize-enterprise. "
-            f"Install with: pip install amprealize-enterprise"
+            f"Deployment mode {config.mode!r} requires the enterprise edition. "
+            f"See https://amprealize.io/enterprise for details."
         )
 
     if config.mode == "cloud" and (

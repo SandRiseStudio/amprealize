@@ -253,6 +253,14 @@ class GitHubCredentialStore:
             CredentialScopeType,
         )
 
+        # Fast path: no scoped lookup requested, so environment token should not
+        # require repository/encryption initialization.
+        if not project_id and not org_id and self._platform_token:
+            return ResolvedGitHubToken(
+                token=self._platform_token,
+                source="platform",
+            )
+
         # -------------------------------------------------------------------------
         # 1. Check for User's linked GitHub App for this project
         # -------------------------------------------------------------------------

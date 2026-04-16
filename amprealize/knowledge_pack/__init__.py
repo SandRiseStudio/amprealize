@@ -48,6 +48,12 @@ from amprealize.knowledge_pack.source_registry import (
     SourceRegistryError,
     SourceRegistryService,
 )
+from amprealize.knowledge_pack.storage import (
+    KnowledgePackStorage,
+    PackNotFoundError,
+    PackStorageError,
+    PackVersionExistsError,
+)
 
 __all__ = [
     "BehaviorFragment",
@@ -56,6 +62,7 @@ __all__ = [
     "ExtractionResult",
     "KnowledgePackArtifact",
     "KnowledgePackManifest",
+    "KnowledgePackStorage",
     "LintIssue",
     "OverlayClassifier",
     "OverlayFragment",
@@ -63,9 +70,12 @@ __all__ = [
     "PackBuilder",
     "PackBuildConfig",
     "PackConstraints",
+    "PackNotFoundError",
     "PackScope",
     "PackSource",
     "PackSourceType",
+    "PackStorageError",
+    "PackVersionExistsError",
     "PlaybookFragment",
     "RegisterSourceRequest",
     "Role",

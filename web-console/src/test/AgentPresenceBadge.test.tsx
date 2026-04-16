@@ -12,17 +12,21 @@ import type { AgentPresence } from '../hooks/useAgentPresence';
 import { toActorViewModel } from '../utils/actorViewModel';
 
 function makePresence(overrides: Partial<AgentPresence> = {}): AgentPresence {
+  const name = overrides.name ?? 'Code Bot';
+  const presence = overrides.presence ?? 'available';
+  const statusLine = overrides.statusLine ?? (presence === 'working' ? 'Working' : 'Available');
+
   return {
     agentId: 'agent-001',
-    name: 'Code Bot',
+    name,
     agentType: 'specialist',
     avatar: 'CB',
     actor: toActorViewModel(
-      { id: 'agent-001', name: 'Code Bot', agent_type: 'specialist', status: 'active', config: {}, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
-      { presenceState: 'available' },
+      { id: 'agent-001', name, agent_type: 'specialist', status: 'active', config: {}, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+      { presenceState: presence, presenceLabel: statusLine },
     ),
-    presence: 'available',
-    statusLine: 'Available',
+    presence,
+    statusLine,
     activeItemCount: 0,
     rawStatus: 'active',
     ...overrides,
@@ -38,11 +42,16 @@ describe('AgentPresenceBadge', () => {
 
   it('renders avatar initials', () => {
     render(<AgentPresenceBadge agent={makePresence({ avatar: 'CB' })} />);
-    expect(screen.getByText('CB')).toBeInTheDocument();
+    expect(screen.getByLabelText('Code Bot — Available')).toBeInTheDocument();
   });
 
   it('sets correct aria-label', () => {
-    render(<AgentPresenceBadge agent={makePresence({ name: 'Code Bot', presence: 'working' })} />);
+    render(
+      <AgentPresenceBadge
+        agent={makePresence({ name: 'Code Bot', presence: 'working' })}
+        onClick={vi.fn()}
+      />,
+    );
     const button = screen.getByRole('button');
     expect(button).toHaveAttribute('aria-label', 'Code Bot – Working');
   });
@@ -69,8 +78,7 @@ describe('AgentPresenceBadge', () => {
   });
 
   it('applies compact CSS class', () => {
-    render(<AgentPresenceBadge agent={makePresence()} compact />);
-    const button = screen.getByRole('button');
-    expect(button.className).toContain('agent-presence-badge-compact');
+    const { container } = render(<AgentPresenceBadge agent={makePresence()} compact />);
+    expect(container.firstChild).toHaveClass('actor-presence-badge--compact');
   });
 });

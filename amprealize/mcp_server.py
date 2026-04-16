@@ -52,6 +52,15 @@ from typing import Any, Dict, List, Literal, Optional, Set, TYPE_CHECKING, Union
 
 from .mcp_tools_dir import get_mcp_tools_directory
 
+# Apply active context DSN(s) to environment early, before any service reads
+# env vars. This ensures MCP server respects ``amprealize context use <name>``.
+try:
+    from .context import apply_context_to_environment as _apply_ctx
+    _apply_ctx(force=True)
+except Exception as _ctx_exc:
+    import sys as _sys
+    print(f"[mcp_server] context bridge failed: {_ctx_exc}", file=_sys.stderr)
+
 # Heavy service modules are imported lazily (inside methods that need them)
 # to keep MCP server startup fast (~0.5s instead of ~9s).
 if TYPE_CHECKING:
@@ -324,6 +333,15 @@ class MCPServiceRegistry:
         # Research service
         self._research_service: Optional[Any] = None
 
+        # Wiki service
+        self._wiki_service: Optional[Any] = None
+
+        # Whiteboard service
+        self._whiteboard_service: Optional[Any] = None
+
+        # Brainstorm bridge service
+        self._brainstorm_bridge_service: Optional[Any] = None
+
         # Conversation/messaging service
         self._conversation_service: Optional[Any] = None
 
@@ -562,6 +580,7 @@ class MCPServiceRegistry:
         """Get or create MetricsService singleton for MCP."""
         if self._metrics_service is None:
             from .utils.dsn import apply_host_overrides  # lazy
+            from .metrics_service import MetricsService
 
             dsn = apply_host_overrides(os.environ.get("AMPREALIZE_METRICS_PG_DSN"), "METRICS")
             if dsn:
@@ -569,19 +588,24 @@ class MCPServiceRegistry:
                     from .metrics_service_postgres import PostgresMetricsService
 
                     service = PostgresMetricsService(dsn=dsn)
-                    self._logger.info(
-                        "Initialized PostgresMetricsService for MCP with PostgreSQL backend"
-                    )
+                    try:
+                        service.get_summary(use_cache=False)
+                    except Exception as exc:
+                        self._logger.warning(
+                            "PostgresMetricsService probe failed for MCP; using in-memory MetricsService instead: %s",
+                            exc,
+                        )
+                        service = MetricsService()
+                    else:
+                        self._logger.info(
+                            "Initialized PostgresMetricsService for MCP with PostgreSQL backend"
+                        )
                 except ImportError:
-                    from .metrics_service import MetricsService
-
                     service = MetricsService()
                     self._logger.warning(
                         "Using in-memory MetricsService (PostgreSQL backend unavailable)"
                     )
             else:
-                from .metrics_service import MetricsService
-
                 service = MetricsService()
                 self._logger.info(
                     "Initialized MetricsService for MCP (in-memory mode, AMPREALIZE_METRICS_PG_DSN not set)"
@@ -860,7 +884,11 @@ class MCPServiceRegistry:
         return self._raze_service
 
     def organization_service(self) -> Any:
-        """Get or create OrganizationService singleton for MCP."""
+        """Get or create OrganizationService singleton for MCP.
+
+        Falls back to OSSProjectService when OrganizationService is not
+        available (OSS edition) or when orgs are not in use.
+        """
         if self._organization_service is None:
             from .multi_tenant.organization_service import OrganizationService
             from .utils.dsn import apply_host_overrides  # lazy
@@ -869,13 +897,21 @@ class MCPServiceRegistry:
                 os.environ.get("AMPREALIZE_ORG_PG_DSN") or os.environ.get("AMPREALIZE_MULTI_TENANT_PG_DSN") or os.environ.get("AMPREALIZE_PG_DSN"),
                 "ORG"
             )
-            if dsn:
-                service = OrganizationService(dsn=dsn)
-                self._logger.info("Initialized OrganizationService for MCP (PostgreSQL backend)")
+            fallback_dsn = dsn or "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dauth"
+
+            if OrganizationService is not None:
+                service = OrganizationService(dsn=dsn or fallback_dsn)
+                label = "OrganizationService"
             else:
-                # Fallback DSN for local development - include auth schema in search_path
-                service = OrganizationService(dsn="postgresql://amprealize:amprealize_dev@localhost:5432/amprealize?options=-csearch_path%3Dauth")
-                self._logger.warning("Using default OrganizationService DSN (AMPREALIZE_ORG_PG_DSN not set)")
+                # OSS: OrganizationService is not available — use lightweight project service
+                from .projects.service import OSSProjectService
+                service = OSSProjectService(dsn=fallback_dsn)
+                label = "OSSProjectService (OrganizationService not available)"
+
+            if dsn:
+                self._logger.info(f"Initialized {label} for MCP (PostgreSQL backend)")
+            else:
+                self._logger.warning(f"Using default DSN for {label} (AMPREALIZE_ORG_PG_DSN not set)")
             self._organization_service = service
         return self._organization_service
 
@@ -995,6 +1031,86 @@ class MCPServiceRegistry:
                 self._logger.info("Initialized ResearchService for MCP (SQLite backend)")
             self._research_service = service
         return self._research_service
+
+    def wiki_service(self) -> Any:
+        """Get or create WikiService singleton for MCP.
+
+        Used by research_wiki.*, infra_wiki.*, and ai_learning_wiki.* tools
+        for managing domain-scoped LLM wikis.
+        """
+        if self._wiki_service is None:
+            from .wiki_service import WikiService
+
+            # Wiki service operates on the repo filesystem
+            repo_root = os.environ.get("AMPREALIZE_REPO_ROOT", os.getcwd())
+            self._wiki_service = WikiService(repo_root=repo_root)
+            self._logger.info(f"Initialized WikiService for MCP (repo_root={repo_root})")
+        return self._wiki_service
+
+    def whiteboard_service(self) -> Any:
+        """Get or create WhiteboardService singleton for MCP.
+
+        Used by whiteboard.* tools for room management, canvas operations,
+        and snapshot export.
+        """
+        if self._whiteboard_service is None:
+            from whiteboard import WhiteboardService, InMemoryStorage
+            from .utils.dsn import resolve_optional_postgres_dsn  # lazy
+
+            dsn = resolve_optional_postgres_dsn(
+                service="WHITEBOARD",
+                explicit_dsn=os.environ.get("AMPREALIZE_WHITEBOARD_PG_DSN"),
+                env_var="AMPREALIZE_WHITEBOARD_PG_DSN",
+            )
+            if dsn:
+                from .storage.postgres_pool import PostgresPool
+                from .storage.whiteboard_postgres import PostgresWhiteboardStorage
+
+                pool = PostgresPool(dsn, service_name="whiteboard")
+                postgres_storage = PostgresWhiteboardStorage(pool=pool)
+                try:
+                    postgres_storage.ensure_schema_ready()
+                    storage = postgres_storage
+                    self._logger.info("Initialized WhiteboardService for MCP (PostgreSQL backend)")
+                except Exception as exc:
+                    storage = InMemoryStorage()
+                    self._logger.warning(
+                        "Whiteboard PostgreSQL storage unavailable for MCP (%s); falling back to InMemoryStorage",
+                        exc,
+                    )
+            else:
+                storage = InMemoryStorage()
+                self._logger.info("WhiteboardService using InMemoryStorage for MCP (no DSN)")
+
+            hooks = None
+            try:
+                from .services.whiteboard_hooks import AmprealizeWhiteboardHooks
+                hooks = AmprealizeWhiteboardHooks(raze_service=self.raze_service)
+            except Exception:
+                self._logger.debug("Whiteboard Raze hooks unavailable", exc_info=True)
+
+            self._whiteboard_service = WhiteboardService(
+                storage=storage,
+                hooks=hooks,
+            )
+        return self._whiteboard_service
+
+    def brainstorm_bridge_service(self) -> Any:
+        """Get or create BrainstormBridge singleton for MCP."""
+        if self._brainstorm_bridge_service is None:
+            from .services.brainstorm_bridge import BrainstormBridge
+
+            base_url = os.environ.get("AMPREALIZE_BASE_URL", "http://localhost:8080")
+            sync_base_url = os.environ.get("AMPREALIZE_WHITEBOARD_SYNC_URL")
+            console_base_url = os.environ.get("AMPREALIZE_CONSOLE_URL", "http://localhost:5173")
+            self._brainstorm_bridge_service = BrainstormBridge(
+                whiteboard_service=self.whiteboard_service(),
+                base_url=base_url,
+                sync_base_url=sync_base_url,
+                console_base_url=console_base_url,
+            )
+            self._logger.info("Initialized BrainstormBridge for MCP")
+        return self._brainstorm_bridge_service
 
     def conversation_service(self) -> Any:
         """Get or create ConversationService singleton for MCP.
@@ -1155,7 +1271,12 @@ class MCPServer:
         self._rate_limiter = MCPRateLimiter()
         # Only create distributed limiter when rate limiting is enabled
         _rl_enabled = os.environ.get("MCP_RATE_LIMIT_ENABLED", "true").lower() not in ("false", "0", "no", "off")
-        self._distributed_rate_limiter = DistributedRateLimiter() if _rl_enabled else None  # Phase 5: Redis-backed
+        distributed_key_prefix = os.environ.get("AMPREALIZE_MCP_RATE_LIMIT_KEY_PREFIX")
+        if distributed_key_prefix is None and "PYTEST_CURRENT_TEST" in os.environ:
+            distributed_key_prefix = f"mcp:ratelimit:test:{os.getpid()}:{id(self)}"
+        self._distributed_rate_limiter = (
+            DistributedRateLimiter(key_prefix=distributed_key_prefix) if _rl_enabled else None
+        )  # Phase 5: Redis-backed
         self._client_id: Optional[str] = None  # Set during initialize
 
         # Connection stability (Epic 6 - MCP Server Stability)
@@ -1211,13 +1332,21 @@ class MCPServer:
             )
             self._device_flow_handler = MCPDeviceFlowHandler(service=device_flow_service)
 
-            # Session restore can touch DB/keychain and block in constrained environments.
-            # Keep it opt-in so public auth/context tools return promptly.
-            self._restore_session_on_startup = os.environ.get("MCP_RESTORE_SESSION_ON_STARTUP", "false").lower() == "true"
-            if self._restore_session_on_startup:
-                self._try_restore_session_from_tokens()
+            # --- Session bootstrap priority ---
+            # 1. AMPREALIZE_ACCESS_TOKEN env var (MCP spec §Authorization:
+            #    stdio transports SHOULD retrieve credentials from the environment)
+            # 2. Stored tokens (opt-in via MCP_RESTORE_SESSION_ON_STARTUP)
+            _env_access_token = os.environ.get("AMPREALIZE_ACCESS_TOKEN")
+            if _env_access_token:
+                self._bootstrap_session_from_env_token(_env_access_token)
             else:
-                self._logger.info("Skipping session restore on startup (MCP_RESTORE_SESSION_ON_STARTUP=false)")
+                # Session restore can touch DB/keychain and block in constrained environments.
+                # Keep it opt-in so public auth/context tools return promptly.
+                self._restore_session_on_startup = os.environ.get("MCP_RESTORE_SESSION_ON_STARTUP", "false").lower() == "true"
+                if self._restore_session_on_startup:
+                    self._try_restore_session_from_tokens()
+                else:
+                    self._logger.info("Skipping session restore on startup (MCP_RESTORE_SESSION_ON_STARTUP=false)")
         except ImportError as e:
             self._logger.error(f"Failed to import device flow handler: {e}")
             self._device_flow_handler = None
@@ -1878,7 +2007,9 @@ class MCPServer:
         session_context = getattr(self, "_session_context", None)
 
         # Check if tool requires authentication
-        if internal_tool_name not in PUBLIC_TOOLS:
+        # MCP_REQUIRE_AUTH=false disables the gate for local development.
+        _require_auth = os.environ.get("MCP_REQUIRE_AUTH", "true").lower() not in ("false", "0", "no", "off")
+        if _require_auth and internal_tool_name not in PUBLIC_TOOLS:
             self._logger.debug(f"[{trace_id}] AUTH_CHECK: tool requires authentication")
             if session_context is not None and not session_context.is_authenticated:
                 self._logger.warning(f"[{trace_id}] AUTH_FAIL: Unauthenticated call to {internal_tool_name}")
@@ -2959,13 +3090,13 @@ class MCPServer:
                 adapter = MCPAnalyticsServiceAdapter(service=service)
 
                 if internal_tool_name == "analytics.kpiSummary":
-                    result = adapter.kpi_summary(tool_params or {})
+                    result = await adapter.kpi_summary(tool_params or {})
                 elif internal_tool_name == "analytics.behaviorUsage":
-                    result = adapter.behavior_usage(tool_params or {})
+                    result = await adapter.behavior_usage(tool_params or {})
                 elif internal_tool_name == "analytics.tokenSavings":
-                    result = adapter.token_savings(tool_params or {})
+                    result = await adapter.token_savings(tool_params or {})
                 elif internal_tool_name == "analytics.complianceCoverage":
-                    result = adapter.compliance_coverage(tool_params or {})
+                    result = await adapter.compliance_coverage(tool_params or {})
                 else:
                     return self._error_response(
                         request_id,
@@ -3993,7 +4124,7 @@ class MCPServer:
         if internal_tool_name.startswith("board."):
             try:
                 from .services.board_service import Actor, BoardService
-                from .multi_tenant.board_contracts import (
+                from .boards.contracts import (
                     CreateLabelRequest,
                     LabelColor,
                     UpdateLabelRequest,
@@ -4199,6 +4330,90 @@ class MCPServer:
                     request_id,
                     self.INTERNAL_ERROR,
                     f"Columns tool execution failed: {str(e)}",
+                )
+
+        # Handle whiteboard.* tools (room management, canvas ops, export)
+        if internal_tool_name.startswith("whiteboard."):
+            if not os.getenv("AMPREALIZE_ENABLE_WHITEBOARD", "").lower() in ("true", "1", "yes"):
+                return self._error_response(
+                    request_id,
+                    self.INVALID_REQUEST,
+                    "Whiteboard feature is disabled. Set AMPREALIZE_ENABLE_WHITEBOARD=true to enable.",
+                )
+            try:
+                from .mcp.handlers.whiteboard_handlers import WHITEBOARD_HANDLERS
+
+                handler = WHITEBOARD_HANDLERS.get(internal_tool_name)
+                if not handler:
+                    return self._error_response(
+                        request_id,
+                        self.METHOD_NOT_FOUND,
+                        f"Unknown whiteboard tool: {internal_tool_name}",
+                    )
+
+                whiteboard_service = self._services.whiteboard_service()
+                enriched_params = self._inject_session_context(tool_params)
+                result = await asyncio.to_thread(handler, whiteboard_service, enriched_params)
+
+                mcp_result = {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(result, indent=2),
+                        }
+                    ]
+                }
+
+                return self._success_response(request_id, mcp_result)
+
+            except Exception as e:
+                self._logger.error(f"Whiteboard tool execution failed: {e}", exc_info=True)
+                return self._error_response(
+                    request_id,
+                    self.INTERNAL_ERROR,
+                    f"Whiteboard tool execution failed: {str(e)}",
+                )
+
+        # Handle brainstorm.* tools (brainstorm ↔ whiteboard bridge)
+        if internal_tool_name.startswith("brainstorm."):
+            if not os.getenv("AMPREALIZE_ENABLE_WHITEBOARD", "").lower() in ("true", "1", "yes"):
+                return self._error_response(
+                    request_id,
+                    self.INVALID_REQUEST,
+                    "Brainstorm whiteboard feature is disabled. Set AMPREALIZE_ENABLE_WHITEBOARD=true to enable.",
+                )
+            try:
+                from .mcp.handlers.brainstorm_handlers import BRAINSTORM_HANDLERS
+
+                handler = BRAINSTORM_HANDLERS.get(internal_tool_name)
+                if not handler:
+                    return self._error_response(
+                        request_id,
+                        self.METHOD_NOT_FOUND,
+                        f"Unknown brainstorm tool: {internal_tool_name}",
+                    )
+
+                brainstorm_bridge = self._services.brainstorm_bridge_service()
+                enriched_params = self._inject_session_context(tool_params)
+                result = await asyncio.to_thread(handler, brainstorm_bridge, enriched_params)
+
+                mcp_result = {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(result, indent=2),
+                        }
+                    ]
+                }
+
+                return self._success_response(request_id, mcp_result)
+
+            except Exception as e:
+                self._logger.error(f"Brainstorm tool execution failed: {e}", exc_info=True)
+                return self._error_response(
+                    request_id,
+                    self.INTERNAL_ERROR,
+                    f"Brainstorm tool execution failed: {str(e)}",
                 )
 
         # Handle workItems.* tools (work item management and execution)
@@ -4506,6 +4721,42 @@ class MCPServer:
                     request_id,
                     self.INTERNAL_ERROR,
                     f"Research tool execution failed: {str(e)}",
+                )
+
+        # Handle wiki tools (research_wiki.*, infra_wiki.*, ai_learning_wiki.*, wiki.*)
+        if internal_tool_name.startswith(("research_wiki.", "infra_wiki.", "ai_learning_wiki.", "wiki.")):
+            try:
+                from .mcp.handlers.wiki_handlers import WIKI_HANDLERS
+
+                handler = WIKI_HANDLERS.get(internal_tool_name)
+                if not handler:
+                    return self._error_response(
+                        request_id,
+                        self.METHOD_NOT_FOUND,
+                        f"Unknown wiki tool: {internal_tool_name}",
+                    )
+
+                service = self._services.wiki_service()
+                enriched_params = self._inject_session_context(tool_params)
+                result = await handler(service=service, params=enriched_params)
+
+                mcp_result = {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(result, indent=2, default=str),
+                        }
+                    ]
+                }
+
+                return self._success_response(request_id, mcp_result)
+
+            except Exception as e:
+                self._logger.error(f"Wiki tool execution failed: {e}", exc_info=True)
+                return self._error_response(
+                    request_id,
+                    self.INTERNAL_ERROR,
+                    f"Wiki tool execution failed: {str(e)}",
                 )
 
         # Handle conversations.* and messages.* tools (messaging system)
@@ -4832,6 +5083,60 @@ class MCPServer:
             f"scopes={self._session_context.granted_scopes}"
         )
 
+    def _bootstrap_session_from_env_token(self, token: str) -> None:
+        """Bootstrap session from AMPREALIZE_ACCESS_TOKEN environment variable.
+
+        Per MCP Authorization spec (2025-11-25), stdio transports "SHOULD NOT
+        follow [the OAuth authorization] specification, and instead retrieve
+        credentials from the environment."  This method enables that pattern
+        for CI/CD pipelines, headless runners, and pre-authenticated sessions.
+
+        Optional companion env vars:
+          - AMPREALIZE_USER_ID: User identity (skips token introspection).
+          - AMPREALIZE_ACCESS_TOKEN_TTL_SECONDS: Token lifetime (default 3600).
+        """
+        from datetime import datetime, timedelta
+
+        ttl = int(os.environ.get("AMPREALIZE_ACCESS_TOKEN_TTL_SECONDS", "3600"))
+
+        # Resolve user identity: explicit env var > JWT sub claim > None
+        user_id = os.environ.get("AMPREALIZE_USER_ID")
+        if not user_id:
+            user_id = self._try_extract_jwt_subject(token)
+
+        self._session_context.user_id = self._resolve_user_id(user_id) if user_id else None
+        self._session_context.auth_method = "device_flow"  # compatible with is_authenticated
+        self._session_context.authenticated_at = datetime.utcnow()
+        self._session_context.expires_at = datetime.utcnow() + timedelta(seconds=ttl)
+        self._session_context.granted_scopes = set()  # populated by authorization context
+
+        self._logger.info(
+            f"Session bootstrapped from AMPREALIZE_ACCESS_TOKEN: "
+            f"user_id={self._session_context.user_id}, expires_in={ttl}s"
+        )
+        self._populate_authorization_context()
+
+    @staticmethod
+    def _try_extract_jwt_subject(token: str) -> Optional[str]:
+        """Best-effort extraction of 'sub' or 'email' from a JWT payload.
+
+        Does NOT verify the token signature — that is the responsibility of
+        the backend services that receive the token.  This is used only to
+        populate the session context for authorization lookups.
+        """
+        import base64
+
+        try:
+            parts = token.split(".")
+            if len(parts) != 3:
+                return None
+            # Decode the payload (second segment), adding padding
+            payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+            return payload.get("sub") or payload.get("email")
+        except Exception:
+            return None
+
     def _try_restore_session_from_tokens(self) -> None:
         """Try to restore session from stored tokens on startup.
 
@@ -4960,24 +5265,21 @@ class MCPServer:
 
         # Populate accessible orgs and projects from database
         try:
-            org_service = self._services.organization_service()
+            svc = self._services.organization_service()
 
-            # Get orgs user belongs to
-            user_orgs = org_service.list_user_organizations(user_id=self._session_context.user_id)
-            self._session_context.accessible_org_ids = {org.id for org in user_orgs}
+            # Orgs are optional (enterprise-only, and even then not required).
+            # OSSProjectService won't have list_user_organizations.
+            if hasattr(svc, "list_user_organizations"):
+                user_orgs = svc.list_user_organizations(user_id=self._session_context.user_id)
+                self._session_context.accessible_org_ids = {org.id for org in user_orgs}
+            else:
+                self._session_context.accessible_org_ids = set()
 
-            # Get projects user can access (calls list_projects without org_id)
-            # This returns user-owned projects + org projects
-            from .mcp.handlers.project_handlers import handle_list_projects
-            result = handle_list_projects(
-                project_service=org_service,
-                org_service=org_service,
-                arguments={"user_id": self._session_context.user_id}
-            )
-            if result.get("success"):
-                self._session_context.accessible_project_ids = {
-                    p["id"] for p in result.get("projects", [])
-                }
+            # Get projects user can access — call service directly (sync).
+            projects = svc.list_projects(owner_id=self._session_context.user_id)
+            self._session_context.accessible_project_ids = {
+                p.id for p in projects
+            }
 
             self._logger.debug(
                 f"Authorization context populated: "
@@ -5530,6 +5832,9 @@ class MCPServer:
                     # Refresh tools dict
                     self._tools = self._lazy_loader.get_active_tools()
                     self._tool_scopes = self._lazy_loader.get_tool_scopes()
+                    # Notify client that tool list changed (MCP spec)
+                    if tools_loaded > 0:
+                        self._send_notification("notifications/tools/list_changed", {})
 
                 return {
                     "success": success,
@@ -5554,6 +5859,8 @@ class MCPServer:
                     # Refresh tools dict
                     self._tools = self._lazy_loader.get_active_tools()
                     self._tool_scopes = self._lazy_loader.get_tool_scopes()
+                    # Notify client that tool list changed (MCP spec)
+                    self._send_notification("notifications/tools/list_changed", {})
 
                 return {
                     "success": success,
@@ -6178,7 +6485,7 @@ class MCPServer:
         """Get the AsyncPermissionService if available."""
         try:
             # Try to get from services registry
-            from .multi_tenant.permissions import AsyncPermissionService
+            from .tenant.permissions import AsyncPermissionService
 
             dsn = os.environ.get("AMPREALIZE_AUTH_PG_DSN")
             if dsn:

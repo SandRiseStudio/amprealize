@@ -16,10 +16,10 @@
  * - behavior_update_docs_after_changes (Student)
  */
 
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShellTitle } from './workspace/useShell';
-import { useBoards } from '../api/boards';
+import { useBoardsMultiProject, type Board } from '../api/boards';
 import { orgContextStore, useOrgContext } from '../store/orgContextStore';
 import {
   useDashboardStats,
@@ -31,7 +31,7 @@ import {
   type Run,
   type AgentStatus,
 } from '../api/dashboard';
-import { useProjectAgents } from '../api/agentRegistry';
+import { useAllProjectAgents, useVisibleProjectAgentPresence } from '../api/agentRegistry';
 import { useAgentPresence } from '../hooks/useAgentPresence';
 import type { AgentPresence } from '../hooks/useAgentPresence';
 import { ActorAvatar } from './actors/ActorAvatar';
@@ -53,6 +53,7 @@ import {
   PERSONAL_SCOPE_SELECTED_HINT,
   PERSONAL_SCOPE_SHORT_HINT,
 } from '../copy/scopeLabels';
+import { razeLog } from '../telemetry/raze';
 import './Dashboard.css';
 
 // ---------------------------------------------------------------------------
@@ -200,14 +201,14 @@ const WorkspaceCard = memo(function WorkspaceCard({
 
 interface ProjectCardProps {
   project: Project;
+  boards: Board[];
   onOpenProject: () => void;
   onOpenBoard: (boardId: string) => void;
   agentAvatars?: AgentPresence[];
   agentSummaryLine?: string;
 }
 
-const ProjectCard = memo(function ProjectCard({ project, onOpenProject, onOpenBoard, agentAvatars, agentSummaryLine }: ProjectCardProps) {
-  const { data: boards = [] } = useBoards(project.id);
+const ProjectCard = memo(function ProjectCard({ project, boards, onOpenProject, onOpenBoard, agentAvatars, agentSummaryLine }: ProjectCardProps) {
   const relativeTime = getRelativeTime(project.updated_at);
 
   // Smart-open: if exactly one board, go there; otherwise project overview
@@ -270,6 +271,7 @@ const ProjectCard = memo(function ProjectCard({ project, onOpenProject, onOpenBo
 
 interface ContinueWorkingCardProps {
   project: Project;
+  boards: Board[];
   onOpenProject: () => void;
   onOpenSettings: () => void;
   onOpenBoard: (boardId: string) => void;
@@ -277,11 +279,11 @@ interface ContinueWorkingCardProps {
 
 const ContinueWorkingCard = memo(function ContinueWorkingCard({
   project,
+  boards,
   onOpenProject,
   onOpenSettings,
   onOpenBoard,
 }: ContinueWorkingCardProps) {
-  const { data: boards = [] } = useBoards(project.id);
   const primaryBoard = useMemo(
     () => boards.find((board) => board.is_default) ?? boards[0],
     [boards]
@@ -560,6 +562,7 @@ function getRunDestination(run: Run): { path: string; label: string } | null {
 
 interface PersonalizedActionsProps {
   featuredProject?: Project;
+  featuredBoards: Board[];
   recentRuns: Run[];
   runningRuns: number;
   hasAgents: boolean;
@@ -569,13 +572,13 @@ interface PersonalizedActionsProps {
 
 function PersonalizedActions({
   featuredProject,
+  featuredBoards,
   recentRuns,
   runningRuns,
   hasAgents,
   newProjectPath,
   onNavigate,
 }: PersonalizedActionsProps) {
-  const { data: featuredBoards = [] } = useBoards(featuredProject?.id);
   const primaryBoard = useMemo(
     () => featuredBoards.find((board) => board.is_default) ?? featuredBoards[0],
     [featuredBoards]
@@ -770,10 +773,26 @@ export function Dashboard() {
   const navigate = useNavigate();
   const { currentOrgId } = useOrgContext();
   const [projectSortMode, setProjectSortMode] = useState<ProjectSortMode>(() => loadProjectSortPreference());
+  const [agentPanelEnabled, setAgentPanelEnabled] = useState(false);
+  const dashboardPerfStartedAtRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const dashboardPerfFlagsRef = useRef<{ chrome?: string; agentPanel?: string }>({});
+  const scopePerfKey = currentOrgId ?? 'personal';
 
   useEffect(() => {
     saveProjectSortPreference(projectSortMode);
   }, [projectSortMode]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setAgentPanelEnabled(true);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    dashboardPerfStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    dashboardPerfFlagsRef.current = {};
+  }, [scopePerfKey]);
 
   // API hooks
   const { data: stats, isLoading: statsLoading } = useDashboardStats();
@@ -790,7 +809,7 @@ export function Dashboard() {
     isLoading: agentsLoading,
     isFetching: agentsFetching,
     isError: agentsError,
-  } = useProjectAgents(true);
+  } = useAllProjectAgents({ enabled: agentPanelEnabled });
   const {
     data: recentRuns = [],
     isLoading: runsLoading,
@@ -814,45 +833,22 @@ export function Dashboard() {
   const scopedAgents = agents;
   const { presences: allPresences } = useAgentPresence(agents);
 
-  /** Per-project presence lookup: projectId → first 3 presences + summary line */
-  const projectPresenceMap = useMemo(() => {
-    const map = new Map<string, { avatars: AgentPresence[]; summaryLine: string }>();
-    const byProject = new Map<string, AgentPresence[]>();
-    for (const p of allPresences) {
-      // Match back to original agent to get project_id
-      const agent = agents.find((a) => {
-        const rid = (a.config?.registry_agent_id as string) || a.id;
-        return rid === p.agentId;
-      });
-      if (!agent?.project_id) continue;
-      const list = byProject.get(agent.project_id) ?? [];
-      list.push(p);
-      byProject.set(agent.project_id, list);
-    }
-    for (const [pid, presences] of byProject) {
-      const working = presences.filter((p) => p.presence === 'working').length;
-      const available = presences.filter((p) => p.presence === 'available').length;
-      let summaryLine: string;
-      if (working > 0) summaryLine = `${working} agent${working > 1 ? 's' : ''} working now`;
-      else if (available > 0) summaryLine = `${presences.length} assigned · ${available} available`;
-      else summaryLine = `${presences.length} assigned`;
-      map.set(pid, { avatars: presences.slice(0, 3), summaryLine });
-    }
-    return map;
-  }, [agents, allPresences]);
-
   const scopedStats = useMemo(() => {
     if (!stats) return undefined;
-    const activeAgents = scopedAgents.filter((agent) => agent.status === 'active').length;
-    const busyAgents = scopedAgents.filter((agent) => agent.status === 'busy').length;
+    const activeAgents = agentPanelEnabled
+      ? scopedAgents.filter((agent) => agent.status === 'active').length
+      : stats.active_agents;
+    const busyAgents = agentPanelEnabled
+      ? scopedAgents.filter((agent) => agent.status === 'busy').length
+      : stats.busy_agents;
     return {
       ...stats,
       total_projects: projects.length,
-      total_agents: scopedAgents.length,
+      total_agents: agentPanelEnabled ? scopedAgents.length : stats.total_agents,
       active_agents: activeAgents,
       busy_agents: busyAgents,
     };
-  }, [projects, scopedAgents, stats]);
+  }, [agentPanelEnabled, projects, scopedAgents, stats]);
 
   const prioritizedProjects = useMemo(() => {
     if (projectSortMode === 'activity') {
@@ -877,13 +873,27 @@ export function Dashboard() {
     () => prioritizedProjects[0],
     [prioritizedProjects]
   );
+  const visibleProjectIds = useMemo(() => {
+    const ids = new Set(displayedProjects.map((project) => project.id));
+    if (featuredProject) {
+      ids.add(featuredProject.id);
+    }
+    return [...ids];
+  }, [displayedProjects, featuredProject]);
+  const {
+    data: visibleProjectPresence,
+  } = useVisibleProjectAgentPresence(visibleProjectIds, {
+    enabled: visibleProjectIds.length > 0,
+  });
+  const { data: boardsByProject } = useBoardsMultiProject(visibleProjectIds);
   const displayedAgents = scopedAgents.slice(0, 5);
   const showProjectsLoading = projectsLoading
     || (projectsFetching && projects.length === 0)
     || (projectsError && projects.length === 0);
   const showAgentsLoading = agentsLoading
     || (agentsFetching && scopedAgents.length === 0)
-    || (agentsError && scopedAgents.length === 0);
+    || (agentsError && scopedAgents.length === 0)
+    || !agentPanelEnabled;
   const showRunsLoading = runsLoading
     || (runsFetching && recentRuns.length === 0)
     || (runsError && recentRuns.length === 0);
@@ -898,6 +908,34 @@ export function Dashboard() {
   const handleProjectsRetry = useCallback(() => {
     refetchProjects();
   }, [refetchProjects]);
+
+  useEffect(() => {
+    if (showProjectsLoading || !scopedStats) return;
+    if (dashboardPerfFlagsRef.current.chrome === scopePerfKey) return;
+    dashboardPerfFlagsRef.current.chrome = scopePerfKey;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    void razeLog('INFO', 'dashboard.chrome_ready', {
+      scope: currentOrgId ? 'org' : 'personal',
+      org_id: currentOrgId ?? null,
+      project_count: projects.length,
+      visible_project_count: visibleProjectIds.length,
+      elapsed_ms: Math.round(now - dashboardPerfStartedAtRef.current),
+    });
+  }, [currentOrgId, projects.length, scopedStats, scopePerfKey, showProjectsLoading, visibleProjectIds.length]);
+
+  useEffect(() => {
+    if (!agentPanelEnabled || showAgentsLoading) return;
+    if (dashboardPerfFlagsRef.current.agentPanel === scopePerfKey) return;
+    dashboardPerfFlagsRef.current.agentPanel = scopePerfKey;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    void razeLog('INFO', 'dashboard.agent_panel_ready', {
+      scope: currentOrgId ? 'org' : 'personal',
+      org_id: currentOrgId ?? null,
+      total_agents: scopedAgents.length,
+      displayed_agents: displayedAgents.length,
+      elapsed_ms: Math.round(now - dashboardPerfStartedAtRef.current),
+    });
+  }, [agentPanelEnabled, currentOrgId, displayedAgents.length, scopedAgents.length, scopePerfKey, showAgentsLoading]);
 
   useShellTitle('Home');
 
@@ -968,6 +1006,7 @@ export function Dashboard() {
         {featuredProject && (
           <ContinueWorkingCard
             project={featuredProject}
+            boards={boardsByProject.get(featuredProject.id) ?? []}
             onOpenProject={() => handleProjectClick(featuredProject)}
             onOpenSettings={() => navigate(`/projects/${featuredProject.id}/settings`)}
             onOpenBoard={(boardId) => navigate(`/projects/${featuredProject.id}/boards/${boardId}`)}
@@ -1076,17 +1115,18 @@ export function Dashboard() {
                 </>
               ) : displayedProjects.length > 0 ? (
                 displayedProjects.map((project) => {
-                  const presence = projectPresenceMap.get(project.id);
-                  return (
-                    <ProjectCard
-                      key={project.id}
-                      project={project}
-                      onOpenProject={() => handleProjectClick(project)}
-                      onOpenBoard={(boardId) => navigate(`/projects/${project.id}/boards/${boardId}`)}
-                      agentAvatars={presence?.avatars}
-                      agentSummaryLine={presence?.summaryLine}
-                    />
-                  );
+                      const presence = visibleProjectPresence.get(project.id);
+                      return (
+                        <ProjectCard
+                          key={project.id}
+                          project={project}
+                          boards={boardsByProject.get(project.id) ?? []}
+                          onOpenProject={() => handleProjectClick(project)}
+                          onOpenBoard={(boardId) => navigate(`/projects/${project.id}/boards/${boardId}`)}
+                          agentAvatars={presence?.agents.slice(0, 3)}
+                          agentSummaryLine={presence?.summaryLine}
+                        />
+                      );
                 })
               ) : (
                 <EmptyState
@@ -1171,6 +1211,7 @@ export function Dashboard() {
             <div className="quick-actions-list">
               <PersonalizedActions
                 featuredProject={featuredProject}
+                featuredBoards={featuredProject ? boardsByProject.get(featuredProject.id) ?? [] : []}
                 recentRuns={recentRuns}
                 runningRuns={stats?.running_runs ?? 0}
                 hasAgents={scopedAgents.length > 0}

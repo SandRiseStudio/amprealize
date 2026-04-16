@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 # NOTE: Organization, OrgMembership, Invitation are Pydantic models - use .model_dump() not asdict()
 
 from ...multi_tenant.organization_service import OrganizationService
-from ...multi_tenant.contracts import (
+from ...projects.contracts import (
     Organization,
     OrgMembership,
     OrgPlan,

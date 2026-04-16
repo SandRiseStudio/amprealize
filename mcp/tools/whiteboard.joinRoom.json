@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "whiteboard.joinRoom",
+  "description": "Join an existing whiteboard room as a participant. Returns the current room state including canvas data.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "room_id": {
+        "type": "string",
+        "description": "ID of the whiteboard room to join"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "User ID of the participant joining (optional, uses session)"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "room": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "string" },
+          "participant_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "canvas_state": { "type": "object" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

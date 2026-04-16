@@ -212,6 +212,7 @@ class ModulesConfig(BaseModel):
     agents: bool = False
     behaviors: bool = False
     collaboration: bool = False  # Enterprise-only (Starter+)
+    whiteboard: bool = False
 
     @field_validator("goals", mode="before")
     @classmethod

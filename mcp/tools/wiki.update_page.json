@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "wiki.update_page",
+  "description": "Update an existing wiki page. Can append to or replace the body, and/or update frontmatter fields. Returns lint warnings for the domain after the update.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "domain": {
+        "type": "string",
+        "enum": ["research", "infra", "ai-learning"],
+        "description": "Wiki domain"
+      },
+      "page_path": {
+        "type": "string",
+        "description": "Path relative to wiki/<domain>/"
+      },
+      "body_additions": {
+        "type": "string",
+        "description": "Text to append to the page body (or replace if replace_body is true)"
+      },
+      "frontmatter_updates": {
+        "type": "object",
+        "description": "Frontmatter fields to update (merged with existing)"
+      },
+      "replace_body": {
+        "type": "boolean",
+        "description": "If true, replace body entirely instead of appending (default: false)",
+        "default": false
+      }
+    },
+    "required": ["domain", "page_path"]
+  }
+}

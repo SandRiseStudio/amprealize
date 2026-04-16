@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from amprealize.auth.credential_encryption import CredentialEncryptionService
 from amprealize.auth.github_credential_repository import (
     GitHubCredentialRepository,
     GitHubCredential,
@@ -319,6 +320,37 @@ class TestGitHubCredentialStore:
 
                     assert result is not None
                     assert result[0] == "ghp_gh_token"
+
+    def test_shell_style_byok_default_does_not_block_platform_token(self):
+        """Shell-style BYOK placeholders should not break platform-token resolution."""
+        with patch.dict(
+            os.environ,
+            {
+                "GITHUB_TOKEN": "ghp_platform_token",
+                "BYOK_ENCRYPTION_KEY": "${BYOK_ENCRYPTION_KEY:-F8mx5M0oI4byBM353Yu5dtcz8d4AxlEKl1cBf2FW0Y4=}",
+            },
+            clear=False,
+        ):
+            store = GitHubCredentialStore(pool=None)
+            result = store.get_token()
+
+            assert result is not None
+            assert result[0] == "ghp_platform_token"
+            assert result[1] == "platform"
+
+    def test_credential_encryption_resolves_shell_default_placeholder(self):
+        """CredentialEncryptionService should resolve ${VAR:-default} placeholders."""
+        with patch.dict(
+            os.environ,
+            {
+                "BYOK_ENCRYPTION_KEY": "${BYOK_ENCRYPTION_KEY:-F8mx5M0oI4byBM353Yu5dtcz8d4AxlEKl1cBf2FW0Y4=}"
+            },
+            clear=True,
+        ):
+            service = CredentialEncryptionService()
+            ciphertext = service.encrypt("secret-token")
+
+            assert service.decrypt(ciphertext) == "secret-token"
 
     def test_no_token_available(self):
         """Returns None when no token is available."""

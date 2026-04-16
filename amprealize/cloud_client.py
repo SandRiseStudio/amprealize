@@ -1,17 +1,15 @@
-"""Cloud client — OSS stub (Pattern 3: raise on call).
+"""Cloud client — OSS stub (raise on call).
 
-The real authenticated HTTP client to Amprealize.io lives in
-``amprealize_enterprise.cloud_client``. This stub raises a clear
-``ImportError`` when any method is called in the OSS edition.
-
-Part of Phase 1 of GUIDEAI-619 (Modular Installation System v3).
+The real authenticated HTTP client to Amprealize.io lives in the
+enterprise fork.  This stub raises a clear ``ImportError`` when any
+method is called in the OSS edition.
 """
 
 from __future__ import annotations
 
 _ENTERPRISE_MSG = (
-    "Cloud deployment requires amprealize-enterprise. "
-    "Install with: pip install amprealize-enterprise"
+    "Cloud deployment requires the enterprise edition. "
+    "See https://amprealize.io/enterprise for details."
 )
 
 
@@ -48,7 +46,7 @@ class CloudClient:
 
 
 # ---------------------------------------------------------------------------
-# Factory — tries enterprise first, falls back to stub
+# Factory — always returns OSS stub (enterprise fork overrides this module)
 # ---------------------------------------------------------------------------
 
 
@@ -57,13 +55,7 @@ def get_cloud_client(
 ) -> CloudClient:
     """Return the cloud client.
 
-    Tries to import the real client from ``amprealize_enterprise``.
-    Falls back to the OSS stub that raises on any method call.
+    In the OSS edition this always returns the stub that raises on any
+    method call.  The enterprise fork replaces this module entirely.
     """
-    try:
-        from amprealize_enterprise.cloud_client import (  # type: ignore[import-not-found]
-            CloudClient as EnterpriseCloudClient,
-        )
-        return EnterpriseCloudClient(cloud_url=cloud_url)
-    except ImportError:
-        return CloudClient(cloud_url=cloud_url)
+    return CloudClient(cloud_url=cloud_url)

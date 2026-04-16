@@ -9,9 +9,15 @@ Following MCP best practices:
 Tool groups are loaded dynamically based on context, keeping the active tool count < 128.
 """
 
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Set
+
+
+def _whiteboard_enabled() -> bool:
+    """Check if the whiteboard/brainstorm feature is enabled via env var."""
+    return os.getenv("AMPREALIZE_ENABLE_WHITEBOARD", "").lower() in ("true", "1", "yes")
 
 
 class ToolGroupId(str, Enum):
@@ -36,6 +42,7 @@ class ToolGroupId(str, Enum):
     BILLING = "billing"
     KNOWLEDGE_PACKS = "knowledge_packs"
     RESEARCH = "research"
+    WIKI = "wiki"
 
 
 @dataclass
@@ -99,6 +106,9 @@ CORE_TOOLS: Set[str] = {
     "runs.get",
     "runs.create",
 
+    # Whiteboard + brainstorm basics (conditionally included when feature is enabled)
+    # See _whiteboard_enabled() — tools are added dynamically below.
+
     # Context management
     "context.getContext",
     "context.setOrg",
@@ -110,12 +120,43 @@ CORE_TOOLS: Set[str] = {
     "research.search",
     "research.list",
 
+    # Wiki tools (query, status, and CRUD always available)
+    "research_wiki.query",
+    "research_wiki.status",
+    "research_wiki.ingest",
+    "infra_wiki.query",
+    "infra_wiki.status",
+    "infra_wiki.ingest",
+    "ai_learning_wiki.query",
+    "ai_learning_wiki.explain",
+    "ai_learning_wiki.status",
+    "ai_learning_wiki.ingest",
+    "ai_learning_wiki.path",
+    "wiki.create_page",
+    "wiki.read_page",
+    "wiki.update_page",
+    "wiki.delete_page",
+    "wiki.list_pages",
+
     # Tool group activation (meta-tools)
     "tools.listGroups",
     "tools.activateGroup",
     "tools.deactivateGroup",
     "tools.activeGroups",
 }
+
+# Conditionally include whiteboard + brainstorm tools when the feature is enabled
+if _whiteboard_enabled():
+    CORE_TOOLS |= {
+        "whiteboard.createRoom",
+        "whiteboard.readCanvas",
+        "whiteboard.addShape",
+        "whiteboard.annotate",
+        "brainstorm.openWhiteboard",
+        "brainstorm.addIdea",
+        "brainstorm.summarizeBoard",
+        "brainstorm.closeSession",
+    }
 
 
 # Tool group definitions
@@ -124,11 +165,15 @@ TOOL_GROUPS: Dict[ToolGroupId, ToolGroup] = {
         id=ToolGroupId.CORE,
         name="Core",
         description="Essential Amprealize tools always available",
-        tool_prefixes=["auth.", "behaviors.", "projects.", "orgs.", "workItems.", "runs.", "context.", "boards."],
-        max_tools=42,
+        tool_prefixes=[
+            "auth.", "behaviors.", "projects.", "orgs.", "workItems.", "runs.", "context.", "boards.",
+        ] + (["whiteboard.", "brainstorm."] if _whiteboard_enabled() else []),
+        max_tools=80,  # Must be >= len(CORE_TOOLS); bumped for wiki CRUD + brainstorm/whiteboard tools
         priority=0,  # Highest priority
         requires_auth=False,  # Auth tools don't require auth
-        activation_keywords=["start", "login", "behavior", "project", "work"],
+        activation_keywords=[
+            "start", "login", "behavior", "project", "work",
+        ] + (["whiteboard", "brainstorm"] if _whiteboard_enabled() else []),
     ),
 
     ToolGroupId.ANALYTICS: ToolGroup(
@@ -185,10 +230,14 @@ TOOL_GROUPS: Dict[ToolGroupId, ToolGroup] = {
         id=ToolGroupId.EXECUTION,
         name="Execution & Workflows",
         description="Workflow management, board operations, and execution control",
-        tool_prefixes=["workflow.", "boards.", "board.", "actions.", "consent."],
-        max_tools=25,
+        tool_prefixes=[
+            "workflow.", "boards.", "board.", "actions.", "consent.",
+        ] + (["whiteboard.", "brainstorm."] if _whiteboard_enabled() else []),
+        max_tools=35,
         priority=35,
-        activation_keywords=["workflow", "board", "execute", "action", "consent", "replay"],
+        activation_keywords=[
+            "workflow", "board", "execute", "action", "consent", "replay",
+        ] + (["whiteboard", "brainstorm", "canvas", "sticky note", "ideation"] if _whiteboard_enabled() else []),
     ),
 
     ToolGroupId.BCI: ToolGroup(
@@ -259,6 +308,16 @@ TOOL_GROUPS: Dict[ToolGroupId, ToolGroup] = {
         max_tools=10,
         priority=38,
         activation_keywords=["research", "paper", "evaluate", "arxiv", "article", "study"],
+    ),
+
+    ToolGroupId.WIKI: ToolGroup(
+        id=ToolGroupId.WIKI,
+        name="Wiki",
+        description="Manage LLM-maintained wikis: ingest, query, lint, and status for research, infra, and AI-learning domains",
+        tool_prefixes=["wiki.", "research_wiki.", "infra_wiki.", "ai_learning_wiki."],
+        max_tools=19,
+        priority=37,
+        activation_keywords=["wiki", "ingest", "lint", "learning path", "explain concept", "infra docs"],
     ),
 }
 

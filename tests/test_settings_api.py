@@ -43,7 +43,7 @@ from amprealize.multi_tenant.settings import (
     WorkflowSettings,
     AgentSettings,
 )
-from amprealize.multi_tenant.contracts import MemberRole, ProjectRole
+from amprealize.projects.contracts import MemberRole, ProjectRole
 
 
 # =============================================================================

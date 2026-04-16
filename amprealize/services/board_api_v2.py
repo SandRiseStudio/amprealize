@@ -53,13 +53,14 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import time
 from enum import Enum
 from typing import Any, Dict, List, Optional, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from amprealize.multi_tenant.board_contracts import (
+from amprealize.boards.contracts import (
     # Board models
     Board,
     BoardColumn,
@@ -153,6 +154,18 @@ class WorkItemListResponse(BaseModel):
     page: int = 1
     page_size: int = 50
     has_more: bool = False
+
+
+class WorkItemBatchRequest(BaseModel):
+    """Batch request for work item hydration."""
+    item_ids: List[str] = Field(..., min_length=1, max_length=100)
+
+
+class WorkItemBatchResponse(BaseModel):
+    """Response for batch work item lookup."""
+    items: List[WorkItem]
+    total: int
+    missing_ids: List[str] = Field(default_factory=list)
 
 
 class SprintResponse(BaseModel):
@@ -550,10 +563,10 @@ def create_board_routes(
         request: Request,
         project_id: Optional[str] = Query(None, description="Filter by project"),
         board_id: Optional[str] = Query(None, description="Filter by board"),
-        item_type: Optional[WorkItemType] = Query(None, description="Filter by type (goal/feature/task/bug)"),
+        item_type: Optional[List[WorkItemType]] = Query(None, description="Filter by type (goal/feature/task/bug). Repeat the query param for multiple values."),
         parent_id: Optional[str] = Query(None, description="Filter by parent item"),
         status_filter: Optional[WorkItemStatus] = Query(None, alias="status", description="Filter by status"),
-        priority: Optional[WorkItemPriority] = Query(None, description="Filter by priority"),
+        priority: Optional[List[WorkItemPriority]] = Query(None, description="Filter by priority. Repeat the query param for multiple values."),
         assignee_id: Optional[str] = Query(None, description="Filter by assignee"),
         assignee_type: Optional[str] = Query(None, description="Filter by assignee type (user/agent)"),
         sprint_id: Optional[str] = Query(None, description="Filter by sprint"),
@@ -563,38 +576,141 @@ def create_board_routes(
         due_after: Optional[str] = Query(None, description="Items due on or after this ISO date"),
         sort_by: Optional[str] = Query(None, description="Sort field: position, priority, created_at, updated_at, due_date, title, points"),
         order: Optional[str] = Query(None, description="Sort order: asc or desc (default asc)"),
+        include_total: bool = Query(
+            True,
+            description=(
+                "When true, compute exact total count (extra COUNT query). "
+                "Set false for subsequent pages to reduce DB latency on cloud PostgreSQL."
+            ),
+        ),
         limit: int = Query(50, ge=1, le=250, description="Max items to return"),
         offset: int = Query(0, ge=0, description="Items to skip"),
     ) -> WorkItemListResponse:
         org_id = _get_org_id(request)
+        _t0 = time.perf_counter()
 
-        items = board_service.list_work_items(
-            project_id=project_id,
-            board_id=board_id,
-            item_type=item_type,
-            parent_id=parent_id,
-            status=status_filter,
-            priority=priority,
-            assignee_id=assignee_id,
-            assignee_type=assignee_type,
-            sprint_id=sprint_id,
-            labels=labels,
-            title_search=title_search,
-            due_before=due_before,
-            due_after=due_after,
-            sort_by=sort_by,
-            order=order,
-            org_id=org_id,
-            limit=limit,
-            offset=offset,
-        )
+        if include_total:
+            _t_count_start = time.perf_counter()
+            total = board_service.count_work_items(
+                project_id=project_id,
+                board_id=board_id,
+                item_types=item_type,
+                parent_id=parent_id,
+                status=status_filter,
+                priorities=priority,
+                assignee_id=assignee_id,
+                assignee_type=assignee_type,
+                labels=labels,
+                sprint_id=sprint_id,
+                title_search=title_search,
+                due_before=due_before,
+                due_after=due_after,
+                org_id=org_id,
+            )
+            _t_count_ms = round((time.perf_counter() - _t_count_start) * 1000, 1)
 
-        return WorkItemListResponse(
+            _t_list_start = time.perf_counter()
+            items = board_service.list_work_items(
+                project_id=project_id,
+                board_id=board_id,
+                item_types=item_type,
+                parent_id=parent_id,
+                status=status_filter,
+                priorities=priority,
+                assignee_id=assignee_id,
+                assignee_type=assignee_type,
+                sprint_id=sprint_id,
+                labels=labels,
+                title_search=title_search,
+                due_before=due_before,
+                due_after=due_after,
+                sort_by=sort_by,
+                order=order,
+                org_id=org_id,
+                limit=limit,
+                offset=offset,
+            )
+            _t_list_ms = round((time.perf_counter() - _t_list_start) * 1000, 1)
+
+            has_more = offset + len(items) < total
+        else:
+            _t_count_ms = 0.0
+            # Over-fetch by one row so has_more can be derived without a COUNT(*)
+            # query on every subsequent page.
+            _t_list_start = time.perf_counter()
+            items_plus_one = board_service.list_work_items(
+                project_id=project_id,
+                board_id=board_id,
+                item_types=item_type,
+                parent_id=parent_id,
+                status=status_filter,
+                priorities=priority,
+                assignee_id=assignee_id,
+                assignee_type=assignee_type,
+                sprint_id=sprint_id,
+                labels=labels,
+                title_search=title_search,
+                due_before=due_before,
+                due_after=due_after,
+                sort_by=sort_by,
+                order=order,
+                org_id=org_id,
+                limit=limit + 1,
+                offset=offset,
+            )
+            _t_list_ms = round((time.perf_counter() - _t_list_start) * 1000, 1)
+            has_more = len(items_plus_one) > limit
+            items = items_plus_one[:limit]
+            # Preserve response shape; this is a lower-bound estimate when total
+            # is intentionally skipped for latency reasons.
+            total = offset + len(items) + (1 if has_more else 0)
+
+        _t_shape_start = time.perf_counter()
+        response = WorkItemListResponse(
             items=items,
-            total=len(items),  # TODO: get actual total count
+            total=total,
             page=offset // limit + 1 if limit else 1,
             page_size=limit,
-            has_more=len(items) == limit,
+            has_more=has_more,
+        )
+        _t_shape_ms = round((time.perf_counter() - _t_shape_start) * 1000, 1)
+        _t_total_ms = round((time.perf_counter() - _t0) * 1000, 1)
+
+        logger.info(
+            "work_items.list timing t_count_ms=%s t_list_ms=%s t_shape_ms=%s t_total_handler_ms=%s"
+            " item_count=%s payload_est_kb=%s offset=%s board_id=%s",
+            _t_count_ms,
+            _t_list_ms,
+            _t_shape_ms,
+            _t_total_ms,
+            len(items),
+            round(len(items) * 1.45, 1),
+            offset,
+            board_id,
+        )
+
+        return response
+
+    @router.post(
+        "/v1/work-items/batch",
+        response_model=WorkItemBatchResponse,
+        summary="Batch get work items",
+        description="Fetch multiple work items in one request. Intended for hierarchy hydration on filtered board views.",
+    )
+    async def get_work_items_batch(
+        request: Request,
+        body: WorkItemBatchRequest,
+    ) -> WorkItemBatchResponse:
+        org_id = _get_org_id(request)
+
+        items = board_service.get_work_items_batch(body.item_ids, org_id=org_id)
+        found_ids = {item.item_id for item in items}
+        missing_ids = [item_id for item_id in body.item_ids if item_id not in found_ids]
+
+        return WorkItemBatchResponse(
+            items=items,
+            total=len(items),
+            missing_ids=missing_ids,
         )
 
     @router.get(

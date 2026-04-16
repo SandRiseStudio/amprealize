@@ -64,6 +64,13 @@ class ExecuteRequest(BaseModel):
         None,
         description="Optional model ID to override agent's default model",
     )
+    execution_mode: Optional[str] = Field(
+        None,
+        description=(
+            "Agent execution mode: 'gep' (full 8-phase protocol, default) "
+            "or 'session' (lightweight 3-phase: plan → execute → complete)."
+        ),
+    )
     callback_url: Optional[str] = Field(
         None,
         description=(
@@ -234,12 +241,28 @@ def create_work_item_execution_routes(
         actor = _get_actor(request)
 
         try:
+            # Resolve execution mode
+            agent_exec_mode = None
+            if body.execution_mode:
+                from ..work_item_execution_contracts import AgentExecutionMode
+                try:
+                    agent_exec_mode = AgentExecutionMode(body.execution_mode)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "invalid_execution_mode",
+                            "message": f"Invalid execution_mode '{body.execution_mode}'. Must be 'gep' or 'session'.",
+                        },
+                    )
+
             exec_request = ExecuteWorkItemRequest(
                 work_item_id=item_id,
                 user_id=actor.id,
                 org_id=org_id,
                 project_id=project_id,
                 model_id=body.model_override,
+                agent_execution_mode=agent_exec_mode,
                 metadata={
                     "callback_url": body.callback_url,
                 } if body.callback_url else {},

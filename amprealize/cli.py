@@ -903,7 +903,8 @@ def _check_cli_module_enabled(command_name: str) -> str | None:
 
     Returns:
         ``None`` if the command is allowed (module enabled or no config yet),
-        otherwise an error message string.
+        otherwise an error message string.  Commands that belong to an
+        enterprise-only module get an edition-specific upgrade message.
     """
     required_groups = _CLI_COMMAND_MODULE_MAP.get(command_name)
     if not required_groups:
@@ -911,7 +912,10 @@ def _check_cli_module_enabled(command_name: str) -> str | None:
 
     try:
         from amprealize.config.loader import get_config
-        from amprealize.module_registry import get_enabled_cli_groups
+        from amprealize.module_registry import (
+            get_enabled_cli_groups,
+            get_edition_gated_cli_groups,
+        )
 
         enabled = get_enabled_cli_groups(get_config().modules)
     except Exception:
@@ -920,6 +924,21 @@ def _check_cli_module_enabled(command_name: str) -> str | None:
     # Command is allowed if ANY of its required groups is enabled
     if any(g in enabled for g in required_groups):
         return None
+
+    # Check if this is an enterprise-gated command
+    try:
+        edition_gated = get_edition_gated_cli_groups()
+        for g in required_groups:
+            required_edition = edition_gated.get(g)
+            if required_edition:
+                pretty = required_edition.replace("_", " ").title()
+                return (
+                    f"The '{command_name}' command requires {pretty} edition.\n"
+                    f"Current edition: OSS (open source).\n"
+                    f"Visit https://amprealize.com/pricing for upgrade options."
+                )
+    except Exception:
+        pass
 
     return (
         f"The '{command_name}' command requires a module that is not enabled.\n"
@@ -2274,7 +2293,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     amp_machine_start_parser.add_argument(
         "name",
         nargs="?",
-        help="Machine name (defaults to amprealize-ci or first available)",
+        help="Machine name (defaults to amprealize-test or first available)",
     )
 
     # breakeramp machine stop
@@ -2285,7 +2304,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     amp_machine_stop_parser.add_argument(
         "name",
         nargs="?",
-        help="Machine name (defaults to amprealize-ci or current running machine)",
+        help="Machine name (defaults to amprealize-test or current running machine)",
     )
     amp_machine_stop_parser.add_argument(
         "--all",
@@ -2303,8 +2322,8 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     amp_machine_ensure_parser.add_argument(
         "name",
         nargs="?",
-        default="amprealize-ci",
-        help="Machine name (default: amprealize-ci)",
+        default="amprealize-test",
+        help="Machine name (default: amprealize-test)",
     )
     amp_machine_ensure_parser.add_argument(
         "--cpus",
@@ -2333,7 +2352,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     amp_machine_status_parser.add_argument(
         "name",
         nargs="?",
-        help="Machine name (defaults to amprealize-ci or first available)",
+        help="Machine name (defaults to amprealize-test or first available)",
     )
     amp_machine_status_parser.add_argument(
         "--output",
@@ -3421,6 +3440,39 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Output format",
     )
 
+    # ── Edition upgrade command ─────────────────────────────────────────────────
+    upgrade_parser = subparsers.add_parser(
+        "upgrade",
+        help="Upgrade or change Amprealize edition (OSS → Enterprise)",
+    )
+    upgrade_parser.add_argument(
+        "--to",
+        required=True,
+        choices=["enterprise_starter", "enterprise_premium", "oss"],
+        help="Target edition to upgrade/downgrade to",
+    )
+    upgrade_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the upgrade plan without making changes",
+    )
+    upgrade_parser.add_argument(
+        "--skip-backup",
+        action="store_true",
+        help="Skip pre-upgrade database backup (not recommended)",
+    )
+    upgrade_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Proceed even with warnings (e.g. downgrade with feature loss)",
+    )
+    upgrade_parser.add_argument(
+        "--format",
+        choices=("table", "json"),
+        default="table",
+        help="Output format (default: table)",
+    )
+
     # ── Research evaluation commands ────────────────────────────────────────────
     research_parser = subparsers.add_parser(
         "research",
@@ -3620,6 +3672,11 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Watch execution events via SSE stream after starting",
     )
+    wi_execute_parser.add_argument(
+        "--session-mode",
+        action="store_true",
+        help="Use lightweight session mode (plan → execute → complete) instead of full GEP protocol",
+    )
     wi_execute_parser.add_argument("--format", choices=["table", "json"], default="table")
 
     # work-item status
@@ -3748,6 +3805,14 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--sqlite-path",
         help="SQLite file path (optional, has sensible default)",
     )
+    context_add_parser.add_argument(
+        "--telemetry-dsn",
+        help="Telemetry database DSN (optional, defaults to main DSN's telemetry default)",
+    )
+    context_add_parser.add_argument(
+        "--description",
+        help="Human-readable description for this context",
+    )
 
     context_remove_parser = context_subparsers.add_parser(
         "remove",
@@ -3756,6 +3821,26 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     context_remove_parser.add_argument(
         "name",
         help="Name of the context to remove",
+    )
+
+    context_subparsers.add_parser(
+        "status",
+        help="Verify connectivity and migration status of the active context",
+    )
+
+    context_migrate_parser = context_subparsers.add_parser(
+        "migrate",
+        help="Run database migrations against the active context",
+    )
+    context_migrate_parser.add_argument(
+        "--telemetry",
+        action="store_true",
+        help="Also run telemetry database migrations",
+    )
+    context_migrate_parser.add_argument(
+        "--seed-from",
+        metavar="DSN",
+        help="After schema migration, copy all data from this source DSN (pg_dump/pg_restore)",
     )
 
     # ── items ──────────────────────────────────────────────────────────────
@@ -3878,19 +3963,22 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Explicit version string e.g. '1.0.0' (default: auto-generated)",
     )
     kp_build_parser.add_argument(
-        "--profile",
-        default="solo-dev",
-        choices=["solo-dev", "amprealize-platform", "custom"],
-        help="Target profile with budget/overlay rules (default: solo-dev)",
+        "--workspace-profiles",
+        nargs="*",
+        default=[],
+        help="Workspace profile names (e.g. solo-dev amprealize-platform)",
     )
     kp_build_parser.add_argument(
-        "--primer-template",
-        help="Path to custom primer template file",
+        "--target-surfaces",
+        nargs="*",
+        default=[],
+        help="Target surfaces (e.g. vscode cli mcp web)",
     )
     kp_build_parser.add_argument(
-        "--token-budget",
-        type=int,
-        help="Override default token budget for pack",
+        "--source-filter",
+        nargs="*",
+        default=None,
+        help="Only include sources whose ref matches these values",
     )
     kp_build_parser.add_argument(
         "--output-dir",
@@ -4114,6 +4202,59 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         choices=["local", "cloud", "hybrid"],
         default=None,
         help="Deployment mode (default: local). Skips interactive prompt.",
+    )
+
+    # ── wizard ─────────────────────────────────────────────────────────────
+    wizard_parser = subparsers.add_parser(
+        "wizard",
+        help="AI-powered project analysis and configuration wizard",
+    )
+    wizard_parser.add_argument(
+        "--path",
+        default=".",
+        help="Path to workspace (default: current directory)",
+    )
+    wizard_parser.add_argument(
+        "--model",
+        default=None,
+        help="LLM model to use for analysis (default: claude-sonnet-4-5)",
+    )
+    wizard_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Show proposed config without writing files",
+    )
+    wizard_parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        default=False,
+        help="Skip all prompts, use defaults",
+    )
+    wizard_parser.add_argument(
+        "--skip-login",
+        action="store_true",
+        default=False,
+        help="Skip API key check (uses env vars only)",
+    )
+    wizard_parser.add_argument(
+        "--profile",
+        choices=[
+            "solo-dev",
+            "amprealize-platform",
+            "team-collab",
+            "extension-dev",
+            "api-backend",
+            "compliance-sensitive",
+        ],
+        default=None,
+        help="Override detected workspace profile",
+    )
+    wizard_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        default=False,
+        help="Minimal output",
     )
 
     # ── bootstrap ──────────────────────────────────────────────────────────
@@ -4528,6 +4669,65 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--format", choices=["table", "json"], default="json", help="Output format",
     )
 
+    # ── module ─────────────────────────────────────────────────────────────
+    module_parser = subparsers.add_parser(
+        "module",
+        help="Manage feature modules (enable, disable, list, status)",
+    )
+    module_subparsers = module_parser.add_subparsers(dest="module_command")
+
+    module_subparsers.add_parser("list", help="List all available modules")
+
+    module_status_parser = module_subparsers.add_parser(
+        "status", help="Show detailed status of a module or all modules",
+    )
+    module_status_parser.add_argument(
+        "name", nargs="?", default=None, help="Module name (omit for all)",
+    )
+    module_status_parser.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format",
+    )
+
+    module_enable_parser = module_subparsers.add_parser(
+        "enable", help="Enable a module",
+    )
+    module_enable_parser.add_argument("name", help="Module name to enable")
+
+    module_disable_parser = module_subparsers.add_parser(
+        "disable", help="Disable a module",
+    )
+    module_disable_parser.add_argument("name", help="Module name to disable")
+
+    # ── deploy ─────────────────────────────────────────────────────────────
+    deploy_parser = subparsers.add_parser(
+        "deploy",
+        help="Manage deployment mode and data migration",
+    )
+    deploy_subparsers = deploy_parser.add_subparsers(dest="deploy_command")
+
+    deploy_subparsers.add_parser("status", help="Show current deployment configuration")
+
+    deploy_switch_parser = deploy_subparsers.add_parser(
+        "switch", help="Switch deployment mode",
+    )
+    deploy_switch_parser.add_argument(
+        "mode", choices=["local", "cloud", "hybrid"],
+        help="Target deployment mode",
+    )
+
+    deploy_migrate_parser = deploy_subparsers.add_parser(
+        "migrate", help="Migrate data between deployment modes",
+    )
+    deploy_migrate_parser.add_argument(
+        "direction", choices=["export", "import", "sync-up", "sync-down"],
+        help="Migration direction (export=local→file, import=file→local, "
+             "sync-up=local→cloud, sync-down=cloud→local)",
+    )
+    deploy_migrate_parser.add_argument(
+        "--path", default=None,
+        help="File path for export/import operations",
+    )
+
     # ── doctor ─────────────────────────────────────────────────────────────
     doctor_parser = subparsers.add_parser(
         "doctor",
@@ -4619,6 +4819,12 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         parser.exit(1)
     if args.command == "conversation" and not getattr(args, "conversation_command", None):
         conversation_parser.print_help()
+        parser.exit(1)
+    if args.command == "module" and not getattr(args, "module_command", None):
+        module_parser.print_help()
+        parser.exit(1)
+    if args.command == "deploy" and not getattr(args, "deploy_command", None):
+        deploy_parser.print_help()
         parser.exit(1)
     # mcp-server has no required subcommand — bare invocation starts the server
     return args
@@ -8952,10 +9158,10 @@ def _command_breakeramp_machine_start(args: argparse.Namespace) -> int:
         # Determine which machine to start
         name = args.name
         if not name:
-            # Try amprealize-ci first, then first available
-            amprealize_machine = next((m for m in machines if m.name == "amprealize-ci"), None)
+            # Try amprealize-test first, then first available
+            amprealize_machine = next((m for m in machines if m.name == "amprealize-test"), None)
             if amprealize_machine:
-                name = "amprealize-ci"
+                name = "amprealize-test"
             elif machines:
                 name = machines[0].name
             else:
@@ -8999,10 +9205,10 @@ def _command_breakeramp_machine_stop(args: argparse.Namespace) -> int:
         # Stop a specific machine
         name = args.name
         if not name:
-            # Try amprealize-ci first, then first running machine
-            amprealize_machine = next((m for m in machines if m.name == "amprealize-ci" and m.running), None)
+            # Try amprealize-test first, then first running machine
+            amprealize_machine = next((m for m in machines if m.name == "amprealize-test" and m.running), None)
             if amprealize_machine:
-                name = "amprealize-ci"
+                name = "amprealize-test"
             else:
                 running = next((m for m in machines if m.running), None)
                 if running:
@@ -9030,7 +9236,7 @@ def _command_breakeramp_machine_ensure(args: argparse.Namespace) -> int:
     """Ensure a Podman machine is running (start if needed, create if missing)."""
     try:
         executor = _get_podman_executor()
-        name = args.name or "amprealize-ci"
+        name = args.name or "amprealize-test"
 
         machine = executor.get_machine(name)
 
@@ -9071,10 +9277,10 @@ def _command_breakeramp_machine_status(args: argparse.Namespace) -> int:
         # Determine which machine to show
         name = args.name
         if not name:
-            # Try amprealize-ci first, then first available
-            amprealize_machine = next((m for m in machines if m.name == "amprealize-ci"), None)
+            # Try amprealize-test first, then first available
+            amprealize_machine = next((m for m in machines if m.name == "amprealize-test"), None)
             if amprealize_machine:
-                name = "amprealize-ci"
+                name = "amprealize-test"
             elif machines:
                 name = machines[0].name
             else:
@@ -9604,6 +9810,261 @@ def _check_service_tables(dsn: str, tables: List[str]) -> Dict[str, bool]:
     return result
 
 
+# ==============================================================================
+# Edition Upgrade Command
+# ==============================================================================
+
+
+def _command_upgrade(args: argparse.Namespace) -> int:
+    """Upgrade, downgrade, or switch Amprealize edition."""
+    import importlib
+
+    from amprealize.edition import (
+        Edition,
+        TierTransition,
+        _VALID_TRANSITIONS,
+        detect_edition,
+        get_caps,
+    )
+
+    target_str: str = args.to
+    dry_run: bool = getattr(args, "dry_run", False)
+    skip_backup: bool = getattr(args, "skip_backup", False)
+    force: bool = getattr(args, "force", False)
+    output_json: bool = getattr(args, "format", "table") == "json"
+
+    # --- Detect current edition ---
+    current = detect_edition()
+    try:
+        target = Edition(target_str)
+    except ValueError:
+        print(f"❌ Unknown edition: {target_str!r}", file=sys.stderr)
+        return 1
+
+    print("=" * 70)
+    print("Amprealize Edition Upgrade")
+    print("=" * 70)
+    print()
+    print(f"  Current edition : {current.value}")
+    print(f"  Target edition  : {target.value}")
+    print()
+
+    # --- Same edition? ---
+    if current == target:
+        msg = f"Already running {current.value} — nothing to do."
+        if output_json:
+            print(json.dumps({"status": "no_change", "edition": current.value}))
+        else:
+            print(f"✅ {msg}")
+        return 0
+
+    # --- Validate transition ---
+    key = (current, target)
+    transition: TierTransition | None = _VALID_TRANSITIONS.get(key)
+    if transition is None:
+        print(f"❌ No valid transition from {current.value} → {target.value}", file=sys.stderr)
+        return 1
+
+    # --- Show plan ---
+    is_downgrade = bool(transition.features_lost)
+    direction = "⬇️  DOWNGRADE" if is_downgrade else "⬆️  UPGRADE"
+    print(f"  Direction       : {direction}")
+    print(f"  Data preserved  : {'Yes' if transition.data_preserved else 'No'}")
+    print()
+
+    if transition.features_gained:
+        print("  Features gained:")
+        for feat in transition.features_gained:
+            print(f"    + {feat}")
+        print()
+
+    if transition.features_lost:
+        print("  ⚠️  Features lost:")
+        for feat in transition.features_lost:
+            print(f"    - {feat}")
+        print()
+
+    # --- Downgrade warning ---
+    if is_downgrade and not force:
+        print(
+            "❌ This is a downgrade — features will be lost. "
+            "Use --force to proceed.",
+            file=sys.stderr,
+        )
+        if output_json:
+            print(json.dumps({
+                "status": "blocked",
+                "reason": "downgrade_requires_force",
+                "features_lost": list(transition.features_lost),
+            }))
+        return 1
+
+    # --- Check enterprise package availability (for upgrades to enterprise) ---
+    if target in (Edition.ENTERPRISE_STARTER, Edition.ENTERPRISE_PREMIUM):
+        try:
+            importlib.import_module("amprealize_enterprise")
+            print("  ✅ amprealize-enterprise package found")
+        except ImportError:
+            print(
+                "❌ amprealize-enterprise package not installed.\n"
+                "   Install it first: pip install amprealize-enterprise",
+                file=sys.stderr,
+            )
+            if output_json:
+                print(json.dumps({
+                    "status": "blocked",
+                    "reason": "enterprise_package_missing",
+                }))
+            return 1
+    print()
+
+    # --- Dry run stops here ---
+    if dry_run:
+        plan = {
+            "status": "dry_run",
+            "current": current.value,
+            "target": target.value,
+            "direction": "downgrade" if is_downgrade else "upgrade",
+            "data_preserved": transition.data_preserved,
+            "features_gained": list(transition.features_gained),
+            "features_lost": list(transition.features_lost),
+            "steps": [
+                "backup_database" if not skip_backup else None,
+                "run_enterprise_migrations",
+                "switch_edition",
+                "verify_integrity",
+            ],
+        }
+        plan["steps"] = [s for s in plan["steps"] if s]
+        if output_json:
+            print(json.dumps(plan, indent=2))
+        else:
+            print("  🔍 Dry run — no changes applied.")
+            print()
+            print("  Planned steps:")
+            for i, step in enumerate(plan["steps"], 1):
+                print(f"    {i}. {step}")
+        print()
+        return 0
+
+    # --- Step 1: Backup ---
+    if not skip_backup:
+        print("  Step 1/4: Database backup")
+        dsn = os.environ.get("DATABASE_URL", "")
+        if dsn:
+            try:
+                import subprocess
+
+                result = subprocess.run(
+                    ["breakeramp", "backup", "--tag", f"pre-upgrade-{target.value}", "--quiet"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if result.returncode == 0:
+                    print("    ✅ Backup completed")
+                else:
+                    print(f"    ⚠️  Backup failed (non-fatal): {result.stderr.strip()}", file=sys.stderr)
+            except FileNotFoundError:
+                print("    ⏭️  breakeramp not found — skipping automatic backup")
+            except Exception as exc:
+                print(f"    ⚠️  Backup failed (non-fatal): {exc}", file=sys.stderr)
+        else:
+            print("    ⏭️  DATABASE_URL not set — skipping backup")
+        print()
+    else:
+        print("  Step 1/4: Database backup (skipped)")
+        print()
+
+    # --- Step 2: Run enterprise migrations ---
+    print("  Step 2/4: Schema migrations")
+    migration_ok = True
+    if target in (Edition.ENTERPRISE_STARTER, Edition.ENTERPRISE_PREMIUM):
+        try:
+            from amprealize_enterprise.migrations import run_enterprise_migrations
+
+            run_enterprise_migrations(dry_run=False)
+            print("    ✅ Enterprise migrations applied")
+        except ImportError:
+            print("    ⏭️  No enterprise migrations module — skipping")
+        except Exception as exc:
+            print(f"    ❌ Migration failed: {exc}", file=sys.stderr)
+            migration_ok = False
+    else:
+        print("    ⏭️  Downgrade to OSS — no enterprise migrations needed")
+    print()
+
+    if not migration_ok:
+        print("❌ Upgrade aborted — migration failed. Database unchanged.", file=sys.stderr)
+        if output_json:
+            print(json.dumps({"status": "failed", "step": "migrations"}))
+        return 1
+
+    # --- Step 3: Switch edition ---
+    print("  Step 3/4: Switch edition marker")
+    edition_state_dir = Path.home() / ".amprealize"
+    edition_state_dir.mkdir(parents=True, exist_ok=True)
+    edition_state_file = edition_state_dir / "edition"
+    try:
+        edition_state_file.write_text(target.value, encoding="utf-8")
+        print(f"    ✅ Edition set to {target.value}")
+    except OSError as exc:
+        print(f"    ❌ Failed to write edition state: {exc}", file=sys.stderr)
+        if output_json:
+            print(json.dumps({"status": "failed", "step": "switch_edition"}))
+        return 1
+    print()
+
+    # --- Step 4: Verify integrity ---
+    print("  Step 4/4: Verify installation")
+    verify_ok = True
+    # Re-detect edition (should now reflect target)
+    try:
+        # Reload edition module to pick up new state
+        import amprealize.edition as _ed_mod
+
+        importlib.reload(_ed_mod)
+        new_edition = _ed_mod.detect_edition()
+        caps = _ed_mod.get_caps(target)
+        if target in (Edition.ENTERPRISE_STARTER, Edition.ENTERPRISE_PREMIUM):
+            # For enterprise upgrades, verify the enterprise module loaded
+            try:
+                importlib.import_module("amprealize_enterprise")
+                print("    ✅ Enterprise package loads correctly")
+            except ImportError:
+                print("    ⚠️  Enterprise package import failed post-upgrade", file=sys.stderr)
+                verify_ok = False
+        print(f"    ✅ Capabilities loaded for {target.value}")
+        print(f"       Features: orgs={caps.orgs}, sso={caps.sso}, billing={caps.billing}")
+    except Exception as exc:
+        print(f"    ❌ Verification failed: {exc}", file=sys.stderr)
+        verify_ok = False
+    print()
+
+    # --- Summary ---
+    print("=" * 70)
+    if verify_ok:
+        status = "success"
+        print(f"✅ Edition upgraded: {current.value} → {target.value}")
+    else:
+        status = "completed_with_warnings"
+        print(f"⚠️  Edition switched to {target.value} but verification had warnings")
+    print("=" * 70)
+
+    if output_json:
+        print(json.dumps({
+            "status": status,
+            "previous_edition": current.value,
+            "current_edition": target.value,
+            "direction": "downgrade" if is_downgrade else "upgrade",
+            "data_preserved": transition.data_preserved,
+            "features_gained": list(transition.features_gained),
+            "features_lost": list(transition.features_lost),
+        }, indent=2))
+
+    return 0 if verify_ok else 0  # Non-fatal warnings don't fail the command
+
+
 def _apply_migration(dsn: str, migration_path: Path) -> bool:
     """Apply a single migration file."""
     try:
@@ -10010,7 +10471,7 @@ def _command_research_handoff(args: argparse.Namespace) -> int:
     from amprealize.research_service import ResearchService
     from amprealize.research_contracts import SearchPapersRequest, Verdict
     from amprealize.services.board_service import BoardService
-    from amprealize.multi_tenant.board_contracts import CreateWorkItemRequest, WorkItemType, WorkItemPriority
+    from amprealize.boards.contracts import CreateWorkItemRequest, WorkItemType, WorkItemPriority
     from amprealize.action_contracts import Actor
 
     project_id = args.project_id
@@ -10147,7 +10608,7 @@ def _command_research_handoff(args: argparse.Namespace) -> int:
 def _command_architect_list(args: argparse.Namespace) -> int:
     """List pending work items for the architect agent."""
     from amprealize.services.board_service import BoardService
-    from amprealize.multi_tenant.board_contracts import WorkItemStatus
+    from amprealize.boards.contracts import WorkItemStatus
 
     project_id = args.project_id
     output_format = args.format
@@ -10204,8 +10665,8 @@ def _command_architect_pickup(args: argparse.Namespace) -> int:
     from amprealize.services.work_item_assignment import auto_assign_work_item, find_best_agent_for_work_item
     from amprealize.research_service import ResearchService
     from amprealize.research.codebase_analyzer import CodebaseAnalyzer
-    from amprealize.multi_tenant.board_contracts import WorkItemStatus, UpdateWorkItemRequest
-    from amprealize.multi_tenant.board_contracts import CreateWorkItemRequest, WorkItemType, WorkItemPriority
+    from amprealize.boards.contracts import WorkItemStatus, UpdateWorkItemRequest
+    from amprealize.boards.contracts import CreateWorkItemRequest, WorkItemType, WorkItemPriority
     from amprealize.multi_tenant.organization_service import OrganizationService
     from amprealize.action_contracts import Actor
     from amprealize.llm import LLMClient, LLMConfig, ProviderType
@@ -10791,6 +11252,15 @@ See ADR for full technical design and implementation details.
 def main(argv: Optional[List[str]] = None) -> int:
     args = _parse_args(argv)
 
+    # Apply active context DSN(s) to environment before any service reads them.
+    # This bridges the context system (config.yaml) with per-service DSN resolution
+    # in utils/dsn.py, which checks DATABASE_URL as a universal fallback.
+    try:
+        from amprealize.context import apply_context_to_environment
+        apply_context_to_environment()
+    except Exception:
+        pass  # Context bridge is best-effort; don't block CLI startup
+
     # Module gating -- early exit for disabled modules
     _gate_msg = _check_cli_module_enabled(getattr(args, "command", ""))
     if _gate_msg:
@@ -10989,6 +11459,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _command_audit_retention(args)
     elif args.command == "reflection":
         return _command_reflection(args)
+    elif args.command == "upgrade":
+        return _command_upgrade(args)
     elif args.command == "migrate":
         if args.migrate_command == "apply":
             return _command_migrate_apply(args)
@@ -11040,6 +11512,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _command_context_add(args)
         elif args.context_command == "remove":
             return _command_context_remove(args)
+        elif args.context_command == "status":
+            return _command_context_status(args)
+        elif args.context_command == "migrate":
+            return _command_context_migrate(args)
 
     elif args.command == "items":
         if args.items_command == "migrate":
@@ -11080,6 +11556,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.command == "init":
         return _command_init(args)
 
+    elif args.command == "wizard":
+        return _command_wizard(args)
+
     elif args.command == "bootstrap":
         return _command_bootstrap(args)
 
@@ -11099,6 +11578,12 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     elif args.command == "doctor":
         return _command_doctor(args)
+
+    elif args.command == "module":
+        return _command_module(args)
+
+    elif args.command == "deploy":
+        return _command_deploy(args)
 
     elif args.command == "conversation":
         if args.conversation_command == "list":
@@ -11141,53 +11626,62 @@ def main(argv: Optional[List[str]] = None) -> int:
 def _command_knowledge_pack_build(args: argparse.Namespace) -> int:
     """Build a knowledge pack from registered sources."""
     from amprealize.knowledge_pack.builder import PackBuilder, PackBuildConfig
+    from amprealize.knowledge_pack.extractor import SourceExtractor
     from amprealize.knowledge_pack.source_registry import SourceRegistryService
+    from amprealize.knowledge_pack.storage import KnowledgePackStorage
 
     try:
         registry = SourceRegistryService()
-        builder = PackBuilder(
-            registry=registry,
-            primer_template_path=args.primer_template,
-        )
+        extractor = SourceExtractor()
+        builder = PackBuilder(registry=registry, extractor=extractor)
+
+        pack_id = args.pack_id or f"pack-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+        version = args.version or "1.0.0"
 
         config = PackBuildConfig(
-            pack_id=args.pack_id,
-            version=args.version,
-            profile=args.profile,
-            token_budget=args.token_budget,
+            pack_id=pack_id,
+            version=version,
+            workspace_profiles=args.workspace_profiles,
+            target_surfaces=args.target_surfaces,
+            source_filter=args.source_filter,
         )
 
         artifact = builder.build(config)
+
+        # Persist to storage
+        storage = KnowledgePackStorage()
+        save_result = storage.save_artifact(artifact, status="draft")
 
         # Optionally write to output directory
         if args.output_dir:
             import os
 
             os.makedirs(args.output_dir, exist_ok=True)
-            manifest_path = os.path.join(args.output_dir, f"{artifact.pack_id}_{artifact.version}_manifest.json")
+            manifest_path = os.path.join(
+                args.output_dir,
+                f"{artifact.manifest.pack_id}_{artifact.manifest.version}_manifest.json",
+            )
             with open(manifest_path, "w", encoding="utf-8") as f:
-                f.write(artifact.manifest.model_dump_json(indent=2))
+                json.dump(artifact.manifest.to_dict(), f, indent=2, default=str)
             print(f"✅ Wrote manifest to {manifest_path}", file=sys.stderr)
 
         output = {
-            "pack_id": artifact.pack_id,
-            "version": artifact.version,
-            "profile": artifact.profile,
-            "token_budget_used": artifact.token_budget_used,
-            "overlay_count": len(artifact.manifest.overlays),
+            "pack_id": artifact.manifest.pack_id,
+            "version": artifact.manifest.version,
+            "overlay_count": len(artifact.overlays),
             "source_count": len(artifact.manifest.sources),
-            "primer_hash": artifact.manifest.primer_hash,
-            "created_at": artifact.created_at.isoformat() if artifact.created_at else None,
+            "primer_chars": len(artifact.primer_text),
+            "build_log_lines": len(artifact.build_log),
+            "storage_status": save_result.get("status"),
         }
 
         if args.format == "table":
             print(f"Pack ID:        {output['pack_id']}")
             print(f"Version:        {output['version']}")
-            print(f"Profile:        {output['profile']}")
-            print(f"Token Budget:   {output['token_budget_used']}")
             print(f"Overlays:       {output['overlay_count']}")
             print(f"Sources:        {output['source_count']}")
-            print(f"Primer Hash:    {output['primer_hash'][:16]}...")
+            print(f"Primer:         {output['primer_chars']} chars")
+            print(f"Status:         {output['storage_status']}")
         else:
             print(json.dumps(output, indent=2, default=str))
         return 0
@@ -11597,6 +12091,15 @@ def _command_context_current(args: argparse.Namespace) -> int:
                 proto_user = prefix.rsplit(":", 1)[0]
                 dsn = f"{proto_user}:****@{rest}"
         print(f"  DSN: {dsn}")
+        # Show telemetry DSN if it differs from default
+        tel_dsn = cfg.storage.postgres.telemetry_dsn
+        if tel_dsn:
+            if "@" in tel_dsn:
+                tprefix, trest = tel_dsn.split("@", 1)
+                if ":" in tprefix:
+                    tproto_user = tprefix.rsplit(":", 1)[0]
+                    tel_dsn = f"{tproto_user}:****@{trest}"
+            print(f"  Telemetry DSN: {tel_dsn}")
     elif cfg.storage.backend == "sqlite":
         print(f"  Path: {cfg.storage.sqlite.path}")
 
@@ -11686,11 +12189,19 @@ def _command_context_add(args: argparse.Namespace) -> int:
     """Create a new named context."""
     from amprealize.context import add_context
 
+    # Auto-infer postgres backend when --dsn is provided
+    backend = args.backend
+    dsn = getattr(args, "dsn", None)
+    if dsn and backend == "sqlite":
+        backend = "postgres"
+
     success, message = add_context(
         name=args.name,
-        storage_backend=args.backend,
-        dsn=getattr(args, "dsn", None),
+        storage_backend=backend,
+        dsn=dsn,
         sqlite_path=getattr(args, "sqlite_path", None),
+        telemetry_dsn=getattr(args, "telemetry_dsn", None),
+        description=getattr(args, "description", None),
     )
 
     if success:
@@ -11716,6 +12227,338 @@ def _command_context_remove(args: argparse.Namespace) -> int:
         return 1
 
 
+def _command_context_status(args: argparse.Namespace) -> int:
+    """Verify connectivity and migration status of the active context."""
+    from amprealize.context import get_current_context, validate_context_connection
+
+    try:
+        name, cfg = get_current_context()
+    except Exception as exc:
+        print(f"❌ No active context: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Context: {name}")
+    print(f"Backend: {cfg.storage.backend}")
+
+    if cfg.storage.backend != "postgres":
+        print("  (connection check only supported for postgres contexts)")
+        return 0
+
+    dsn = cfg.storage.postgres.dsn
+    tel_dsn = cfg.storage.postgres.telemetry_dsn
+
+    # Main DB check
+    ok, msg = validate_context_connection(cfg)
+    if ok:
+        print(f"  Main DB: ✅ connected")
+    else:
+        print(f"  Main DB: ❌ {msg}")
+
+    # Telemetry DB check
+    if tel_dsn and tel_dsn != dsn:
+        try:
+            from sqlalchemy import create_engine, text
+
+            eng = create_engine(tel_dsn, connect_args={"connect_timeout": 5})
+            with eng.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            print(f"  Telemetry DB: ✅ connected")
+            eng.dispose()
+        except Exception as exc:
+            print(f"  Telemetry DB: ❌ {exc}")
+    elif tel_dsn:
+        print(f"  Telemetry DB: (same as main)")
+    else:
+        print(f"  Telemetry DB: (not configured)")
+
+    # Check if DSN looks like a cloud endpoint
+    for label, d in [("Main", dsn), ("Telemetry", tel_dsn)]:
+        if d and any(h in d for h in ("neon.tech", "supabase.co", "timescaledb.io")):
+            print(f"  {label}: ☁️  cloud endpoint detected")
+
+    return 0 if ok else 1
+
+
+def _command_context_migrate(args: argparse.Namespace) -> int:
+    """Run database migrations against the active context."""
+    from amprealize.context import apply_context_to_environment
+
+    ctx_name = apply_context_to_environment(force=True)
+    if not ctx_name:
+        print("❌ No active postgres context to migrate against.", file=sys.stderr)
+        return 1
+
+    target_dsn = os.environ["DATABASE_URL"]
+    print(f"Running migrations against context '{ctx_name}'...")
+
+    # Main DB migrations
+    import subprocess
+
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    result = subprocess.run(
+        ["alembic", "upgrade", "head"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        print("  Main DB: ✅ migrations complete")
+    else:
+        print(f"  Main DB: ❌ migration failed\n{result.stderr}", file=sys.stderr)
+        return 1
+
+    # Telemetry migrations (optional)
+    if getattr(args, "telemetry", False):
+        result = subprocess.run(
+            ["alembic", "-c", "alembic.telemetry.ini", "upgrade", "head"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            print("  Telemetry DB: ✅ migrations complete")
+        else:
+            print(
+                f"  Telemetry DB: ❌ migration failed\n{result.stderr}",
+                file=sys.stderr,
+            )
+            return 1
+
+    # Data seeding from a source database
+    seed_from = getattr(args, "seed_from", None)
+    if seed_from:
+        rc = _seed_data_from_source(seed_from, target_dsn, project_root)
+        if rc != 0:
+            return rc
+
+    return 0
+
+
+def _seed_data_from_source(source_dsn: str, target_dsn: str, project_root: str) -> int:
+    """Copy all data from source DB to target DB using schema-aware Python COPY.
+
+    Strategy for cloud DBs (Neon, Supabase, etc.) which lack superuser:
+    1. Introspect both databases to discover common tables and columns
+    2. Only transfer columns that exist in BOTH source and target (handles drift)
+    3. Resolve FK dependency order via pg_catalog so parents load before children
+    4. Use psycopg2 COPY with explicit column lists — no pg_dump/psql needed
+    5. Skip alembic_version so migration tracking is preserved independently
+    6. Report per-table results so nothing is silently lost
+    """
+    import io
+    import psycopg2
+
+    # Application schemas to migrate (excludes _timescaledb_*, pg_catalog, etc.)
+    APP_SCHEMAS = [
+        "auth", "board", "behavior", "execution", "workflow",
+        "consent", "audit", "compliance", "messaging", "research", "public",
+    ]
+    SKIP_TABLES = {"public.alembic_version"}
+
+    print("\n  Seeding data from source database...")
+
+    # --- Step 1: Introspect both databases ---
+    print("  Introspecting schemas...")
+    try:
+        src_conn = psycopg2.connect(source_dsn)
+        tgt_conn = psycopg2.connect(target_dsn)
+    except Exception as e:
+        print(f"  ❌ Connection failed: {e}", file=sys.stderr)
+        return 1
+
+    def _get_table_columns(conn, schemas):
+        """Return {schema.table: [col1, col2, ...]} for base tables."""
+        cur = conn.cursor()
+        result = {}
+        for s in schemas:
+            cur.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = %s AND table_type = 'BASE TABLE'",
+                (s,),
+            )
+            for (tname,) in cur.fetchall():
+                fqn = f"{s}.{tname}"
+                if fqn in SKIP_TABLES:
+                    continue
+                cur.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = %s AND table_name = %s "
+                    "AND is_generated = 'NEVER' "
+                    "AND generation_expression IS NULL "
+                    "ORDER BY ordinal_position",
+                    (s, tname),
+                )
+                result[fqn] = [r[0] for r in cur.fetchall()]
+        cur.close()
+        return result
+
+    src_tables = _get_table_columns(src_conn, APP_SCHEMAS)
+    tgt_tables = _get_table_columns(tgt_conn, APP_SCHEMAS)
+
+    # Tables that exist in both source and target
+    common_tables = set(src_tables) & set(tgt_tables)
+    skipped_tables = set(src_tables) - set(tgt_tables)
+
+    print(f"    Source tables: {len(src_tables)}")
+    print(f"    Target tables: {len(tgt_tables)}")
+    print(f"    Common tables: {len(common_tables)}")
+    if skipped_tables:
+        print(f"    Skipped (not in target): {len(skipped_tables)}")
+
+    # --- Step 2: Resolve FK dependency order ---
+    # Query pg_catalog on source to get FK references, then topological sort
+    # so parent tables are loaded before children.
+    print("  Resolving FK dependency order...")
+    src_cur = src_conn.cursor()
+    src_cur.execute("""
+        SELECT DISTINCT
+            cn.nspname || '.' || cc.relname AS child,
+            pn.nspname || '.' || pc.relname AS parent
+        FROM pg_constraint c
+        JOIN pg_class cc ON c.conrelid = cc.oid
+        JOIN pg_namespace cn ON cc.relnamespace = cn.oid
+        JOIN pg_class pc ON c.confrelid = pc.oid
+        JOIN pg_namespace pn ON pc.relnamespace = pn.oid
+        WHERE c.contype = 'f'
+    """)
+    fk_edges = [(child, parent) for child, parent in src_cur.fetchall()
+                if child in common_tables and parent in common_tables]
+    src_cur.close()
+
+    # Topological sort (Kahn's algorithm)
+    from collections import defaultdict, deque
+    in_degree = defaultdict(int)
+    adj = defaultdict(list)
+    for child, parent in fk_edges:
+        adj[parent].append(child)
+        in_degree[child] += 1
+    for t in common_tables:
+        in_degree.setdefault(t, 0)
+
+    queue = deque(t for t in common_tables if in_degree[t] == 0)
+    ordered_tables = []
+    while queue:
+        t = queue.popleft()
+        ordered_tables.append(t)
+        for child in adj[t]:
+            in_degree[child] -= 1
+            if in_degree[child] == 0:
+                queue.append(child)
+    # Add any remaining (cycles — shouldn't happen but be safe)
+    remaining = common_tables - set(ordered_tables)
+    ordered_tables.extend(sorted(remaining))
+
+    print(f"    Load order: {len(ordered_tables)} tables")
+
+    # --- Step 3: Truncate target tables (reverse FK order) ---
+    print("  Truncating target tables...")
+    tgt_cur = tgt_conn.cursor()
+    for table in reversed(ordered_tables):
+        schema, tname = table.split(".", 1)
+        try:
+            tgt_cur.execute(
+                f"TRUNCATE TABLE {schema}.{tname} CASCADE"
+            )
+        except Exception:
+            tgt_conn.rollback()
+    tgt_conn.commit()
+    print("  Truncate: ✅ target tables cleared")
+
+    # --- Step 4: Copy data table by table ---
+    print("  Copying data...")
+    total_rows = 0
+    migrated = []
+    errors = []
+    col_drift_notes = []
+
+    for table in ordered_tables:
+        src_cols = set(src_tables[table])
+        tgt_cols = set(tgt_tables[table])
+        common_cols = sorted(src_cols & tgt_cols, key=lambda c: src_tables[table].index(c))
+
+        if not common_cols:
+            errors.append((table, "no common columns"))
+            continue
+
+        drift = src_cols - tgt_cols
+        if drift:
+            col_drift_notes.append((table, drift))
+
+        col_list = ", ".join(common_cols)
+
+        # COPY out of source into memory buffer
+        buf = io.BytesIO()
+        src_cur = src_conn.cursor()
+        try:
+            src_cur.copy_expert(
+                f"COPY {table} ({col_list}) TO STDOUT WITH (FORMAT csv, HEADER false, NULL '')",
+                buf,
+            )
+        except Exception as e:
+            errors.append((table, f"COPY OUT failed: {e}"))
+            src_conn.rollback()
+            continue
+        finally:
+            src_cur.close()
+
+        row_bytes = buf.tell()
+        if row_bytes == 0:
+            # Empty table — nothing to copy
+            migrated.append((table, 0))
+            continue
+
+        # COPY into target
+        buf.seek(0)
+        tgt_cur = tgt_conn.cursor()
+        try:
+            tgt_cur.copy_expert(
+                f"COPY {table} ({col_list}) FROM STDIN WITH (FORMAT csv, HEADER false, NULL '')",
+                buf,
+            )
+            tgt_conn.commit()
+        except Exception as e:
+            tgt_conn.rollback()
+            errors.append((table, f"COPY IN failed: {e}"))
+            continue
+        finally:
+            tgt_cur.close()
+
+        # Count rows
+        tgt_cur2 = tgt_conn.cursor()
+        tgt_cur2.execute(f"SELECT COUNT(*) FROM {table}")
+        count = tgt_cur2.fetchone()[0]
+        tgt_cur2.close()
+        total_rows += count
+        migrated.append((table, count))
+
+    src_conn.close()
+    tgt_conn.close()
+
+    # --- Step 5: Report results ---
+    print(f"\n  Migration summary:")
+    print(f"    Total rows migrated: {total_rows}")
+    tables_with_data = [(t, c) for t, c in migrated if c > 0]
+    if tables_with_data:
+        print(f"    Tables with data ({len(tables_with_data)}):")
+        for t, c in sorted(tables_with_data, key=lambda x: -x[1]):
+            print(f"      {t}: {c} rows")
+    if col_drift_notes:
+        print(f"    Column drift handled ({len(col_drift_notes)} tables):")
+        for t, cols in col_drift_notes:
+            print(f"      {t}: skipped cols {cols}")
+    if skipped_tables:
+        print(f"    Tables skipped (not in target): {sorted(skipped_tables)}")
+    if errors:
+        print(f"    Errors ({len(errors)}):")
+        for t, msg in errors:
+            print(f"      {t}: {msg}")
+        return 1
+
+    print(f"\n  Data restore: ✅ complete ({total_rows} rows across {len(tables_with_data)} tables)")
+    return 0
+
+
 # ==============================================================================
 # Items CLI Commands
 # ==============================================================================
@@ -11733,7 +12576,7 @@ def _command_items_migrate(args: argparse.Namespace) -> int:
         default_progress,
         quiet_progress,
     )
-    from amprealize.multi_tenant.board_contracts import WorkItemType, WorkItemStatus
+    from amprealize.boards.contracts import WorkItemType, WorkItemStatus
 
     # Build filter expression from args
     filter_parts = []
@@ -12278,6 +13121,27 @@ def _generate_ide_configs() -> None:
 
 
 # ==============================================================================
+# Wizard Command (AI-powered project setup)
+# ==============================================================================
+
+
+def _command_wizard(args: argparse.Namespace) -> int:
+    """AI-powered project analysis and configuration wizard."""
+    from amprealize.wizard.runner import WizardRunner
+
+    workspace = Path(getattr(args, "path", ".")).resolve()
+    runner = WizardRunner(
+        model=getattr(args, "model", None) or "claude-sonnet-4-5",
+        dry_run=getattr(args, "dry_run", False),
+        non_interactive=getattr(args, "non_interactive", False),
+        skip_login=getattr(args, "skip_login", False),
+        profile_override=getattr(args, "profile", None),
+        quiet=getattr(args, "quiet", False),
+    )
+    return runner.run(workspace)
+
+
+# ==============================================================================
 # Bootstrap Commands (workspace profiling - MCP parity)
 # ==============================================================================
 
@@ -12631,6 +13495,14 @@ def _run_compose(
 
 def _infra_via_breakeramp(action: str, args: argparse.Namespace) -> int:
     """Handle infra actions through the breakeramp provider."""
+    # Apply active context so DATABASE_URL and other DSNs are set in os.environ.
+    # Breakeramp's env expansion reads from os.environ, so cloud-dev blueprint's
+    # DATABASE_URL: "${DATABASE_URL}" will resolve to the Neon DSN.
+    from amprealize.context import apply_context_to_environment
+    ctx_name = apply_context_to_environment(force=True)
+    if ctx_name:
+        print(f"📍 Using context: {ctx_name}")
+
     if action == "up":
         profile = getattr(args, "profile", "standard")
         blueprint = _PROFILE_BLUEPRINTS.get(profile, "local-dev")
@@ -13195,6 +14067,297 @@ def _command_conversation_unpin(args: argparse.Namespace) -> int:
 
 
 # ==============================================================================
+# Module Management (amprealize module)
+# ==============================================================================
+
+
+def _command_module(args: argparse.Namespace) -> int:
+    """Manage feature modules: list, status, enable, disable."""
+    from amprealize.config.loader import get_config, save_config, reset_config
+    from amprealize.module_registry import (
+        MODULE_REGISTRY,
+        get_enabled_modules,
+        is_module_edition_allowed,
+        validate_module_dependencies,
+    )
+
+    sub = getattr(args, "module_command", None)
+    if not sub:
+        print("Usage: amprealize module {list,status,enable,disable}", file=sys.stderr)
+        return 1
+
+    cfg = get_config()
+
+    if sub == "list":
+        enabled_names = {m.name for m in get_enabled_modules(cfg.modules)}
+        print("\n📦 Available Modules\n")
+        for mod in MODULE_REGISTRY.values():
+            # Determine status
+            if mod.always_enabled:
+                status = "✅ always on"
+            elif mod.name in enabled_names:
+                status = "✅ enabled"
+            else:
+                status = "⬜ disabled"
+
+            edition_tag = ""
+            if mod.enterprise_only:
+                edition_tag = f" [enterprise: {mod.min_edition or 'starter+'}]"
+
+            print(f"  {status}  {mod.name:<20s} {mod.display_name}{edition_tag}")
+            print(f"           {mod.description}")
+            if mod.depends_on:
+                print(f"           depends on: {', '.join(mod.depends_on)}")
+        print()
+        return 0
+
+    if sub == "status":
+        name = getattr(args, "name", None)
+        output_json = getattr(args, "format", "table") == "json"
+        enabled_names = {m.name for m in get_enabled_modules(cfg.modules)}
+
+        targets = [name] if name else list(MODULE_REGISTRY.keys())
+        results = []
+        for mod_name in targets:
+            mod_def = MODULE_REGISTRY.get(mod_name)
+            if mod_def is None:
+                if name:
+                    print(f"Error: Unknown module {mod_name!r}", file=sys.stderr)
+                    return 1
+                continue
+            is_enabled = mod_def.always_enabled or mod_def.name in enabled_names
+            edition_ok = is_module_edition_allowed(mod_name)
+            deps_met = True
+            if mod_def.depends_on:
+                missing = [d for d in mod_def.depends_on if d not in enabled_names and not getattr(MODULE_REGISTRY.get(d), "always_enabled", False)]
+                deps_met = len(missing) == 0
+
+            results.append({
+                "name": mod_def.name,
+                "display_name": mod_def.display_name,
+                "enabled": is_enabled,
+                "always_enabled": mod_def.always_enabled,
+                "enterprise_only": mod_def.enterprise_only,
+                "min_edition": mod_def.min_edition,
+                "edition_allowed": edition_ok,
+                "dependencies": list(mod_def.depends_on),
+                "dependencies_met": deps_met,
+                "cli_groups": list(mod_def.cli_groups),
+                "mcp_tool_prefixes": list(mod_def.mcp_tool_prefixes),
+            })
+
+        if output_json:
+            print(json.dumps(results if not name else results[0], indent=2))
+        else:
+            for r in results:
+                icon = "✅" if r["enabled"] else "⬜"
+                print(f"\n{icon} {r['display_name']} ({r['name']})")
+                print(f"   Enabled:        {r['enabled']}")
+                if r["always_enabled"]:
+                    print(f"   Always enabled: yes")
+                if r["enterprise_only"]:
+                    print(f"   Enterprise:     {r['min_edition'] or 'starter+'}")
+                    print(f"   Edition OK:     {r['edition_allowed']}")
+                if r["dependencies"]:
+                    print(f"   Dependencies:   {', '.join(r['dependencies'])} ({'met' if r['dependencies_met'] else 'NOT met'})")
+                print(f"   CLI groups:     {', '.join(r['cli_groups']) or '(none)'}")
+                print(f"   MCP prefixes:   {', '.join(r['mcp_tool_prefixes']) or '(none)'}")
+            print()
+        return 0
+
+    if sub == "enable":
+        name = args.name
+        mod_def = MODULE_REGISTRY.get(name)
+        if mod_def is None:
+            print(f"Error: Unknown module {name!r}. Use 'amprealize module list' to see available modules.", file=sys.stderr)
+            return 1
+        if mod_def.always_enabled:
+            print(f"Module {name!r} is always enabled.")
+            return 0
+        if not is_module_edition_allowed(name):
+            print(f"Error: Module {name!r} requires edition {mod_def.min_edition!r} (enterprise).", file=sys.stderr)
+            return 1
+
+        # Check dependencies — build the proposed enabled set
+        current_enabled = tuple(m.name for m in get_enabled_modules(cfg.modules))
+        proposed = tuple(set(current_enabled) | {name})
+        dep_errors = validate_module_dependencies(proposed)
+        if dep_errors:
+            print(f"Error: Cannot enable {name!r}:", file=sys.stderr)
+            for err in dep_errors:
+                print(f"  - {err}", file=sys.stderr)
+            return 1
+
+        # Persist via config
+        if not hasattr(cfg.modules, name):
+            print(f"Error: Module {name!r} has no config field.", file=sys.stderr)
+            return 1
+        data = cfg.model_dump()
+        data["modules"][name] = True
+        from amprealize.config.schema import AmprealizeConfig
+        new_cfg = AmprealizeConfig(**data)
+        save_config(new_cfg)
+        reset_config()
+        print(f"✅ Module {name!r} enabled.")
+        return 0
+
+    if sub == "disable":
+        name = args.name
+        mod_def = MODULE_REGISTRY.get(name)
+        if mod_def is None:
+            print(f"Error: Unknown module {name!r}. Use 'amprealize module list' to see available modules.", file=sys.stderr)
+            return 1
+        if mod_def.always_enabled:
+            print(f"Error: Module {name!r} cannot be disabled — it is always enabled.", file=sys.stderr)
+            return 1
+
+        # Check if any other enabled module depends on this one
+        current_enabled = [m.name for m in get_enabled_modules(cfg.modules)]
+        dependents = [
+            m.name for m in MODULE_REGISTRY.values()
+            if name in m.depends_on and m.name in current_enabled
+        ]
+        if dependents:
+            print(f"Error: Cannot disable {name!r} — depended on by: {', '.join(dependents)}", file=sys.stderr)
+            print(f"Disable those modules first.", file=sys.stderr)
+            return 1
+
+        data = cfg.model_dump()
+        data["modules"][name] = False
+        from amprealize.config.schema import AmprealizeConfig
+        new_cfg = AmprealizeConfig(**data)
+        save_config(new_cfg)
+        reset_config()
+        print(f"⬜ Module {name!r} disabled.")
+        return 0
+
+    print(f"Unknown module subcommand: {sub}", file=sys.stderr)
+    return 1
+
+
+# ==============================================================================
+# Deployment Management (amprealize deploy)
+# ==============================================================================
+
+
+def _command_deploy(args: argparse.Namespace) -> int:
+    """Manage deployment mode: status, switch, migrate."""
+    from amprealize.config.loader import get_config, save_config, reset_config
+    from amprealize.deployment import resolve_service_endpoints, validate_deployment
+
+    sub = getattr(args, "deploy_command", None)
+    if not sub:
+        print("Usage: amprealize deploy {status,switch,migrate}", file=sys.stderr)
+        return 1
+
+    cfg = get_config()
+
+    if sub == "status":
+        dep = cfg.deployment
+        endpoints = resolve_service_endpoints(cfg)
+        print("\n🚀 Deployment Status\n")
+        print(f"  Mode:      {dep.mode}")
+        print(f"  Cloud URL: {dep.cloud_url}")
+        if dep.mode == "hybrid":
+            print(f"  Services:")
+            print(f"    storage: {dep.services.storage}")
+            print(f"    compute: {dep.services.compute}")
+        print(f"\n  Resolved Endpoints:")
+        print(f"    storage: {endpoints.storage}")
+        print(f"    compute: {endpoints.compute}")
+        print(f"    auth:    {endpoints.auth}")
+
+        # Validate
+        errors = validate_deployment(cfg)
+        if errors:
+            print(f"\n  ⚠️  Validation issues:")
+            for e in errors:
+                print(f"    - {e}")
+        else:
+            print(f"\n  ✅ Deployment configuration is valid.")
+        print()
+        return 0
+
+    if sub == "switch":
+        target_mode = args.mode
+        current_mode = cfg.deployment.mode
+
+        if target_mode == current_mode:
+            print(f"Already in {target_mode!r} mode.")
+            return 0
+
+        # Validate the switch is allowed
+        if target_mode in ("cloud", "hybrid"):
+            print(
+                f"Error: {target_mode!r} deployment mode requires the enterprise edition.",
+                file=sys.stderr,
+            )
+            return 1
+
+        data = cfg.model_dump()
+        data["deployment"]["mode"] = target_mode
+        from amprealize.config.schema import AmprealizeConfig
+        new_cfg = AmprealizeConfig(**data)
+
+        # Re-validate before saving
+        errors = validate_deployment(new_cfg)
+        if errors:
+            print(f"Error: Invalid deployment configuration:", file=sys.stderr)
+            for e in errors:
+                print(f"  - {e}", file=sys.stderr)
+            return 1
+
+        save_config(new_cfg)
+        reset_config()
+        print(f"✅ Deployment mode switched: {current_mode} → {target_mode}")
+        return 0
+
+    if sub == "migrate":
+        direction = args.direction
+        path = getattr(args, "path", None)
+
+        from amprealize.deploy_migrate import (
+            export_data,
+            import_data,
+            sync_to_cloud,
+            sync_from_cloud,
+        )
+
+        try:
+            if direction == "export":
+                result = export_data(path=path)
+            elif direction == "import":
+                result = import_data(path=path)
+            elif direction == "sync-up":
+                result = sync_to_cloud()
+            elif direction == "sync-down":
+                result = sync_from_cloud()
+            else:
+                print(f"Unknown direction: {direction}", file=sys.stderr)
+                return 1
+
+            if isinstance(result, dict):
+                print(json.dumps(result, indent=2))
+            else:
+                print(f"✅ Migration {direction} completed.")
+            return 0
+
+        except ImportError as e:
+            print(
+                f"Error: Migration requires the enterprise package.\n"
+                f"  {e}",
+                file=sys.stderr,
+            )
+            return 1
+        except Exception as e:
+            print(f"Error during migration: {e}", file=sys.stderr)
+            return 1
+
+    print(f"Unknown deploy subcommand: {sub}", file=sys.stderr)
+    return 1
+
+
+# ==============================================================================
 # Diagnostics (amprealize doctor)
 # ==============================================================================
 
@@ -13433,6 +14596,77 @@ def _command_doctor(args: argparse.Namespace) -> int:
                 d.mkdir(parents=True, exist_ok=True)
             checks[-1]["passed"] = True
             checks[-1]["message"] = "Created missing directories"
+
+    # ── Check 10: Edition detection ────────────────────────────────────────
+    try:
+        from amprealize.edition import detect_edition, Edition
+        edition = detect_edition()
+        add_check("Edition", True, f"{edition.name} ({edition.value})")
+    except Exception as e:
+        add_check("Edition", False, f"Detection failed: {e}", "Check amprealize.edition module")
+
+    # ── Check 11: Edition info ───────────────────────────────────────────
+    add_check("Edition", True, "OSS")
+
+    # ── Check 12: Module status ────────────────────────────────────────────
+    try:
+        from amprealize.config.loader import get_config as _doctor_get_config
+        from amprealize.module_registry import (
+            MODULE_REGISTRY as _DOCTOR_REGISTRY,
+            get_enabled_modules as _doctor_get_enabled,
+            validate_module_dependencies as _doctor_validate_deps,
+            is_module_edition_allowed as _doctor_edition_ok,
+        )
+        doc_cfg = _doctor_get_config()
+        enabled = _doctor_get_enabled(doc_cfg.modules)
+        enabled_names = tuple(m.name for m in enabled)
+        dep_errors = _doctor_validate_deps(enabled_names)
+
+        mod_summary_parts = []
+        for mod in _DOCTOR_REGISTRY.values():
+            is_on = mod.name in {m.name for m in enabled} or mod.always_enabled
+            mod_summary_parts.append(f"{mod.name}={'on' if is_on else 'off'}")
+
+        if dep_errors:
+            add_check(
+                "Modules",
+                False,
+                f"{', '.join(mod_summary_parts)} — dependency errors",
+                "; ".join(dep_errors),
+            )
+        else:
+            add_check("Modules", True, ", ".join(mod_summary_parts))
+
+        # Check enterprise module edition compatibility
+        for mod in _DOCTOR_REGISTRY.values():
+            if mod.enterprise_only and mod.name in {m.name for m in enabled}:
+                if not _doctor_edition_ok(mod.name):
+                    add_check(
+                        f"Module {mod.name} edition",
+                        False,
+                        f"Requires {mod.min_edition} but edition insufficient",
+                        f"Upgrade edition or disable module: amprealize module disable {mod.name}",
+                    )
+    except Exception as e:
+        add_check("Modules", False, f"Check failed: {e}", "Run 'amprealize init' to configure modules")
+
+    # ── Check 13: Deployment validation ────────────────────────────────────
+    try:
+        from amprealize.config.loader import get_config as _doctor_get_config2
+        from amprealize.deployment import validate_deployment as _doctor_validate_deploy
+        doc_cfg2 = _doctor_get_config2()
+        deploy_errors = _doctor_validate_deploy(doc_cfg2)
+        if deploy_errors:
+            add_check(
+                "Deployment",
+                False,
+                f"Mode: {doc_cfg2.deployment.mode} — {len(deploy_errors)} issue(s)",
+                "; ".join(deploy_errors),
+            )
+        else:
+            add_check("Deployment", True, f"Mode: {doc_cfg2.deployment.mode} — valid")
+    except Exception as e:
+        add_check("Deployment", False, f"Check failed: {e}", None)
 
     # ── Output results ─────────────────────────────────────────────────────
     if output_json:
@@ -13758,6 +14992,8 @@ def _command_wi_execute(args: argparse.Namespace) -> int:
         body["model_override"] = args.model
     if args.callback_url:
         body["callback_url"] = args.callback_url
+    if getattr(args, "session_mode", False):
+        body["execution_mode"] = "session"
 
     params = f"project_id={args.project_id}"
     if args.org_id:

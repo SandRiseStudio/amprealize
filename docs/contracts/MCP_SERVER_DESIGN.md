@@ -31,6 +31,8 @@ The Metacognitive Control Plane (MCP) server provides a contract-first integrati
 | **Project Management** | `projects.list`, `projects.create`, `projects.get`, `projects.update` | Manage projects within organizations for workstream organization. |
 | **Organization Management** | `orgs.list`, `orgs.create`, `orgs.get`, `orgs.update` | Manage organizations, members, and settings. |
 | **Board Management** | `boards.list`, `boards.create`, `boards.get`, `boards.update` | Kanban-style boards for work item tracking. |
+| **Whiteboard (Brainstorm)** | `brainstorm.openWhiteboard`, `brainstorm.addIdea`, `brainstorm.summarizeBoard`, `brainstorm.closeSession` | Ephemeral collaborative tldraw canvas for brainstorm sessions. Rooms created via brainstorm agent only; live canvas evaporates on close, snapshots persist with raw `canvas_elements` JSONB. |
+| **Whiteboard (Canvas)** | `whiteboard.createRoom`, `whiteboard.addShape`, `whiteboard.readCanvas`, `whiteboard.annotate` | Lower-level canvas operations for direct shape manipulation, canvas inspection, and annotation. Gated: `createRoom` requires `metadata.source == "brainstorm_bridge"`. |
 
 ## 4. Integration Surfaces
 - **Platform UI (Web):** Uses REST/GraphQL façade deployed alongside MCP; feature flags ensure UI only exposes capabilities registered in MCP.
@@ -73,6 +75,87 @@ The Metacognitive Control Plane (MCP) server provides a contract-first integrati
   - Automated parity test (CLI vs MCP vs REST) passing in CI.
 5. **Observability Dashboards:** Monitor feature usage across surfaces; alert if any surface lags adoption (indicating parity issues).
 6. **Versioning & Deprecation:** Semantic versioning for MCP APIs; backward-compatible changes only in minor versions. CLI and UI pinned to matching SDK versions.
+
+## 7. Stdio Authentication Extension
+
+### 7.1. Rationale
+
+The [MCP Authorization specification (2025-11-25)](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) defines an OAuth 2.1-based authorization flow for HTTP transports.  For **stdio transports** (the transport used by VS Code Copilot Chat, Claude Desktop, and the Amprealize CLI), the spec states:
+
+> "Clients and servers using the Stdio transport **SHOULD NOT** follow this specification, and instead retrieve credentials from the environment."
+
+Amprealize extends this guidance with two complementary mechanisms:
+
+1. **Device-flow-as-tools** — interactive OAuth 2.0 Device Authorization Grant (RFC 8628) exposed as MCP tools for IDE contexts where a human is present.
+2. **Environment-provided access token** — a pre-shared bearer token via `AMPREALIZE_ACCESS_TOKEN` for CI/CD, headless runners, and scripted automation.
+
+### 7.2. Auth Tools (Device Flow)
+
+For interactive stdio sessions (IDE, CLI), Amprealize exposes six `auth.*` MCP tools that drive a Device Authorization Grant without requiring the MCP server to embed an HTTP callback:
+
+| Tool | Purpose |
+|------|---------|
+| `auth.deviceInit` | Start device code flow; returns `device_code`, `user_code`, `verification_uri`. |
+| `auth.devicePoll` | Non-blocking poll for user approval; returns tokens on success. |
+| `auth.deviceLogin` | Blocking convenience wrapper (init + poll loop). |
+| `auth.authStatus` | Report current session state from stored tokens. |
+| `auth.refreshToken` | Refresh an expired access token using a stored refresh token. |
+| `auth.logout` | Clear stored tokens and optionally revoke on the server. |
+
+These tools are in `PUBLIC_TOOLS` (no prior auth required) and `CORE_TOOLS` (always loaded regardless of tool-group activation).
+
+**Session lifecycle:**
+
+```
+AMPREALIZE_ACCESS_TOKEN set?
+  ├─ YES → _bootstrap_session_from_env_token() → session ready
+  └─ NO
+       ├─ auth.deviceInit → user approves → auth.devicePoll → session ready
+       └─ MCP_RESTORE_SESSION_ON_STARTUP=true → restore from keychain/DB
+```
+
+After successful auth, an `MCPSessionContext` records `user_id`, `org_id`, `granted_scopes`, and `expires_at`.  Non-public tools check `session.is_authenticated` before executing.
+
+### 7.3. Environment Token Bootstrap
+
+For headless or CI/CD usage, set:
+
+```bash
+export AMPREALIZE_ACCESS_TOKEN="<bearer-token>"
+# Optional:
+export AMPREALIZE_USER_ID="ci-bot@example.com"             # skip token introspection
+export AMPREALIZE_ACCESS_TOKEN_TTL_SECONDS="7200"           # override default 1h
+```
+
+On startup the MCP server checks `AMPREALIZE_ACCESS_TOKEN` **before** any device-flow or token-store restore.  If present, it:
+
+1. Populates `MCPSessionContext` with `auth_method`, `expires_at`, and `user_id` (from `AMPREALIZE_USER_ID` or best-effort JWT `sub`/`email` decode).
+2. Calls `_populate_authorization_context()` to resolve `is_admin`, `accessible_org_ids`, and `accessible_project_ids`.
+3. Skips device-flow and token-store restore entirely.
+
+> **Security note:** The token is never written to disk or echoed in tool results.  Rotate it by updating the environment variable and restarting the MCP server process.
+
+### 7.4. Token Storage
+
+Tokens obtained via the device flow are persisted across restarts:
+
+| Backend | Selection | Location |
+|---------|-----------|----------|
+| **macOS Keychain** (default) | `keyring` available | Service: `amprealize.auth` |
+| **File store** | `AMPREALIZE_ALLOW_PLAINTEXT_TOKENS=1` | `~/.amprealize/auth_tokens.json` |
+| **Custom path** | `AMPREALIZE_AUTH_TOKEN_PATH` | User-specified |
+
+Multi-provider storage is supported via `auth_tokens_<provider>.json` files.
+
+### 7.5. Spec Alignment
+
+| MCP Spec Requirement | Amprealize Implementation |
+|----------------------|---------------------------|
+| Stdio: retrieve credentials from environment | `AMPREALIZE_ACCESS_TOKEN` env var bootstrap |
+| OAuth 2.1 for HTTP transports | AgentAuthService (auth code, client credentials, OBO) |
+| Dynamic Client Registration (MAY) | Supported via `auth.clientCredentials` |
+| Token audience validation | Backend services validate audience claims |
+| Short-lived tokens with refresh rotation | Default 1h access / 7d refresh; auto-rotation in `auth.refreshToken` |
 
 ## 8. Behavior-Conditioned Inference (BCI) Architecture
 

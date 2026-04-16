@@ -25,7 +25,7 @@ from amprealize.execution_gateway_contracts import (
     resolve_execution_mode,
     resolve_output_target,
 )
-from amprealize.multi_tenant.board_contracts import AssigneeType
+from amprealize.boards.contracts import AssigneeType
 
 pytestmark = pytest.mark.unit
 

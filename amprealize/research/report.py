@@ -1,10 +1,19 @@
-"""Report renderer - OSS Stub. Full implementation in amprealize-enterprise."""
+"""Research report renderer."""
 
-try:
-    from amprealize_enterprise.research.report import render_report
-except ImportError:
-    def render_report(*args, **kwargs):
-        raise ImportError(
-            "Research report rendering requires amprealize-enterprise[research]. "
-            "Install with: pip install amprealize-enterprise[research]"
-        )
+from __future__ import annotations
+
+from typing import Any
+
+
+def render_report(
+    sections: list[dict[str, Any]],
+    *,
+    format: str = "markdown",
+    title: str = "Research Report",
+    **kwargs: Any,
+) -> str:
+    """Render research sections into a formatted report.
+
+    Stub — replace with real Markdown/HTML rendering.
+    """
+    raise NotImplementedError("render_report not yet implemented")

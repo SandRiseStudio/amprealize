@@ -78,13 +78,14 @@ def handle_knowledge_pack_build(
     """
     # Import lazily to avoid circular dependencies
     from ...knowledge_pack.builder import PackBuilder, PackBuildConfig
+    from ...knowledge_pack.extractor import SourceExtractor
     from ...knowledge_pack.source_registry import SourceRegistryService
 
     pack_id = arguments.get("pack_id")
     version = arguments.get("version", "1.0.0")
-    profile = arguments.get("profile", "dev_local")
-    token_budget = arguments.get("token_budget", 8000)
-    source_filter = arguments.get("source_filter", {})
+    workspace_profiles = arguments.get("workspace_profiles", [])
+    target_surfaces = arguments.get("target_surfaces", [])
+    source_filter = arguments.get("source_filter")
     actor = _get_actor(arguments)
 
     if not pack_id:
@@ -94,29 +95,42 @@ def handle_knowledge_pack_build(
         }
 
     try:
+        # Create builder with source registry and extractor
+        registry = SourceRegistryService()
+        extractor = SourceExtractor()
+        builder = PackBuilder(registry=registry, extractor=extractor)
+
         # Create build config
         config = PackBuildConfig(
             pack_id=pack_id,
             version=version,
-            token_budget=token_budget,
+            workspace_profiles=workspace_profiles,
+            target_surfaces=target_surfaces,
+            source_filter=source_filter,
+            created_by=actor.get("id", "mcp-user"),
         )
 
-        # Create builder with source registry
-        registry = SourceRegistryService()
-        builder = PackBuilder(registry=registry, config=config)
-
         # Build the pack
-        artifact = builder.build()
+        artifact = builder.build(config)
+
+        # Persist the artifact to storage
+        from ...knowledge_pack.storage import KnowledgePackStorage
+        storage = KnowledgePackStorage()
+        save_result = storage.save_artifact(
+            artifact,
+            status="published",
+            created_by=actor.get("id", "mcp-user"),
+        )
 
         # Calculate statistics from the artifact
         overlays_by_kind: Dict[str, int] = {}
-        for overlay in artifact.manifest.overlays:
+        for overlay in artifact.overlays:
             ok = overlay.kind.value
             overlays_by_kind[ok] = overlays_by_kind.get(ok, 0) + 1
 
         sources_by_type: Dict[str, int] = {}
         for source in artifact.manifest.sources:
-            st = source.source_type.value
+            st = source.type.value
             sources_by_type[st] = sources_by_type.get(st, 0) + 1
 
         return {
@@ -124,11 +138,10 @@ def handle_knowledge_pack_build(
             "pack_id": artifact.manifest.pack_id,
             "version": artifact.manifest.version,
             "scope": artifact.manifest.scope.value,
-            "token_budget_used": artifact.token_count,
-            "overlay_count": len(artifact.manifest.overlays),
+            "overlay_count": len(artifact.overlays),
             "source_count": len(artifact.manifest.sources),
-            "primer_hash": artifact.primer_hash,
-            "created_at": artifact.manifest.created_at.isoformat() if artifact.manifest.created_at else None,
+            "primer_chars": len(artifact.primer_text),
+            "overlay_count_stored": save_result.get("overlay_count", 0),
             "statistics": {
                 "overlays_by_kind": overlays_by_kind,
                 "sources_by_type": sources_by_type,
@@ -229,17 +242,16 @@ def handle_knowledge_pack_inspect(
     arguments: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Inspect a built knowledge pack.
+    Inspect a built knowledge pack from storage.
 
     MCP Tool: knowledgePacks.inspect
-
-    Note: This is a placeholder until KnowledgePackStorage is implemented.
     """
+    from ...knowledge_pack.storage import KnowledgePackStorage, PackNotFoundError
+
     pack_id = arguments.get("pack_id")
     version = arguments.get("version")
-    _include_overlays = arguments.get("include_overlays", True)
-    _include_sources = arguments.get("include_sources", True)
-    _include_primer = arguments.get("include_primer", False)
+    include_overlays = arguments.get("include_overlays", True)
+    include_primer = arguments.get("include_primer", False)
     _actor = _get_actor(arguments)
 
     if not pack_id:
@@ -248,42 +260,82 @@ def handle_knowledge_pack_inspect(
             "error": "pack_id is required",
         }
 
-    # TODO: Replace with actual storage lookup once KnowledgePackStorage is implemented
-    # For now, return a placeholder response
-    return {
-        "success": False,
-        "error": "Knowledge pack storage not yet implemented. Use 'build' to create a pack in memory.",
-        "pack_id": pack_id,
-        "version": version,
-    }
+    try:
+        storage = KnowledgePackStorage()
+        manifest_data = storage.get_manifest(pack_id, version)
+
+        result: Dict[str, Any] = {
+            "success": True,
+            "pack_id": manifest_data.get("pack_id", pack_id),
+            "version": manifest_data.get("version", version),
+            "scope": manifest_data.get("scope"),
+            "behavior_refs": manifest_data.get("behavior_refs", []),
+            "sources": manifest_data.get("sources", []),
+            "constraints": manifest_data.get("constraints"),
+            "storage_meta": manifest_data.get("_storage_meta"),
+        }
+
+        if include_primer:
+            result["primer_text"] = manifest_data.get("_primer_text")
+
+        if include_overlays:
+            v = manifest_data.get("version", version)
+            overlays = storage.get_overlays(pack_id, v)
+            result["overlays"] = overlays
+            result["overlay_count"] = len(overlays)
+
+        return result
+
+    except PackNotFoundError:
+        return {
+            "success": False,
+            "error": f"Pack {pack_id}{'@' + version if version else ' (latest)'} not found",
+            "pack_id": pack_id,
+            "version": version,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+        }
 
 
 def handle_knowledge_pack_list(
     arguments: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    List available knowledge packs.
+    List available knowledge packs from storage.
 
     MCP Tool: knowledgePacks.list
-
-    Note: This is a placeholder until KnowledgePackStorage is implemented.
     """
-    _scope = arguments.get("scope")
-    _profile = arguments.get("profile")
-    _include_versions = arguments.get("include_versions", False)
+    from ...knowledge_pack.storage import KnowledgePackStorage
+
+    scope = arguments.get("scope")
+    status = arguments.get("status")
     limit = arguments.get("limit", 50)
     offset = arguments.get("offset", 0)
     _actor = _get_actor(arguments)
 
-    # TODO: Replace with actual storage lookup once KnowledgePackStorage is implemented
-    return {
-        "success": True,
-        "packs": [],
-        "total_count": 0,
-        "limit": limit,
-        "offset": offset,
-        "message": "Knowledge pack storage not yet implemented. No packs stored.",
-    }
+    try:
+        storage = KnowledgePackStorage()
+        result = storage.list_packs(
+            scope=scope,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+        result["success"] = True
+        return result
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "packs": [],
+            "total_count": 0,
+            "limit": limit,
+            "offset": offset,
+        }
 
 
 # ==============================================================================

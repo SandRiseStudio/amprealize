@@ -12,6 +12,7 @@ import abc
 import base64
 import logging
 import os
+import re
 import secrets
 from typing import Optional, Protocol
 
@@ -19,6 +20,10 @@ from cryptography.fernet import Fernet, InvalidToken
 
 
 logger = logging.getLogger(__name__)
+
+_SHELL_DEFAULT_ENV_PATTERN = re.compile(
+    r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)\:\-(?P<default>.*)\}$"
+)
 
 
 class EncryptionProvider(Protocol):
@@ -213,6 +218,7 @@ class CredentialEncryptionService:
         else:
             # Default: Fernet
             key = encryption_key or os.getenv("BYOK_ENCRYPTION_KEY")
+            key = self._resolve_shell_default_value(key)
             if not key:
                 # In production, this should fail. In development, we can auto-generate.
                 env = os.getenv("AMPREALIZE_ENV", "development")
@@ -228,6 +234,23 @@ class CredentialEncryptionService:
                     )
                     key = self.generate_key()
             return FernetProvider(key)
+
+    @staticmethod
+    def _resolve_shell_default_value(raw_value: Optional[str]) -> Optional[str]:
+        """Resolve shell-style ${VAR:-default} placeholders used by environment manifests."""
+        if not raw_value:
+            return raw_value
+
+        match = _SHELL_DEFAULT_ENV_PATTERN.match(raw_value.strip())
+        if not match:
+            return raw_value
+
+        var_name = match.group("name")
+        default_value = match.group("default")
+        env_value = os.getenv(var_name)
+        if env_value and env_value != raw_value:
+            return env_value
+        return default_value
 
     @staticmethod
     def generate_key() -> str:

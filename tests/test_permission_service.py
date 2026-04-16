@@ -17,11 +17,11 @@ from unittest.mock import MagicMock, patch, AsyncMock
 from typing import List, Dict, Any, Optional
 
 # Import contracts for type checking
-from amprealize.multi_tenant.contracts import (
+from amprealize.projects.contracts import (
     MemberRole,
     ProjectRole,
 )
-from amprealize.multi_tenant.permissions import (
+from amprealize.tenant.permissions import (
     OrgPermission,
     ProjectPermission,
     PermissionService,

@@ -1,16 +1,13 @@
 """Amprealize Billing integration — OSS Stub.
 
 The enterprise billing wrappers (AmprealizeBillingService, API routes, webhooks)
-have moved to amprealize-enterprise. The standalone billing package at
+live in the enterprise fork. The standalone billing package at
 packages/billing/ remains available for provider-agnostic billing.
 
 For standalone usage:
     pip install -e ./packages/billing
     from billing import BillingService
     from billing.providers.mock import MockBillingProvider
-
-For enterprise integration:
-    pip install amprealize-enterprise[billing]
 """
 
 # Re-export models from standalone package (stays in OSS)
@@ -77,40 +74,26 @@ try:
 except ImportError:
     _BILLING_PKG_AVAILABLE = False
 
-# Enterprise integration wrappers (moved to amprealize-enterprise)
-try:
-    from amprealize_enterprise.billing.service import (
-        AmprealizeBillingService as BillingService,
-        AmprealizeBillingHooks,
-    )
-    from amprealize_enterprise.billing.webhook_routes import (
-        create_webhook_router,
-        create_amprealize_webhook_router,
-        WebhookResponse,
-        WebhookStatusResponse,
-    )
-    from amprealize_enterprise.billing.api import (
-        create_billing_router,
-        CreateCustomerRequest as APICreateCustomerRequest,
-        UpdateCustomerRequest as APIUpdateCustomerRequest,
-        CustomerResponse,
-        CreateSubscriptionRequest as APICreateSubscriptionRequest,
-        UpdateSubscriptionRequest as APIUpdateSubscriptionRequest,
-        SubscriptionResponse,
-        RecordUsageRequest as APIRecordUsageRequest,
-        UsageResponse,
-        UsageSummaryResponse,
-        InvoiceResponse,
-        PlanResponse,
-        LimitCheckResponse,
-    )
-except ImportError:
-    # Enterprise not installed — billing wrappers unavailable
-    BillingService = StandaloneBillingService if _BILLING_PKG_AVAILABLE else None  # type: ignore[assignment,misc]
-    AmprealizeBillingHooks = None  # type: ignore[assignment,misc]
-    create_webhook_router = None  # type: ignore[assignment]
-    create_amprealize_webhook_router = None  # type: ignore[assignment]
-    create_billing_router = None  # type: ignore[assignment]
+# Enterprise integration wrappers — OSS stubs (enterprise fork provides real impls)
+BillingService = StandaloneBillingService if _BILLING_PKG_AVAILABLE else None  # type: ignore[assignment,misc]
+AmprealizeBillingHooks = None  # type: ignore[assignment,misc]
+create_webhook_router = None  # type: ignore[assignment]
+create_amprealize_webhook_router = None  # type: ignore[assignment]
+create_billing_router = None  # type: ignore[assignment]
+APICreateCustomerRequest = None  # type: ignore[assignment]
+APIUpdateCustomerRequest = None  # type: ignore[assignment]
+CustomerResponse = None  # type: ignore[assignment]
+APICreateSubscriptionRequest = None  # type: ignore[assignment]
+APIUpdateSubscriptionRequest = None  # type: ignore[assignment]
+SubscriptionResponse = None  # type: ignore[assignment]
+APIRecordUsageRequest = None  # type: ignore[assignment]
+UsageResponse = None  # type: ignore[assignment]
+UsageSummaryResponse = None  # type: ignore[assignment]
+InvoiceResponse = None  # type: ignore[assignment]
+PlanResponse = None  # type: ignore[assignment]
+LimitCheckResponse = None  # type: ignore[assignment]
+WebhookResponse = None  # type: ignore[assignment]
+WebhookStatusResponse = None  # type: ignore[assignment]
 
 __all__ = [
     # Enums

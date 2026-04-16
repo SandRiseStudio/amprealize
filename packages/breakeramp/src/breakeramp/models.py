@@ -5,14 +5,88 @@ This module contains all Pydantic models for BreakerAmp, including:
 - Environment and runtime configuration
 - Request/response models for plan, apply, status, and destroy operations
 - Environment manifest validation
+- Progress callback protocol for CLI display
 """
 
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Protocol, runtime_checkable
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+# =============================================================================
+# Progress Callback Protocol
+# =============================================================================
+
+
+class ServiceStatus(str, Enum):
+    """Status of a service during apply."""
+    WAITING = "waiting"
+    PULLING = "pulling"
+    BUILDING = "building"
+    STARTING = "starting"
+    HEALTH_CHECKING = "health_checking"
+    HEALTHY = "healthy"
+    RUNNING_POST_START = "running_post_start"
+    FAILED = "failed"
+
+
+@runtime_checkable
+class ProgressCallback(Protocol):
+    """Protocol for receiving progress events from service operations.
+
+    Implement this protocol to receive granular progress updates from
+    plan/apply/destroy operations without tight coupling to the CLI layer.
+    """
+
+    def on_phase(self, phase: str, description: str, total_steps: int = 0) -> None:
+        """A new phase has started (e.g., 'cleanup', 'starting_services')."""
+        ...
+
+    def on_step(self, step: str, description: str, *, service: Optional[str] = None) -> None:
+        """A step within a phase has started."""
+        ...
+
+    def on_step_done(self, step: str, *, duration_s: float = 0.0, service: Optional[str] = None) -> None:
+        """A step has completed."""
+        ...
+
+    def on_service_status(self, service: str, status: ServiceStatus, detail: str = "") -> None:
+        """A service's status has changed."""
+        ...
+
+    def on_warning(self, message: str) -> None:
+        """A non-fatal warning occurred."""
+        ...
+
+    def on_error(self, message: str, *, service: Optional[str] = None) -> None:
+        """An error occurred."""
+        ...
+
+
+class NoOpProgress:
+    """Default no-op implementation of ProgressCallback."""
+
+    def on_phase(self, phase: str, description: str, total_steps: int = 0) -> None:
+        pass
+
+    def on_step(self, step: str, description: str, *, service: Optional[str] = None) -> None:
+        pass
+
+    def on_step_done(self, step: str, *, duration_s: float = 0.0, service: Optional[str] = None) -> None:
+        pass
+
+    def on_service_status(self, service: str, status: ServiceStatus, detail: str = "") -> None:
+        pass
+
+    def on_warning(self, message: str) -> None:
+        pass
+
+    def on_error(self, message: str, *, service: Optional[str] = None) -> None:
+        pass
 
 
 # =============================================================================
@@ -185,6 +259,7 @@ class RuntimeConfig(BaseModel):
         podman_connection: Podman connection name
         auto_start: Auto-start machine if stopped
         auto_init: Auto-initialize machine if not exists
+        machine_disk_size_gb: Disk size in GB for Podman machine init
         memory_limit_mb: Memory limit in MB
         cpu_limit: CPU limit (cores)
         network_mbps: Network bandwidth limit in Mbps
@@ -195,6 +270,7 @@ class RuntimeConfig(BaseModel):
     podman_connection: Optional[str] = None
     auto_start: bool = False
     auto_init: bool = False
+    machine_disk_size_gb: Optional[int] = None
     memory_limit_mb: Optional[int] = None
     cpu_limit: Optional[int] = None
     network_mbps: Optional[int] = None
@@ -545,6 +621,7 @@ class StrictRuntimeConfig(BaseModel):
     podman_connection: Optional[str] = None
     auto_start: bool = False
     auto_init: bool = False
+    machine_disk_size_gb: Optional[int] = None
     memory_limit_mb: Optional[int] = None
     cpu_limit: Optional[int] = None
     network_mbps: Optional[int] = None

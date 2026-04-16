@@ -77,6 +77,26 @@ class PostgresRunService:
                 "❌ psycopg2 is not installed. Install with: pip install -e '.[postgres]'"
             )
 
+    @staticmethod
+    def _persisted_user_id(actor: Actor) -> Optional[str]:
+        """Return a real user ID for persistence, or ``None`` for placeholders.
+
+        API and internal flows frequently use sentinel actor IDs like ``unknown``
+        before authentication/user context is established. The Postgres runs table
+        enforces a foreign key to ``auth.users.id``, so persisting those sentinels
+        causes run creation to fail even though anonymous/system-originated runs
+        should still be allowed.
+        """
+
+        actor_id = (actor.id or "").strip()
+        if not actor_id:
+            return None
+
+        if actor_id.lower() in {"api-user", "unknown", "anonymous", "system"}:
+            return None
+
+        return actor_id
+
     @contextmanager
     def _connection(self, *, autocommit: bool = True):
         with self._pool.connection(autocommit=autocommit) as conn:
@@ -113,7 +133,7 @@ class PostgresRunService:
                         run_id,
                         created_at,
                         created_at,
-                        actor.id if actor.id != "api-user" else None,  # Only set if real user
+                        self._persisted_user_id(actor),
                         metadata.get("project_id"),
                         metadata.get("session_id"),
                         actor.surface,

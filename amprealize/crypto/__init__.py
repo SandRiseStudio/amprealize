@@ -1,9 +1,7 @@
-"""Cryptographic utilities for amprealize platform — OSS Stub.
+"""Cryptographic utilities for amprealize platform.
 
-The full Ed25519 signing implementation has moved to amprealize-enterprise.
-Install amprealize-enterprise[crypto] for audit log signing.
-
-OSS provides NoOp stubs so consumers degrade gracefully.
+Provides no-op stubs so consumers degrade gracefully.
+The enterprise edition provides real Ed25519 signing.
 """
 
 # Exception classes are kept in OSS for compatible error handling
@@ -31,60 +29,53 @@ class SignatureMetadata:
         self.signature_b64 = signature_b64
 
 
-try:
-    from amprealize_enterprise.crypto.signing import (
-        AuditSigner,
-        generate_signing_key,
-        load_signer_from_settings,
-    )
-except ImportError:
+class AuditSigner:
+    """No-op audit signer for OSS builds.
 
-    class AuditSigner:  # type: ignore[no-redef]
-        """No-op audit signer for OSS builds.
+    Returns empty signatures and always passes verification.
+    The enterprise fork provides real Ed25519 signing.
+    """
 
-        Returns empty signatures and always passes verification.
-        Install amprealize-enterprise[crypto] for real Ed25519 signing.
-        """
+    def __init__(self, **kwargs):
+        pass
 
-        def __init__(self, **kwargs):
-            pass
+    @property
+    def is_loaded(self) -> bool:
+        return False
 
-        @property
-        def is_loaded(self) -> bool:
-            return False
+    @property
+    def can_sign(self) -> bool:
+        return False
 
-        @property
-        def can_sign(self) -> bool:
-            return False
+    @property
+    def can_verify(self) -> bool:
+        return False
 
-        @property
-        def can_verify(self) -> bool:
-            return False
+    @property
+    def key_id(self):
+        return None
 
-        @property
-        def key_id(self):
-            return None
+    def generate_key_pair(self):
+        return self
 
-        def generate_key_pair(self):
-            return self
+    def sign_record(self, record_bytes, **kwargs):
+        return SignatureMetadata()
 
-        def sign_record(self, record_bytes, **kwargs):
-            return SignatureMetadata()
+    def verify_record(self, record_bytes, signature, **kwargs):
+        return True
 
-        def verify_record(self, record_bytes, signature, **kwargs):
-            return True
+    def sign_bytes(self, data):
+        return b""
 
-        def sign_bytes(self, data):
-            return b""
 
-    def generate_signing_key(**kwargs):
-        raise ImportError(
-            "Signing key generation requires amprealize-enterprise[crypto]. "
-            "Install with: pip install amprealize-enterprise[crypto]"
-        )
+def generate_signing_key(**kwargs):
+    """No-op in OSS. Enterprise fork provides real Ed25519 key generation."""
+    return AuditSigner()
 
-    def load_signer_from_settings(**kwargs):
-        return AuditSigner()
+
+def load_signer_from_settings(**kwargs):
+    """Load a signer from settings. Returns no-op signer in OSS."""
+    return AuditSigner()
 
 
 __all__ = [

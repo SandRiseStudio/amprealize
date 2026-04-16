@@ -291,6 +291,12 @@ services:
       # =========================================================================
       # Application settings
       # =========================================================================
+      # Enable app-level modules explicitly for dev containers.
+      # BreakerAmp's infrastructure module filter (core/console/agents) does not
+      # automatically populate Amprealize's modular-install config.
+      AMPREALIZE_MODULES_AGENTS: "true"
+      AMPREALIZE_MODULES_BEHAVIORS: "true"
+      AMPREALIZE_MODULES_COLLABORATION: "true"
       AMPREALIZE_CORS_ORIGINS: "http://localhost:${AMPREALIZE_WEB_CONSOLE_PORT:-5173},http://localhost:5173,http://localhost:3000"
       AMPREALIZE_DEVICE_VERIFICATION_URI: "http://localhost:${AMPREALIZE_API_PORT:-8000}/v1/device/authorize"
       REDIS_URL: "redis://redis:6379/0"

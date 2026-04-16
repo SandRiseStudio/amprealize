@@ -123,6 +123,11 @@ WORK_ITEM_EXECUTION_TOOLS = [
                     "description": "Surface initiating execution (cli, vscode, web, api, mcp). Defaults to 'mcp'. Local execution modes require local-capable surfaces.",
                     "enum": ["cli", "vscode", "web", "api", "mcp", "codespaces", "gitpod"],
                 },
+                "execution_mode": {
+                    "type": "string",
+                    "description": "Agent execution mode: 'gep' (full 8-phase protocol, default) or 'session' (lightweight 3-phase: plan → execute → complete).",
+                    "enum": ["gep", "session"],
+                },
             },
             "required": ["work_item_id", "project_id"],
         },
@@ -312,6 +317,21 @@ def create_work_item_execution_handlers(
 
         try:
             work_item_id = _resolve_id(arguments["work_item_id"], arguments)
+
+            # Resolve agent execution mode
+            agent_exec_mode = None
+            exec_mode_str = arguments.get("execution_mode")
+            if exec_mode_str:
+                from ...work_item_execution_contracts import AgentExecutionMode
+                try:
+                    agent_exec_mode = AgentExecutionMode(exec_mode_str)
+                except ValueError:
+                    return {
+                        "success": False,
+                        "error": "invalid_execution_mode",
+                        "message": f"Invalid execution_mode '{exec_mode_str}'. Must be 'gep' or 'session'.",
+                    }
+
             request = ExecuteWorkItemRequest(
                 work_item_id=work_item_id,
                 user_id=actor.id,
@@ -319,6 +339,7 @@ def create_work_item_execution_handlers(
                 project_id=arguments["project_id"],
                 actor_surface=arguments.get("actor_surface", "mcp"),
                 model_id=arguments.get("model_override"),
+                agent_execution_mode=agent_exec_mode,
                 metadata={
                     "idempotency_key": arguments.get("idempotency_key"),
                     "agent_id_override": arguments.get("agent_id"),

@@ -15,6 +15,7 @@ from tests.conftest import (
     assert_test_database,
     _PRODUCTION_DB_NAMES,
     _PRODUCTION_HOSTNAMES,
+    _LOCAL_TEST_HOSTNAMES,
     _mask_dsn_password,
 )
 
@@ -24,18 +25,24 @@ class TestAssertTestDatabase:
 
     def test_blocks_production_db_name_amprealize(self):
         dsn = "postgresql://user:pass@localhost:5432/amprealize"  # pragma: allowlist secret
-        with pytest.raises(RuntimeError, match="SAFETY GUARD.*production database"):
-            assert_test_database(dsn)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AMPREALIZE_TEST_SAFETY_OVERRIDE", None)
+            with pytest.raises(RuntimeError, match="SAFETY GUARD.*production database"):
+                assert_test_database(dsn)
 
     def test_blocks_production_db_name_telemetry(self):
         dsn = "postgresql://user:pass@localhost:5432/telemetry"  # pragma: allowlist secret
-        with pytest.raises(RuntimeError, match="SAFETY GUARD.*production database"):
-            assert_test_database(dsn)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AMPREALIZE_TEST_SAFETY_OVERRIDE", None)
+            with pytest.raises(RuntimeError, match="SAFETY GUARD.*production database"):
+                assert_test_database(dsn)
 
     def test_blocks_production_hostname(self):
         dsn = "postgresql://user:pass@amprealize-db:5432/some_test_db"  # pragma: allowlist secret
-        with pytest.raises(RuntimeError, match="SAFETY GUARD.*production database host"):
-            assert_test_database(dsn)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AMPREALIZE_TEST_SAFETY_OVERRIDE", None)
+            with pytest.raises(RuntimeError, match="SAFETY GUARD.*production database host"):
+                assert_test_database(dsn)
 
     def test_allows_test_db_name(self):
         dsn = "postgresql://user:pass@localhost:6432/amprealize_test"  # pragma: allowlist secret
@@ -57,6 +64,12 @@ class TestAssertTestDatabase:
             # Should NOT raise when override is set
             assert_test_database(dsn)
 
+    def test_safety_override_blocks_remote_cloud_host(self):
+        dsn = "postgresql://user:pass@ep-jolly-surf-amsysllf.c-5.us-east-1.aws.neon.tech/neondb"  # pragma: allowlist secret
+        with patch.dict(os.environ, {"AMPREALIZE_TEST_SAFETY_OVERRIDE": "1"}):
+            with pytest.raises(RuntimeError, match="remote/cloud database"):
+                assert_test_database(dsn)
+
     def test_safety_override_must_be_explicit(self):
         dsn = "postgresql://user:pass@localhost:5432/amprealize"  # pragma: allowlist secret
         with patch.dict(os.environ, {"AMPREALIZE_TEST_SAFETY_OVERRIDE": "0"}):
@@ -65,8 +78,10 @@ class TestAssertTestDatabase:
 
     def test_blocks_production_db_with_query_params(self):
         dsn = "postgresql://user:pass@localhost:5432/amprealize?options=-csearch_path%3Dpublic"  # pragma: allowlist secret
-        with pytest.raises(RuntimeError, match="SAFETY GUARD"):
-            assert_test_database(dsn)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AMPREALIZE_TEST_SAFETY_OVERRIDE", None)
+            with pytest.raises(RuntimeError, match="SAFETY GUARD"):
+                assert_test_database(dsn)
 
     def test_allows_test_db_with_query_params(self):
         dsn = "postgresql://user:pass@localhost:6432/amprealize_test?options=-csearch_path%3Dpublic"  # pragma: allowlist secret
@@ -95,6 +110,16 @@ class TestProductionHostnames:
 
     def test_localhost_allowed(self):
         assert "localhost" not in _PRODUCTION_HOSTNAMES
+
+
+class TestLocalTestHostnames:
+    """Verify override-local host allowlist."""
+
+    def test_localhost_allowed_for_override(self):
+        assert "localhost" in _LOCAL_TEST_HOSTNAMES
+
+    def test_host_containers_internal_allowed_for_override(self):
+        assert "host.containers.internal" in _LOCAL_TEST_HOSTNAMES
 
 
 class TestMaskDsnPassword:

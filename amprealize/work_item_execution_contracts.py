@@ -60,6 +60,62 @@ class ExecutionState(str, Enum):
     CANCELLED = "cancelled"     # Cancelled by user
 
 
+class AgentExecutionMode(str, Enum):
+    """High-level execution mode controlling the GEP phase flow.
+
+    GEP (default):
+        Full 8-phase Guided Execution Protocol. Best for work-item-driven tasks
+        requiring planning, architecture, testing, and verification.
+        Flow: PLANNING → ARCHITECTING → EXECUTING → TESTING → VERIFYING → COMPLETING
+
+    SESSION:
+        Lightweight conversational mode for ad-hoc agent interactions.
+        Skips heavy phases, uses SOFT gates only. Best for exploratory tasks,
+        quick code edits, research, and interactive conversations.
+        Flow: PLANNING → EXECUTING → COMPLETING
+    """
+    GEP = "gep"
+    SESSION = "session"
+
+
+class ToolPermissionLevel(str, Enum):
+    """Per-tool permission level for fine-grained access control.
+
+    Inspired by Claude Managed Agents' tool permission model.
+
+    ALWAYS_ALLOW:
+        Tool executes without confirmation. Default for read-only tools.
+
+    REQUIRE_CONFIRMATION:
+        Tool requires explicit user confirmation before execution.
+        In automated contexts, treated as allowed with audit logging.
+
+    DENY:
+        Tool is completely blocked from execution.
+    """
+    ALWAYS_ALLOW = "always_allow"
+    REQUIRE_CONFIRMATION = "require_confirmation"
+    DENY = "deny"
+
+
+# Default per-tool permissions for Session Mode
+SESSION_MODE_TOOL_PERMISSIONS: Dict[str, ToolPermissionLevel] = {
+    # Read-only tools — always allow
+    "read_file": ToolPermissionLevel.ALWAYS_ALLOW,
+    "list_directory": ToolPermissionLevel.ALWAYS_ALLOW,
+    "search_files": ToolPermissionLevel.ALWAYS_ALLOW,
+    "fetch_url": ToolPermissionLevel.ALWAYS_ALLOW,
+    "search_web": ToolPermissionLevel.ALWAYS_ALLOW,
+    "research_evaluate": ToolPermissionLevel.ALWAYS_ALLOW,
+    # Write tools — require confirmation
+    "write_file": ToolPermissionLevel.REQUIRE_CONFIRMATION,
+    "edit_file": ToolPermissionLevel.REQUIRE_CONFIRMATION,
+    "delete_file": ToolPermissionLevel.REQUIRE_CONFIRMATION,
+    # Terminal — require confirmation
+    "run_in_terminal": ToolPermissionLevel.REQUIRE_CONFIRMATION,
+}
+
+
 class LLMProvider(str, Enum):
     """Supported LLM providers."""
     ANTHROPIC = "anthropic"
@@ -260,6 +316,10 @@ class ExecutionPolicy:
     # Workspace provisioning (controls whether to provision isolated workspace)
     require_workspace: bool = True  # False for read-only research tasks
 
+    # Per-tool permission policies (tool_name -> permission level)
+    # Tools not listed default to ALWAYS_ALLOW in GEP and REQUIRE_CONFIRMATION in SESSION
+    tool_permissions: Dict[str, "ToolPermissionLevel"] = field(default_factory=dict)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "phase_gates": {k: v.value for k, v in self.phase_gates.items()},
@@ -272,6 +332,7 @@ class ExecutionPolicy:
             "total_timeout_minutes": self.total_timeout_minutes,
             "skip_phases": list(self.skip_phases),
             "require_workspace": self.require_workspace,
+            "tool_permissions": {k: v.value for k, v in self.tool_permissions.items()},
         }
 
     @classmethod
@@ -279,6 +340,10 @@ class ExecutionPolicy:
         phase_gates = {}
         for k, v in data.get("phase_gates", {}).items():
             phase_gates[k] = GatePolicyType(v) if isinstance(v, str) else v
+
+        tool_permissions = {}
+        for k, v in data.get("tool_permissions", {}).items():
+            tool_permissions[k] = ToolPermissionLevel(v) if isinstance(v, str) else v
 
         return cls(
             phase_gates=phase_gates or cls().phase_gates,
@@ -291,6 +356,7 @@ class ExecutionPolicy:
             total_timeout_minutes=data.get("total_timeout_minutes", 480),
             skip_phases=set(data.get("skip_phases", [])),
             require_workspace=data.get("require_workspace", True),
+            tool_permissions=tool_permissions,
         )
 
     @classmethod
@@ -377,6 +443,36 @@ class ExecutionPolicy:
             skip_phases=set(),  # Run all phases
         )
 
+    @classmethod
+    def for_session_mode(cls) -> "ExecutionPolicy":
+        """Create execution policy for Session Mode (lightweight agent loop).
+
+        Session Mode skips heavy GEP phases (CLARIFYING, ARCHITECTING,
+        TESTING, FIXING, VERIFYING) for a fast PLANNING → EXECUTING →
+        COMPLETING flow. All gates are SOFT (notify-only, never block).
+
+        Best for:
+        - Ad-hoc conversational tasks
+        - Quick code edits and exploratory research
+        - Interactive agent sessions via MCP/CLI/Web Console
+        """
+        return cls(
+            phase_gates={
+                "planning": GatePolicyType.SOFT,
+                "clarifying": GatePolicyType.NONE,
+                "architecting": GatePolicyType.NONE,
+                "executing": GatePolicyType.SOFT,
+                "testing": GatePolicyType.NONE,
+                "fixing": GatePolicyType.NONE,
+                "verifying": GatePolicyType.NONE,
+                "completing": GatePolicyType.SOFT,
+            },
+            skip_phases={"clarifying", "architecting", "testing", "fixing", "verifying"},
+            internet_access=InternetAccessPolicy.ENABLED,
+            require_workspace=False,  # Use local context, no isolated container
+            tool_permissions=dict(SESSION_MODE_TOOL_PERMISSIONS),
+        )
+
 
 # =============================================================================
 # Credential Store
@@ -446,6 +542,7 @@ class ExecuteWorkItemRequest:
     # Optional overrides
     model_id: Optional[str] = None     # Override agent's preferred model
     execution_policy: Optional[ExecutionPolicy] = None  # Override agent's policy
+    agent_execution_mode: Optional[AgentExecutionMode] = None  # GEP (default) or SESSION
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

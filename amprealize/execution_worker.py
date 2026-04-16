@@ -685,6 +685,16 @@ class ExecutionWorker:
         if not model_id:
             model_id = os.environ.get("AMPREALIZE_DEFAULT_MODEL", "claude-sonnet-4-20250514")
 
+        # Resolve agent execution mode from job payload
+        agent_execution_mode = None
+        exec_mode_str = job.payload.get("agent_execution_mode")
+        if exec_mode_str:
+            from amprealize.work_item_execution_contracts import AgentExecutionMode
+            try:
+                agent_execution_mode = AgentExecutionMode(exec_mode_str)
+            except ValueError:
+                logger.warning(f"Invalid agent_execution_mode in job payload: {exec_mode_str}")
+
         return {
             "run_id": job.run_id,
             "cycle_id": cycle_id,
@@ -696,6 +706,7 @@ class ExecutionWorker:
             "user_id": job.user_id,
             "org_id": job.org_id,
             "project_id": job.project_id,
+            "agent_execution_mode": agent_execution_mode,
         }
 
     def _get_agent_execution_policy(
@@ -965,6 +976,7 @@ class ExecutionWorker:
                 user_id=user_id,
                 org_id=org_id,
                 project_id=project_id,
+                execution_mode=context.get("agent_execution_mode"),
             )
 
             status = result.get("status", "unknown")
@@ -1221,7 +1233,7 @@ class ExecutionWorker:
     def _move_to_completed(self, work_item_id: str, org_id: Optional[str]) -> None:
         """Move work item to completed column."""
         try:
-            from amprealize.multi_tenant.board_contracts import (
+            from amprealize.boards.contracts import (
                 UpdateWorkItemRequest, WorkItemStatus, MoveWorkItemRequest,
             )
             from amprealize.services.board_service import Actor as BoardActor

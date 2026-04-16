@@ -303,19 +303,23 @@ class MCPLazyToolLoader:
 
         # Find tools matching this group's prefixes
         for original_name, tool_info in self._all_tool_manifests.items():
-            # Check if tool matches any prefix for this group
-            matches_group = False
-            for prefix in group.tool_prefixes:
-                if original_name.startswith(prefix):
-                    matches_group = True
-                    break
+            if group_id == ToolGroupId.CORE:
+                # CORE group uses CORE_TOOLS as the authoritative set —
+                # it contains tools from many prefixes (auth, behaviors,
+                # research_wiki, tools, etc.) so prefix matching alone
+                # would miss cross-cutting tools.
+                if original_name not in CORE_TOOLS:
+                    continue
+            else:
+                # Non-core groups use prefix matching
+                matches_group = False
+                for prefix in group.tool_prefixes:
+                    if original_name.startswith(prefix):
+                        matches_group = True
+                        break
 
-            if not matches_group:
-                continue
-
-            # For core group, only load tools in CORE_TOOLS set
-            if group_id == ToolGroupId.CORE and original_name not in CORE_TOOLS:
-                continue
+                if not matches_group:
+                    continue
 
             # Module gating — skip tools whose module is disabled
             if not self._is_tool_allowed_by_module(original_name):
@@ -445,8 +449,20 @@ class MCPLazyToolLoader:
         return self._state.loaded_tools.copy()
 
     def get_tool_scopes(self) -> Dict[str, List[str]]:
-        """Get scope requirements for active tools."""
-        return self._state.tool_scopes.copy()
+        """Get scope requirements for discovered tools.
+
+        Scope metadata must be available even for tools that have not yet been
+        activated, so auth checks and capability inspection can work before
+        lazy-loading a group.
+        """
+        scopes = self._state.tool_scopes.copy()
+        for original_name, tool_info in self._all_tool_manifests.items():
+            normalized_name = self._normalize_tool_name(original_name)
+            scopes.setdefault(
+                normalized_name,
+                list(tool_info["manifest"].get("required_scopes", [])),
+            )
+        return scopes
 
     def get_active_groups(self) -> List[Dict[str, Any]]:
         """Get list of active tool groups with metadata."""

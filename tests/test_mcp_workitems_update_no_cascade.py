@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import pytest
 
 from amprealize.mcp.handlers.board_handlers import handle_update_work_item
-from amprealize.multi_tenant.board_contracts import (
+from amprealize.boards.contracts import (
     UpdateWorkItemRequest,
     WorkItem,
     WorkItemStatus,

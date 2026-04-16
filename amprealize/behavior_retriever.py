@@ -563,46 +563,67 @@ class BehaviorRetriever:
                 uncached_indices.append(idx)
                 uncached_queries.append(request.query)
 
-        # Batch encode uncached queries
+        # Batch encode uncached semantic queries, grouped by rollout cohort model.
         if uncached_queries:
-            model = self._load_model()
-            query_embeddings = model.encode(uncached_queries, convert_to_numpy=True)  # pragma: no cover
-            assert faiss is not None
-            faiss.normalize_L2(query_embeddings)  # pragma: no cover  # type: ignore[attr-defined]
+            semantic_groups: Dict[str, List[tuple[int, RetrieveRequest]]] = {}
 
-            # Process each uncached request with pre-computed embedding
-            for embedding_idx, request_idx in enumerate(uncached_indices):
+            for request_idx in uncached_indices:
                 request = requests[request_idx]
-                matches = self._embedding_retrieve_with_vector(
-                    request, query_embeddings[embedding_idx]
-                )
 
-                # Apply strategy-specific processing
-                if request.strategy == RetrievalStrategy.EMBEDDING:
-                    final_matches = matches[: request.top_k]
-                    mode = "semantic"
-                elif request.strategy == RetrievalStrategy.KEYWORD:
+                # KEYWORD strategy doesn't need embeddings at all.
+                if request.strategy == RetrievalStrategy.KEYWORD:
                     final_matches = self._keyword_retrieve(request, limit=request.top_k)
-                    mode = "keyword"
-                else:  # HYBRID
-                    keyword_matches = self._keyword_retrieve(request, limit=max(request.top_k * 3, 15))
-                    final_matches = self._merge_hybrid(matches, keyword_matches, request)
-                    mode = "hybrid"
+                    results[request_idx] = final_matches
+                    self._emit_retrieval_event(request, final_matches, "keyword")
 
-                results[request_idx] = final_matches
-                self._emit_retrieval_event(request, final_matches, mode)
+                    cache_params = {
+                        "query": request.query,
+                        "strategy": request.strategy.value,
+                        "top_k": request.top_k,
+                        "tags": sorted(request.tags) if request.tags else [],
+                        "role_focus": request.role_focus.value if request.role_focus else None,
+                        "include_metadata": request.include_metadata,
+                    }
+                    cache_key = cache._make_key("retriever", "query", cache_params)
+                    self._cache_matches(cache_key, final_matches)
+                    continue
 
-                # Cache the result
-                cache_params = {
-                    "query": request.query,
-                    "strategy": request.strategy.value,
-                    "top_k": request.top_k,
-                    "tags": sorted(request.tags) if request.tags else [],
-                    "role_focus": request.role_focus.value if request.role_focus else None,
-                    "include_metadata": request.include_metadata,
-                }
-                cache_key = cache._make_key("retriever", "query", cache_params)
-                self._cache_matches(cache_key, final_matches)
+                model_name = self._determine_model_for_cohort(request.user_id)
+                semantic_groups.setdefault(model_name, []).append((request_idx, request))
+
+            for model_name, grouped_requests in semantic_groups.items():
+                model = self._load_model(model_name)
+                grouped_queries = [request.query for _, request in grouped_requests]
+                query_embeddings = model.encode(grouped_queries, convert_to_numpy=True)  # pragma: no cover
+                assert faiss is not None
+                faiss.normalize_L2(query_embeddings)  # pragma: no cover  # type: ignore[attr-defined]
+
+                for embedding_idx, (request_idx, request) in enumerate(grouped_requests):
+                    matches = self._embedding_retrieve_with_vector(
+                        request, query_embeddings[embedding_idx]
+                    )
+
+                    if request.strategy == RetrievalStrategy.EMBEDDING:
+                        final_matches = matches[: request.top_k]
+                        mode = "semantic"
+                    else:  # HYBRID
+                        keyword_matches = self._keyword_retrieve(request, limit=max(request.top_k * 3, 15))
+                        final_matches = self._merge_hybrid(matches, keyword_matches, request)
+                        mode = "hybrid"
+
+                    results[request_idx] = final_matches
+                    self._emit_retrieval_event(request, final_matches, mode)
+
+                    cache_params = {
+                        "query": request.query,
+                        "strategy": request.strategy.value,
+                        "top_k": request.top_k,
+                        "tags": sorted(request.tags) if request.tags else [],
+                        "role_focus": request.role_focus.value if request.role_focus else None,
+                        "include_metadata": request.include_metadata,
+                    }
+                    cache_key = cache._make_key("retriever", "query", cache_params)
+                    self._cache_matches(cache_key, final_matches)
 
         # Emit batch telemetry
         self._telemetry.emit_event(

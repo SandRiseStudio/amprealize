@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "whiteboard.saveCanvas",
+  "description": "Save the current canvas state for a whiteboard room. Typically called periodically or on significant changes.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "room_id": {
+        "type": "string",
+        "description": "ID of the whiteboard room"
+      },
+      "canvas_state": {
+        "type": "object",
+        "description": "The tldraw document state to persist"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "room_id": { "type": "string" },
+      "updated_at": { "type": "string", "format": "date-time" },
+      "message": { "type": "string" }
+    }
+  }
+}

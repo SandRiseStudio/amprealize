@@ -376,15 +376,19 @@ class SourceExtractor:
         return fragments
 
     def extract_all(
-        self, sources: List[Dict[str, Any]]
+        self, sources: List[Any]
     ) -> ExtractionResult:
         """Orchestrate extraction from a list of source records.
 
-        Each source dict should have ``source_type``, ``ref``, and ``scope``.
+        Accepts both ``SourceRecord`` objects (from ``SourceRegistryService``)
+        and plain dicts with ``source_type``, ``ref``, and ``scope`` keys.
         """
         result = ExtractionResult()
 
         for src in sources:
+            # Normalise SourceRecord → dict so .get() works uniformly
+            if hasattr(src, "to_dict"):
+                src = src.to_dict()
             source_type = src.get("source_type", "")
             ref = src.get("ref", "")
             scope = src.get("scope", "canonical")

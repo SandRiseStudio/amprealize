@@ -9,6 +9,7 @@
  */
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ExecutionStatusBadge, type ExecutionListItem } from '../../lib/collab-client';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useShellTitle, useShellMode } from '../workspace/useShell';
@@ -44,7 +45,7 @@ import { ActorAvatar } from '../actors/ActorAvatar';
 import { toActorViewModel } from '../../utils/actorViewModel';
 import { WorkItemDrawer, type AssigneeProfile, type WorkItemPresentationMode } from './WorkItemDrawer';
 import { copyTextToClipboard, formatWorkItemDisplayId } from './workItemId';
-import { useBoardFilters, useFilteredItems, sortItems } from './useBoardFilters';
+import { filtersToQueryParams, useBoardFilters, useFilteredItems, sortItems } from './useBoardFilters';
 import { BoardFilterBar } from './BoardFilterBar';
 import { ColumnSummaryStrip } from './ColumnSummaryStrip';
 import { AgentPresenceDrawer } from './AgentPresenceDrawer';
@@ -59,6 +60,7 @@ import {
   type UnifiedConversationInitialTarget,
 } from '../conversations/UnifiedConversationWindow';
 import { useGetOrCreateDirectConversation } from '../../api/conversations';
+import { razeLog } from '../../telemetry/raze';
 import './BoardPage.css';
 
 function getColumnAccentIndex(index: number): number {
@@ -1574,6 +1576,8 @@ interface ColumnLaneProps {
   itemsLoading?: boolean;
   /** Phase 4: Map of item IDs to diff states for premium animations */
   itemDiffMap?: ItemDiffMap;
+  /** When true, skip column virtualization until full hydration to avoid layout gaps */
+  deferColumnVirtualization?: boolean;
 }
 
 function loadCollapsedSet(boardColumnId: string): Set<string> | null {
@@ -1647,10 +1651,15 @@ const ColumnLane = memo(function ColumnLane({
   isFiltered,
   itemsLoading,
   itemDiffMap,
+  deferColumnVirtualization = false,
 }: ColumnLaneProps) {
   // ── Inline assignment hooks ──────────────────────────────────────────
   const assignItemMutation = useAssignWorkItem(boardId);
   const unassignItemMutation = useUnassignWorkItem(boardId);
+  const renderItems = useMemo(
+    () => Array.from(new Map(items.map((item) => [item.item_id, item])).values()),
+    [items],
+  );
 
   const handleCardAssign = useCallback(
     (itemId: string, profile: AssigneeProfile) => {
@@ -1687,8 +1696,8 @@ const ColumnLane = memo(function ColumnLane({
     if (stored !== null) return stored;
     // First visit: default-collapse expandable items
     const defaultCollapsed = new Set<string>();
-    for (const item of items) {
-      const hasChildren = items.some((child) => child.parent_id === item.item_id);
+    for (const item of renderItems) {
+      const hasChildren = renderItems.some((child) => child.parent_id === item.item_id);
       if (!hasChildren) continue;
       // Always collapse goals with children
       if (item.item_type === 'goal') defaultCollapsed.add(item.item_id);
@@ -1708,7 +1717,7 @@ const ColumnLane = memo(function ColumnLane({
     }
     if (shiftedCardIdsRef.current.size === 0) return;
     shiftedCardIdsRef.current.forEach((slotId) => {
-      const slot = container.querySelector<HTMLElement>(`:scope > [data-item-id="${slotId}"]`);
+      const slot = container.querySelector<HTMLElement>(`[data-dnd-slot="true"][data-item-id="${slotId}"]`);
       if (slot) {
         slot.classList.remove('dnd-slot-shifted', 'dnd-slot-shifted-up', 'dnd-slot-shifted-down');
         slot.style.removeProperty('--slot-shift-boost');
@@ -1744,13 +1753,13 @@ const ColumnLane = memo(function ColumnLane({
   // Set of item IDs that have children (i.e. are expandable/collapsible)
   const expandableIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const item of items) {
-      if (item.parent_id && items.some((p) => p.item_id === item.parent_id)) {
+    for (const item of renderItems) {
+      if (item.parent_id && renderItems.some((p) => p.item_id === item.parent_id)) {
         ids.add(item.parent_id);
       }
     }
     return ids;
-  }, [items]);
+  }, [renderItems]);
 
   const collapseAll = useCallback(() => {
     setCollapsed(() => {
@@ -1772,7 +1781,7 @@ const ColumnLane = memo(function ColumnLane({
   const prevDoneRef = useRef<Set<string> | null>(null);
   useEffect(() => {
     const currentDone = new Set(
-      items.filter((i) => (i.status === 'done') && expandableIds.has(i.item_id)).map((i) => i.item_id)
+      renderItems.filter((i) => (i.status === 'done') && expandableIds.has(i.item_id)).map((i) => i.item_id)
     );
     if (prevDoneRef.current !== null) {
       const newlyDone: string[] = [];
@@ -1789,7 +1798,7 @@ const ColumnLane = memo(function ColumnLane({
       }
     }
     prevDoneRef.current = currentDone;
-  }, [items, expandableIds, column.column_id]);
+  }, [renderItems, expandableIds, column.column_id]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -1813,7 +1822,7 @@ const ColumnLane = memo(function ColumnLane({
       // ── Top-level slots: each is a .hierarchy-group or root .hierarchy-node ──
       // These are the direct children of the column that have data-item-id.
       // Shifting at the slot level moves entire groups (goal + children) as a unit.
-      const allSlots = container.querySelectorAll<HTMLElement>(':scope > [data-item-id]');
+      const allSlots = container.querySelectorAll<HTMLElement>('[data-dnd-slot="true"][data-item-id]');
       const slots: HTMLElement[] = [];
       for (let i = 0; i < allSlots.length; i++) {
         if (allSlots[i].offsetHeight > 0) slots.push(allSlots[i]);
@@ -1909,7 +1918,7 @@ const ColumnLane = memo(function ColumnLane({
       // Remove slots no longer shifted.
       shiftedCardIdsRef.current.forEach((slotId) => {
         if (!nextShifted.has(slotId)) {
-          const slot = container.querySelector<HTMLElement>(`:scope > [data-item-id="${slotId}"]`);
+          const slot = container.querySelector<HTMLElement>(`[data-dnd-slot="true"][data-item-id="${slotId}"]`);
           if (slot) {
             slot.classList.remove('dnd-slot-shifted', 'dnd-slot-shifted-up', 'dnd-slot-shifted-down');
             slot.style.removeProperty('--slot-shift-boost');
@@ -1922,7 +1931,7 @@ const ColumnLane = memo(function ColumnLane({
       // position (i.e. into the gap it left). Slots below the origin
       // shift up; slots above the origin shift down.
       nextShifted.forEach((slotId) => {
-        const slot = container.querySelector<HTMLElement>(`:scope > [data-item-id="${slotId}"]`);
+        const slot = container.querySelector<HTMLElement>(`[data-dnd-slot="true"][data-item-id="${slotId}"]`);
         if (!slot) return;
 
         const slotIdx = slotIds.indexOf(slotId);
@@ -2132,9 +2141,13 @@ const ColumnLane = memo(function ColumnLane({
     const rootTasks: WorkItem[] = [];
     const featuresByGoal = new Map<string, WorkItem[]>();
     const tasksByFeature = new Map<string, WorkItem[]>();
-    const itemById = new Map(items.map((item) => [item.item_id, item]));
+    const itemById = new Map(renderItems.map((item) => [item.item_id, item]));
 
-    for (const item of items) {
+    for (const item of renderItems) {
+      if (item.parent_id && !itemById.has(item.parent_id)) {
+        continue;
+      }
+
       if (item.item_type === 'goal') {
         goalRoots.push(item);
         continue;
@@ -2177,7 +2190,137 @@ const ColumnLane = memo(function ColumnLane({
       featuresByGoal: sortBucketMap(featuresByGoal),
       tasksByFeature: sortBucketMap(tasksByFeature),
     };
-  }, [items]);
+  }, [renderItems]);
+
+  type FlattenedHierarchyRow = {
+    item: WorkItem;
+    depth: 0 | 1 | 2;
+    hint?: string;
+    options?: {
+      isExpandable?: boolean;
+      isCollapsed?: boolean;
+      hierarchyCountLabel?: string;
+      summarized?: boolean;
+    };
+  };
+
+  const visibleRows = useMemo<FlattenedHierarchyRow[]>(() => {
+    const rows: FlattenedHierarchyRow[] = [];
+
+    for (const goal of hierarchyView.goalRoots) {
+      const features = hierarchyView.featuresByGoal.get(goal.item_id) ?? [];
+      const goalCollapsed = collapsed.has(goal.item_id);
+      const globalFeatureCount = featureCountByGoal.get(goal.item_id) ?? 0;
+      const globalTaskCount = (taskCountByGoal.get(goal.item_id) ?? 0) + (childTaskCountByParent.get(goal.item_id) ?? 0);
+      const goalCountParts: string[] = [];
+      if (globalFeatureCount > 0) goalCountParts.push(`${globalFeatureCount} ${globalFeatureCount === 1 ? 'feature' : 'features'}`);
+      if (globalTaskCount > 0) goalCountParts.push(`${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}`);
+
+      rows.push({
+        item: goal,
+        depth: 0,
+        options: {
+          isExpandable: features.length > 0,
+          isCollapsed: goalCollapsed,
+          hierarchyCountLabel: goalCountParts.length > 0 ? goalCountParts.join(' · ') : undefined,
+          summarized: true,
+        },
+      });
+
+      if (goalCollapsed) continue;
+
+      for (const feature of features) {
+        const tasks = hierarchyView.tasksByFeature.get(feature.item_id) ?? [];
+        const featureCollapsed = collapsed.has(feature.item_id);
+        const globalTaskCount = childTaskCountByParent.get(feature.item_id) ?? 0;
+
+        rows.push({
+          item: feature,
+          depth: 1,
+          hint: `Rolls up to goal: ${goal.title}`,
+          options: {
+            isExpandable: tasks.length > 0,
+            isCollapsed: featureCollapsed,
+            hierarchyCountLabel: globalTaskCount > 0 ? `${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}` : undefined,
+          },
+        });
+
+        if (featureCollapsed) continue;
+
+        for (const task of tasks) {
+          rows.push({
+            item: task,
+            depth: 2,
+            hint: `Rolls up to feature: ${feature.title}`,
+          });
+        }
+      }
+    }
+
+    for (const feature of hierarchyView.rootFeatures) {
+      const tasks = hierarchyView.tasksByFeature.get(feature.item_id) ?? [];
+      const featureCollapsed = collapsed.has(feature.item_id);
+      const globalTaskCount = childTaskCountByParent.get(feature.item_id) ?? 0;
+
+      rows.push({
+        item: feature,
+        depth: 0,
+        hint: feature.parent_id ? 'Parent goal is in another column' : undefined,
+        options: {
+          isExpandable: tasks.length > 0,
+          isCollapsed: featureCollapsed,
+          hierarchyCountLabel: globalTaskCount > 0 ? `${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}` : undefined,
+        },
+      });
+
+      if (featureCollapsed) continue;
+
+      for (const task of tasks) {
+        rows.push({
+          item: task,
+          depth: 1,
+          hint: `Rolls up to feature: ${feature.title}`,
+        });
+      }
+    }
+
+    for (const task of hierarchyView.rootTasks) {
+      rows.push({
+        item: task,
+        depth: 0,
+        hint: task.parent_id ? 'Parent feature is in another column' : undefined,
+      });
+    }
+
+    const seenIds = new Set<string>();
+    return rows.filter((row) => {
+      if (seenIds.has(row.item.item_id)) return false;
+      seenIds.add(row.item.item_id);
+      return true;
+    });
+  }, [
+    childTaskCountByParent,
+    collapsed,
+    featureCountByGoal,
+    hierarchyView,
+    taskCountByGoal,
+  ]);
+
+  const useVirtualList =
+    !deferColumnVirtualization && visibleRows.length > 80;
+
+  const rowVirtualizer = useVirtualizer({
+    count: useVirtualList ? visibleRows.length : 0,
+    getScrollElement: () => columnItemsRef.current,
+    estimateSize: (index) => {
+      const row = visibleRows[index];
+      if (!row) return 108;
+      if (row.depth === 2) return 98;
+      if (row.depth === 1) return 104;
+      return 112;
+    },
+    overscan: 8,
+  });
 
   const isItemDimmed = useCallback(
     (itemId: string): boolean => {
@@ -2202,7 +2345,6 @@ const ColumnLane = memo(function ColumnLane({
       }
     ) => (
       <div
-        key={item.item_id}
         className={`hierarchy-node hierarchy-depth-${depth} hierarchy-node-${item.item_type}`}
         data-item-id={item.item_id}
         role="listitem"
@@ -2306,94 +2448,47 @@ const ColumnLane = memo(function ColumnLane({
             <WorkItemSkeleton />
           </>
         )}
-
-        {hierarchyView.goalRoots.map((goal) => {
-          const features = hierarchyView.featuresByGoal.get(goal.item_id) ?? [];
-          const goalCollapsed = collapsed.has(goal.item_id);
-          const goalChildCount = features.length;
-          const globalFeatureCount = featureCountByGoal.get(goal.item_id) ?? 0;
-          const globalTaskCount = (taskCountByGoal.get(goal.item_id) ?? 0) + (childTaskCountByParent.get(goal.item_id) ?? 0);
-          const goalCountParts: string[] = [];
-          if (globalFeatureCount > 0) goalCountParts.push(`${globalFeatureCount} ${globalFeatureCount === 1 ? 'feature' : 'features'}`);
-          if (globalTaskCount > 0) goalCountParts.push(`${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}`);
-          const goalCountLabel = goalCountParts.length > 0 ? goalCountParts.join(' · ') : undefined;
-          return (
-            <div
-              key={goal.item_id}
-              className={`hierarchy-group${goalChildCount > 0 ? ' hierarchy-group-goal' : ''}`}
-              data-item-id={goal.item_id}
-              role="group"
-              aria-label={`Goal ${goal.title}`}
-            >
-              {renderCard(goal, 0, undefined, {
-                isExpandable: goalChildCount > 0,
-                isCollapsed: goalCollapsed,
-                hierarchyCountLabel: goalCountLabel,
-                summarized: true,
-              })}
-              <div className={`hierarchy-collapsible ${goalCollapsed ? 'hierarchy-collapsible-closed' : ''}`}>
-                <div className="hierarchy-collapsible-inner">
-                  {features.length > 0 && (
-                    <div className="hierarchy-children hierarchy-children-feature" role="list" aria-label={`Features under goal ${goal.title}`}>
-                      {features.map((feature) => {
-                        const tasks = hierarchyView.tasksByFeature.get(feature.item_id) ?? [];
-                        const featureCollapsed = collapsed.has(feature.item_id);
-                        const globalTaskCount = childTaskCountByParent.get(feature.item_id) ?? 0;
-                        const featureCountLabel = `${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}`;
-                        return (
-                          <div key={feature.item_id} className="hierarchy-group hierarchy-group-feature" data-item-id={feature.item_id} role="group" aria-label={`Feature ${feature.title}`}>
-                            {renderCard(feature, 1, `Rolls up to goal: ${goal.title}`, {
-                              isExpandable: tasks.length > 0,
-                              isCollapsed: featureCollapsed,
-                              hierarchyCountLabel: globalTaskCount > 0 ? featureCountLabel : undefined,
-                            })}
-                            <div className={`hierarchy-collapsible ${featureCollapsed ? 'hierarchy-collapsible-closed' : ''}`}>
-                              <div className="hierarchy-collapsible-inner">
-                                {tasks.length > 0 && (
-                                  <div className="hierarchy-children hierarchy-children-task" role="list" aria-label={`Tasks under feature ${feature.title}`}>
-                                    {tasks.map((task) => renderCard(task, 2, `Rolls up to feature: ${feature.title}`))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+        {visibleRows.length > 0 && !useVirtualList && (
+          <>
+            {visibleRows.map((row) => (
+              <div key={row.item.item_id} data-dnd-slot="true" data-item-id={row.item.item_id}>
+                {renderCard(row.item, row.depth, row.hint, row.options)}
               </div>
-            </div>
-          );
-        })}
+            ))}
+          </>
+        )}
+        {visibleRows.length > 0 && useVirtualList && (
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              position: 'relative',
+              width: '100%',
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const row = visibleRows[virtualRow.index];
+              if (!row) return null;
 
-        {hierarchyView.rootFeatures.map((feature) => {
-          const tasks = hierarchyView.tasksByFeature.get(feature.item_id) ?? [];
-          const featureCollapsed = collapsed.has(feature.item_id);
-          const globalTaskCount = childTaskCountByParent.get(feature.item_id) ?? 0;
-          const featureCountLabel = `${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}`;
-          return (
-            <div key={feature.item_id} className="hierarchy-group hierarchy-group-feature" data-item-id={feature.item_id} role="group" aria-label={`Feature ${feature.title}`}>
-              {renderCard(feature, 0, feature.parent_id ? 'Parent goal is in another column' : undefined, {
-                isExpandable: tasks.length > 0,
-                isCollapsed: featureCollapsed,
-                hierarchyCountLabel: globalTaskCount > 0 ? featureCountLabel : undefined,
-              })}
-              <div className={`hierarchy-collapsible ${featureCollapsed ? 'hierarchy-collapsible-closed' : ''}`}>
-                <div className="hierarchy-collapsible-inner">
-                  {tasks.length > 0 && (
-                    <div className="hierarchy-children hierarchy-children-task" role="list" aria-label={`Tasks under feature ${feature.title}`}>
-                      {tasks.map((task) => renderCard(task, 1, `Rolls up to feature: ${feature.title}`))}
-                    </div>
-                  )}
+              return (
+                <div
+                  key={row.item.item_id}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div data-dnd-slot="true" data-item-id={row.item.item_id}>
+                    {renderCard(row.item, row.depth, row.hint, row.options)}
+                  </div>
                 </div>
-              </div>
-            </div>
-          );
-        })}
-
-        {hierarchyView.rootTasks.map((task) =>
-          renderCard(task, 0, task.parent_id ? 'Parent feature is in another column' : undefined)
+              );
+            })}
+          </div>
         )}
       </div>
     </section>
@@ -2724,10 +2819,15 @@ export function BoardPage(): React.JSX.Element {
   const copyToastTimerRef = React.useRef<number | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const boardColumnsRef = useRef<HTMLDivElement>(null);
+  const boardPerfStartedAtRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const boardPerfFlagsRef = useRef<{ shell?: string; firstPage?: string; full?: string }>({});
   const [scrolled, setScrolled] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [visibleColumnIds, setVisibleColumnIds] = useState<Set<string>>(new Set());
   const pendingFocusItemIdRef = useRef<string | null>(null);
+  const filterState = useBoardFilters();
+  const { filters, sort, hasActiveFilters } = filterState;
+  const workItemQuery = useMemo(() => filtersToQueryParams(filters, sort), [filters, sort]);
 
   const presentationMode: WorkItemPresentationMode =
     itemId && location.state && typeof location.state === 'object' && 'workItemPresentation' in location.state
@@ -2757,16 +2857,30 @@ export function BoardPage(): React.JSX.Element {
     return () => scrollParent.removeEventListener('scroll', onScroll);
   }, []);
 
+  useEffect(() => {
+    boardPerfStartedAtRef.current = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    boardPerfFlagsRef.current = {};
+  }, [boardId]);
+
   const { data: project } = useProject(projectId);
   const { data: board, isLoading: boardLoading } = useBoard(boardId);
   const {
     data: workItems,
     isInitialLoading: itemsLoading,
+    isBackgroundHydrating,
+    loadedCount,
+    total: totalItemCount,
+    isPartial,
     isRefreshing,
     error: itemsError,
     refetch: refetchItems,
+    loadMore,
     lastSyncedAt,
-  } = useWorkItems(boardId);
+  } = useWorkItems(boardId, {
+    query: workItemQuery,
+    pageSize: 100,
+    progressive: true,
+  });
 
   const deleteItem = useDeleteWorkItem(boardId);
   const deleteCommitTimerRef = useRef<number | null>(null);
@@ -2782,18 +2896,20 @@ export function BoardPage(): React.JSX.Element {
   // Phase 4: Track item diff states for premium animations
   const itemDiffMap = useItemDiffState(items);
 
+  const [assignmentDrawerOpen, setAssignmentDrawerOpen] = useState(false);
   const participantsQuery = useProjectParticipants(projectId ?? null);
-  const projectAgentsQuery = useProjectAgents(Boolean(projectId));
+  const projectAgentsQuery = useProjectAgents(projectId ?? null, {
+    enabled: Boolean(projectId) && assignmentDrawerOpen,
+  });
   const executionAvailable = capabilitiesQuery.data?.routes.executions ?? false;
   const participantRecords = participantsQuery.data?.items ?? [];
   const projectAgents = projectAgentsQuery.data ?? EMPTY_AGENTS;
   const participantsError = participantsQuery.error;
-  const projectAgentsError = projectAgentsQuery.error;
+  const projectAgentsError = assignmentDrawerOpen ? projectAgentsQuery.error : null;
 
   // Agent presence rail state
-  const { presences: agentPresences } = useAgentPresence(projectAgents, projectId ?? undefined);
   const [membersSheetOpen, setMembersSheetOpen] = useState(false);
-  const [assignmentDrawerOpen, setAssignmentDrawerOpen] = useState(false);
+  const { presences: agentPresences } = useAgentPresence(projectAgents, projectId ?? undefined);
 
   const collabDockLauncherRef = useRef<HTMLButtonElement>(null);
 
@@ -2803,6 +2919,22 @@ export function BoardPage(): React.JSX.Element {
     dmParticipantId?: string;
   } | null>(null);
   const getOrCreateDM = useGetOrCreateDirectConversation();
+
+  const [hydrationNoticeDismissed, setHydrationNoticeDismissed] = useState(false);
+
+  useEffect(() => {
+    setHydrationNoticeDismissed(false);
+    if (typeof sessionStorage !== 'undefined' && boardId) {
+      setHydrationNoticeDismissed(sessionStorage.getItem(`board-hydration-dismiss:${boardId}`) === '1');
+    }
+  }, [boardId]);
+
+  const dismissHydrationNotice = useCallback(() => {
+    if (boardId && typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(`board-hydration-dismiss:${boardId}`, '1');
+    }
+    setHydrationNoticeDismissed(true);
+  }, [boardId]);
 
   useEffect(() => {
     setMembersSheetOpen(false);
@@ -2836,13 +2968,23 @@ export function BoardPage(): React.JSX.Element {
     enabled: Boolean(project?.org_id && projectId),
   });
   const executionListQuery = useExecutionList(project?.org_id ?? null, projectId ?? null, {
-    limit: 100,
-    refetchInterval: executionStream.isConnected ? false : 10_000,
+    status: 'running',
+    limit: 25,
+    refetchInterval: executionStream.isConnected ? false : 30_000,
   });
   const executeWorkItem = useExecuteWorkItem();
   const cancelExecution = useCancelWorkItemExecution();
-  const goalRollupsQuery = useBoardProgressRollups(boardId, { itemType: 'goal' });
-  const featureRollupsQuery = useBoardProgressRollups(boardId, { itemType: 'feature' });
+  const shouldLoadRollups = Boolean(boardId) && !itemsLoading && loadedCount > 0;
+  const goalRollupsQuery = useBoardProgressRollups(boardId, {
+    itemType: 'goal',
+    enabled: shouldLoadRollups,
+    staleTimeMs: 30_000,
+  });
+  const featureRollupsQuery = useBoardProgressRollups(boardId, {
+    itemType: 'feature',
+    enabled: shouldLoadRollups,
+    staleTimeMs: 30_000,
+  });
 
   const assignableHumans = useMemo<AssigneeProfile[]>(() => {
     const currentUserId = actor?.type === 'human' ? actor.id : null;
@@ -2903,44 +3045,44 @@ export function BoardPage(): React.JSX.Element {
   }, [actor, participantRecords]);
 
   const assignableAgents = useMemo<AssigneeProfile[]>(() => {
-    const scopedAgents = projectId
-      ? projectAgents.filter((agent) => agent.project_id === projectId)
-      : [];
+    return participantRecords.flatMap((participant) => {
+      if (participant.kind !== 'agent') return [];
+      const actualAgentId = (participant.agent_id ?? participant.id)?.trim();
+      if (!actualAgentId) return [];
+      const label = participant.display_name?.trim() || `Agent ${shortenId(actualAgentId)}`;
+      const roleLabel = participant.role ? participant.role.toLowerCase().replace(/_/g, ' ') : 'agent';
+      const typeLabel = `${roleLabel} agent`;
+      const presence = participant.presence ?? 'available';
 
-    // Build a lookup from agent ID to presence
-    const presenceMap = new Map(agentPresences.map((p) => [p.agentId, p]));
-
-    return scopedAgents.map((agent) => {
-      // Agents come from project_agent_assignments junction table.
-      // agent.id is the assignment row ID, NOT the actual agent ID.
-      // The backend populates config.registry_agent_id with the real agent ID.
-      const actualAgentId =
-        (agent.config?.registry_agent_id as string | undefined) || agent.id;
-      const label = agent.name || `Agent ${shortenId(actualAgentId)}`;
-      const typeLabel = agent.agent_type ? `${agent.agent_type} agent` : 'Agent';
-
-      // Merge presence data if available
-      const presence = presenceMap.get(actualAgentId);
-
-      return {
+      return [{
         id: actualAgentId,
-        type: 'agent',
+        type: 'agent' as const,
         label,
         subtitle: typeLabel,
-        status: agent.status,
+        status: participant.assignment_status ?? 'active',
         avatar: getInitials(label),
-        actor: toActorViewModel(agent, {
-          id: actualAgentId,
-          subtitle: typeLabel,
-          presenceState: presence?.presence ?? 'available',
-          presenceLabel: presence?.statusLine,
-        }),
-        presence: presence?.presence,
-        presenceLabel: presence?.statusLine,
-        activeItemCount: presence?.activeItemCount,
-      };
+        actor: toActorViewModel(
+          {
+            id: actualAgentId,
+            name: label,
+            agent_type: typeLabel,
+            status: 'active' as AgentStatus,
+            config: {},
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          {
+            id: actualAgentId,
+            subtitle: typeLabel,
+            presenceState: presence,
+            presenceLabel: participant.description ?? typeLabel,
+          },
+        ),
+        presence,
+        presenceLabel: participant.description ?? typeLabel,
+      }];
     });
-  }, [agentPresences, projectAgents, projectId]);
+  }, [participantRecords]);
 
   const boardParticipants = useMemo<BoardParticipant[]>(() => {
     const humans: BoardParticipant[] = assignableHumans.map((profile) => ({
@@ -3003,9 +3145,6 @@ export function BoardPage(): React.JSX.Element {
 
   const assignmentHint = useMemo(() => 'Project members + assigned agents', []);
 
-  // ── Filter & sort state (URL-synced) ──────────────────────────────────────
-  const filterState = useBoardFilters();
-  const { filters, sort, hasActiveFilters } = filterState;
   const filterResult = useFilteredItems(items, filters, hasActiveFilters);
 
   const allLabels = useMemo(() => {
@@ -3522,6 +3661,52 @@ export function BoardPage(): React.JSX.Element {
   const hasSupplementaryDataError = supplementarySettled && Boolean(participantsError || projectAgentsError);
   const hasWorkItemsLoadError = Boolean(itemsError);
   const showBlockingItemsError = hasWorkItemsLoadError && !itemsLoading && items.length === 0;
+  const showPartialHydrationNotice = !showBlockingItemsError && (isPartial || isBackgroundHydrating) && totalItemCount > 0;
+  const showHydrationAttention = showPartialHydrationNotice && !hydrationNoticeDismissed;
+
+  useEffect(() => {
+    if (!boardId || boardLoading || !board) return;
+    if (boardPerfFlagsRef.current.shell === boardId) return;
+    boardPerfFlagsRef.current.shell = boardId;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    void razeLog('INFO', 'board.shell_ready', {
+      board_id: boardId,
+      project_id: projectId ?? null,
+      elapsed_ms: Math.round(now - boardPerfStartedAtRef.current),
+      filters_active: hasActiveFilters,
+    });
+  }, [board, boardId, boardLoading, hasActiveFilters, projectId]);
+
+  useEffect(() => {
+    if (!boardId || itemsLoading || items.length === 0) return;
+    if (boardPerfFlagsRef.current.firstPage === boardId) return;
+    boardPerfFlagsRef.current.firstPage = boardId;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    void razeLog('INFO', 'board.first_items_page_ready', {
+      board_id: boardId,
+      project_id: projectId ?? null,
+      elapsed_ms: Math.round(now - boardPerfStartedAtRef.current),
+      loaded_count: loadedCount,
+      total_count: totalItemCount,
+      filters_active: hasActiveFilters,
+      is_partial: isPartial,
+    });
+  }, [boardId, hasActiveFilters, isPartial, items.length, itemsLoading, loadedCount, projectId, totalItemCount]);
+
+  useEffect(() => {
+    if (!boardId || items.length === 0 || isPartial || isBackgroundHydrating) return;
+    if (boardPerfFlagsRef.current.full === boardId) return;
+    boardPerfFlagsRef.current.full = boardId;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    void razeLog('INFO', 'board.full_hydration_ready', {
+      board_id: boardId,
+      project_id: projectId ?? null,
+      elapsed_ms: Math.round(now - boardPerfStartedAtRef.current),
+      loaded_count: loadedCount,
+      total_count: totalItemCount,
+      filters_active: hasActiveFilters,
+    });
+  }, [boardId, hasActiveFilters, isBackgroundHydrating, isPartial, items.length, loadedCount, projectId, totalItemCount]);
 
   const setViewModeValue = useCallback((nextMode: ViewMode) => {
     setSearchParams((prev) => {
@@ -3666,6 +3851,33 @@ export function BoardPage(): React.JSX.Element {
           </div>
         )}
 
+        {!boardLoading && board && columns.length > 0 && showHydrationAttention && (
+          <div className="board-hydration-hint" role="status" aria-live="polite">
+            <span className="board-hydration-hint-text">
+              Loading board… {loadedCount} / {totalItemCount} items
+            </span>
+            {isPartial && (
+              <button
+                type="button"
+                className="board-hydration-hint-action pressable"
+                onClick={() => void loadMore()}
+                data-haptic="light"
+              >
+                Load more
+              </button>
+            )}
+            <button
+              type="button"
+              className="board-hydration-hint-dismiss pressable"
+              aria-label="Dismiss loading notice"
+              onClick={dismissHydrationNotice}
+              data-haptic="light"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Phase 1: Show skeleton immediately while board structure loads */}
         {boardLoading && (
           <BoardSkeleton columnCount={5} />
@@ -3747,6 +3959,7 @@ export function BoardPage(): React.JSX.Element {
                 isFiltered={filterResult.isFiltered}
                 itemsLoading={itemsLoading}
                 itemDiffMap={itemDiffMap}
+                deferColumnVirtualization={isPartial || isBackgroundHydrating}
               />
             ))}
           </div>

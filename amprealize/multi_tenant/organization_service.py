@@ -1,12 +1,8 @@
 """Organization service — enterprise feature.
 
-Full implementation available in amprealize-enterprise package.
-Install: pip install amprealize-enterprise
+Full implementation lives in the enterprise fork.
 """
 
-try:
-    from amprealize_enterprise.multi_tenant.organization_service import OrganizationService
-except ImportError:
-    OrganizationService = None
+OrganizationService = None
 
 __all__ = ["OrganizationService"]

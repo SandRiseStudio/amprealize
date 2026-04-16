@@ -1133,7 +1133,7 @@ class RestAssignmentAdapter:
 
     def suggest_agent(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Suggest agents for an assignable entity."""
-        from amprealize.multi_tenant.board_contracts import SuggestAgentRequest
+        from amprealize.boards.contracts import SuggestAgentRequest
 
         request = SuggestAgentRequest(
             assignable_id=payload["assignable_id"],
@@ -3024,7 +3024,15 @@ class MCPAnalyticsServiceAdapter(BaseAnalyticsServiceAdapter):
     def __init__(self, service: Any) -> None:
         super().__init__(service, surface="mcp")
 
-    def kpi_summary(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    async def _resolve(value: Any) -> Any:
+        """Await if coroutine, otherwise return as-is (handles sync/async services)."""
+        import inspect
+        if inspect.iscoroutine(value):
+            return await value
+        return value
+
+    async def kpi_summary(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """MCP analytics.kpiSummary tool.
 
         Args:
@@ -3033,13 +3041,13 @@ class MCPAnalyticsServiceAdapter(BaseAnalyticsServiceAdapter):
         Returns:
             MCP tool response with KPI summary records
         """
-        records = self._service.get_kpi_summary(
+        records = await self._resolve(self._service.get_kpi_summary(
             start_date=payload.get("start_date"),
             end_date=payload.get("end_date"),
-        )
+        ))
         return self._format_kpi_summary(records)
 
-    def behavior_usage(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def behavior_usage(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """MCP analytics.behaviorUsage tool.
 
         Args:
@@ -3048,14 +3056,14 @@ class MCPAnalyticsServiceAdapter(BaseAnalyticsServiceAdapter):
         Returns:
             MCP tool response with behavior usage records
         """
-        records = self._service.get_behavior_usage(
+        records = await self._resolve(self._service.get_behavior_usage(
             start_date=payload.get("start_date"),
             end_date=payload.get("end_date"),
             limit=payload.get("limit", 100),
-        )
+        ))
         return self._format_behavior_usage(records)
 
-    def token_savings(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def token_savings(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """MCP analytics.tokenSavings tool.
 
         Args:
@@ -3064,14 +3072,14 @@ class MCPAnalyticsServiceAdapter(BaseAnalyticsServiceAdapter):
         Returns:
             MCP tool response with token savings records
         """
-        records = self._service.get_token_savings(
+        records = await self._resolve(self._service.get_token_savings(
             start_date=payload.get("start_date"),
             end_date=payload.get("end_date"),
             limit=payload.get("limit", 100),
-        )
+        ))
         return self._format_token_savings(records)
 
-    def compliance_coverage(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def compliance_coverage(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """MCP analytics.complianceCoverage tool.
 
         Args:
@@ -3080,11 +3088,11 @@ class MCPAnalyticsServiceAdapter(BaseAnalyticsServiceAdapter):
         Returns:
             MCP tool response with compliance coverage records
         """
-        records = self._service.get_compliance_coverage(
+        records = await self._resolve(self._service.get_compliance_coverage(
             start_date=payload.get("start_date"),
             end_date=payload.get("end_date"),
             limit=payload.get("limit", 100),
-        )
+        ))
         return self._format_compliance_coverage(records)
 
 

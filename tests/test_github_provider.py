@@ -12,8 +12,21 @@ from amprealize.auth.providers import GitHubOAuthProvider, AuthorizationPendingE
 
 
 @pytest.mark.asyncio
+@pytest.mark.manual
 async def test_github_provider_device_flow():
-    """Test GitHub OAuth device flow with real credentials"""
+    """Test GitHub OAuth device flow with real credentials.
+
+    Manual test only: requires a human to authorize the device code in GitHub.
+    Run with:
+        AMPREALIZE_RUN_MANUAL_GITHUB_OAUTH=1 pytest -v -s -m manual \
+            tests/test_github_provider.py::test_github_provider_device_flow
+    """
+
+    manual_oauth_enabled = os.getenv("AMPREALIZE_RUN_MANUAL_GITHUB_OAUTH", "0").lower() in {"1", "true", "yes"}
+    if not manual_oauth_enabled:
+        pytest.skip(
+            "Manual GitHub OAuth test disabled. Set AMPREALIZE_RUN_MANUAL_GITHUB_OAUTH=1 to enable."
+        )
 
     # Get credentials from environment
     client_id = os.getenv("OAUTH_GITHUB_CLIENT_ID") or os.getenv("OAUTH_CLIENT_ID")

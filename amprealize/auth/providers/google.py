@@ -209,8 +209,24 @@ class GoogleOAuthProvider(OAuthProvider):
                     interval=data.get("interval", 5)
                 )
             except httpx.HTTPStatusError as e:
-                logger.error(f"Google device flow failed: {e.response.status_code} {e.response.text}")
-                raise OAuthError(f"Google device flow failed: {e.response.status_code}")
+                try:
+                    error_body = e.response.json()
+                    error_code = error_body.get("error", "")
+                    error_detail = error_body.get("error_description", error_code or str(e))
+                except Exception:
+                    error_code = ""
+                    error_detail = e.response.text or str(e)
+                logger.error(
+                    "Google device flow failed: %s %s",
+                    e.response.status_code,
+                    error_detail,
+                )
+                detail = error_detail.strip()
+                if error_code:
+                    detail = f"{error_code}: {detail}"
+                raise OAuthError(
+                    f"Google device flow failed: {e.response.status_code} {detail}"
+                )
             except Exception as e:
                 logger.error(f"Google device flow error: {e}")
                 raise OAuthError(f"Google device flow error: {e}")

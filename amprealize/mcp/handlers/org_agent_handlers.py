@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 # NOTE: Agent is a Pydantic model - use .model_dump() not asdict()
 
-from amprealize.multi_tenant.contracts import (
+from amprealize.projects.contracts import (
     Agent,
     AgentStatus,
     AgentType,

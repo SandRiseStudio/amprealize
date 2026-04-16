@@ -18,6 +18,13 @@ from sqlalchemy import engine_from_config, pool, text
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Apply active context DSN(s) to environment so telemetry migrations use the correct DB.
+try:
+    from amprealize.context import apply_context_to_environment
+    apply_context_to_environment()
+except Exception:
+    pass  # Best-effort; context system may not be available
+
 # Alembic Config object
 config = context.config
 

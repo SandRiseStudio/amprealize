@@ -17,7 +17,10 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Callable, Dict, List, Optional, Protocol, TYPE_CHECKING, runtime_checkable
+
+if TYPE_CHECKING:
+    from .work_item_execution_contracts import AgentExecutionMode
 
 
 # =============================================================================
@@ -129,6 +132,7 @@ class ExecutionRequest:
     output_target_override: Optional[OutputTarget] = None
     model_override: Optional[str] = None
     agent_id_override: Optional[str] = None
+    agent_execution_mode: Optional["AgentExecutionMode"] = None  # GEP or SESSION
 
     # Idempotency
     idempotency_key: Optional[str] = None

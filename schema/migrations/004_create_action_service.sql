@@ -1,6 +1,6 @@
 -- Action Service Schema (PostgresActionService)
--- Creates actions + replays tables for WORM action recording and replay tracking.
--- Designed for use in the `execution` schema when using modular monolith layout.
+-- Creates public.actions + public.replays tables for WORM action recording and replay tracking.
+-- Always in `public` schema to avoid collision with execution.actions (Alembic-managed).
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -16,9 +16,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ───────────────────────────────────────────────────────────────
--- Table: actions (WORM action log)
+-- Table: public.actions (WORM action log)
 -- ───────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS actions (
+CREATE TABLE IF NOT EXISTS public.actions (
     action_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     actor_id TEXT NOT NULL,
@@ -37,25 +37,25 @@ CREATE TABLE IF NOT EXISTS actions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE actions IS 'WORM log of platform actions for audit and replay';
+COMMENT ON TABLE public.actions IS 'WORM log of platform actions for audit and replay';
 
-CREATE INDEX IF NOT EXISTS idx_actions_timestamp ON actions (timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_actions_actor_id ON actions (actor_id);
-CREATE INDEX IF NOT EXISTS idx_actions_related_run_id ON actions (related_run_id);
-CREATE INDEX IF NOT EXISTS idx_actions_replay_status ON actions (replay_status);
-CREATE INDEX IF NOT EXISTS idx_actions_behaviors_cited ON actions USING GIN (behaviors_cited);
-CREATE INDEX IF NOT EXISTS idx_actions_metadata ON actions USING GIN (metadata);
+CREATE INDEX IF NOT EXISTS idx_actions_timestamp ON public.actions (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_actions_actor_id ON public.actions (actor_id);
+CREATE INDEX IF NOT EXISTS idx_actions_related_run_id ON public.actions (related_run_id);
+CREATE INDEX IF NOT EXISTS idx_actions_replay_status ON public.actions (replay_status);
+CREATE INDEX IF NOT EXISTS idx_actions_behaviors_cited ON public.actions USING GIN (behaviors_cited);
+CREATE INDEX IF NOT EXISTS idx_actions_metadata ON public.actions USING GIN (metadata);
 
-DROP TRIGGER IF EXISTS set_actions_updated_at ON actions;
+DROP TRIGGER IF EXISTS set_actions_updated_at ON public.actions;
 CREATE TRIGGER set_actions_updated_at
-    BEFORE UPDATE ON actions
+    BEFORE UPDATE ON public.actions
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
 -- ───────────────────────────────────────────────────────────────
--- Table: replays (replay job tracking)
+-- Table: public.replays (replay job tracking)
 -- ───────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS replays (
+CREATE TABLE IF NOT EXISTS public.replays (
     replay_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     status TEXT NOT NULL CHECK (status IN ('PENDING', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED')),
     progress FLOAT NOT NULL DEFAULT 0.0 CHECK (progress >= 0.0 AND progress <= 1.0),
@@ -74,13 +74,13 @@ CREATE TABLE IF NOT EXISTS replays (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-COMMENT ON TABLE replays IS 'Replay job status records for action replay orchestration';
+COMMENT ON TABLE public.replays IS 'Replay job status records for action replay orchestration';
 
-CREATE INDEX IF NOT EXISTS idx_replays_status ON replays (status);
-CREATE INDEX IF NOT EXISTS idx_replays_created_at ON replays (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_replays_status ON public.replays (status);
+CREATE INDEX IF NOT EXISTS idx_replays_created_at ON public.replays (created_at DESC);
 
-DROP TRIGGER IF EXISTS set_replays_updated_at ON replays;
+DROP TRIGGER IF EXISTS set_replays_updated_at ON public.replays;
 CREATE TRIGGER set_replays_updated_at
-    BEFORE UPDATE ON replays
+    BEFORE UPDATE ON public.replays
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();

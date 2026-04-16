@@ -509,8 +509,8 @@ class PostgresTraceAnalysisService:
             - Commits transaction automatically
 
         Note:
-            - duration_seconds computed via GENERATED ALWAYS AS expression
-            - extraction_rate computed via GENERATED ALWAYS AS expression
+                        - duration_seconds and extraction_rate are computed by the
+                            ExtractionJob model on read
         """
         job_id = job.job_id or str(uuid.uuid4())
 
@@ -567,7 +567,8 @@ class PostgresTraceAnalysisService:
 
         Note:
             - No Redis caching for jobs (status updates need fresh data)
-            - duration_seconds and extraction_rate computed by database
+                        - duration_seconds and extraction_rate are computed by the
+                            ExtractionJob model
         """
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
@@ -582,9 +583,7 @@ class PostgresTraceAnalysisService:
                         patterns_found,
                         candidates_generated,
                         error_message,
-                        metadata,
-                        duration_seconds,
-                        extraction_rate
+                        metadata
                     FROM extraction_jobs
                     WHERE job_id = %(job_id)s
                     """,
@@ -631,7 +630,8 @@ class PostgresTraceAnalysisService:
         Side Effects:
             - No cache invalidation (jobs are not cached)
             - Commits transaction automatically
-            - duration_seconds and extraction_rate recomputed automatically
+                        - duration_seconds and extraction_rate will reflect the updated
+                            values via ExtractionJob properties
 
         Usage:
             - PENDING → RUNNING: update_extraction_job_status(job_id, RUNNING)

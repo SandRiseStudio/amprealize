@@ -62,9 +62,15 @@ describe('LoginPage', () => {
       </MemoryRouter>,
     );
 
+    // Entry buttons are present
+    expect(screen.getByRole('button', { name: /install in repo/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+
+    // OAuth buttons visible by default (sign-in section expanded)
     expect(screen.getByRole('button', { name: /continue with github/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /continue with google/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /use browser code instead/i })).toBeInTheDocument();
+
+    // Agent credentials not shown
     expect(screen.queryByLabelText(/client id/i)).not.toBeInTheDocument();
   });
 
@@ -79,7 +85,7 @@ describe('LoginPage', () => {
       </MemoryRouter>,
     );
 
-    await user.click(screen.getByRole('button', { name: /signing in an agent or service account/i }));
+    await user.click(screen.getByRole('button', { name: /use client credentials/i }));
 
     expect(screen.getByLabelText(/client id/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/client secret/i)).toBeInTheDocument();

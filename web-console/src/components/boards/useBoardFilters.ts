@@ -10,14 +10,21 @@
 
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import type { WorkItem, WorkItemPriority, WorkItemType } from '../../api/boards';
+import type {
+  BoardWorkItemQuery,
+  BoardWorkItemSortField,
+  BoardWorkItemSortOrder,
+  WorkItem,
+  WorkItemPriority,
+  WorkItemType,
+} from '../../api/boards';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type SortField = 'position' | 'priority' | 'created_at' | 'updated_at' | 'due_date' | 'title' | 'points';
-export type SortOrder = 'asc' | 'desc';
+export type SortField = BoardWorkItemSortField;
+export type SortOrder = BoardWorkItemSortOrder;
 
 export interface BoardFilters {
   /** Free-text search on title */
@@ -436,19 +443,19 @@ export function sortItems<T extends WorkItem>(items: T[], sortConfig: SortConfig
 // Utility: convert filters to API query params
 // ---------------------------------------------------------------------------
 
-export function filtersToQueryParams(filters: BoardFilters, sort: SortConfig): Record<string, string> {
-  const params: Record<string, string> = {};
+export function filtersToQueryParams(filters: BoardFilters, sort: SortConfig): BoardWorkItemQuery {
+  const query: BoardWorkItemQuery = {};
 
-  if (filters.query) params.title_search = filters.query;
-  if (filters.types.length === 1) params.item_type = filters.types[0];
-  if (filters.priorities.length === 1) params.priority = filters.priorities[0];
-  if (filters.assigneeId && filters.assigneeId !== '__unassigned__') params.assignee_id = filters.assigneeId;
-  if (filters.assigneeType) params.assignee_type = filters.assigneeType;
-  if (filters.labels.length > 0) params.labels = filters.labels.join(',');
-  if (filters.dueAfter) params.due_after = filters.dueAfter;
-  if (filters.dueBefore) params.due_before = filters.dueBefore;
-  if (sort.field !== 'position') params.sort_by = sort.field;
-  if (sort.order !== 'asc') params.order = sort.order;
+  if (filters.query) query.titleSearch = filters.query;
+  if (filters.types.length > 0) query.itemTypes = filters.types;
+  if (filters.priorities.length > 0) query.priorities = filters.priorities;
+  if (filters.assigneeId) query.assigneeId = filters.assigneeId;
+  if (filters.assigneeType) query.assigneeType = filters.assigneeType;
+  if (filters.labels.length > 0) query.labels = filters.labels;
+  if (filters.dueAfter) query.dueAfter = filters.dueAfter;
+  if (filters.dueBefore) query.dueBefore = filters.dueBefore;
+  if (sort.field !== 'position') query.sortBy = sort.field;
+  if (sort.order !== 'asc') query.order = sort.order;
 
-  return params;
+  return query;
 }

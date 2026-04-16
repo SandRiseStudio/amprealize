@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "brainstorm.openWhiteboard",
+  "description": "Open or reuse a brainstorm whiteboard for the current session. Creates a collaborative canvas tied to the brainstorm topic and returns the room URL for human participants.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "topic": {
+        "type": "string",
+        "description": "Brainstorm topic or prompt for the session."
+      },
+      "session_id": {
+        "type": "string",
+        "description": "Brainstorm session ID (optional, uses session when available)."
+      },
+      "phase": {
+        "type": "string",
+        "description": "Optional brainstorm phase, such as diverge, explore, or converge."
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Optional metadata to store with the brainstorm room."
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID for scoping (optional, uses session)."
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID for scoping (optional, uses session)."
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "room_id": { "type": "string" },
+      "room_url": { "type": "string", "description": "URL to the whiteboard room in the web console (AMPREALIZE_CONSOLE_URL/whiteboard/{room_id}). Share this link with human participants." },
+      "sync_url": { "type": "string" },
+      "title": { "type": "string" },
+      "session_id": { "type": "string" },
+      "status": { "type": "string" },
+      "reused": { "type": "boolean" },
+      "message": { "type": "string" }
+    }
+  }
+}

@@ -75,7 +75,7 @@ export function ProjectPage(): React.JSX.Element {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const { data: boards = [], isLoading: boardsLoading } = useBoards(projectId);
   const createBoard = useCreateBoard();
-  const { data: projectAgents = [] } = useProjectAgents();
+  const { data: projectAgents = [] } = useProjectAgents(projectId ?? null);
   const { presences: agentPresences, summary: agentSummary } = useAgentPresence(projectAgents, projectId ?? undefined);
 
   const [createOpen, setCreateOpen] = useState(false);

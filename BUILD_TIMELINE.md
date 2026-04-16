@@ -1,3 +1,146 @@
+| 197 | Platform runtime metadata endpoint + sidebar chips | ### #197 - Platform runtime metadata for web shell (2026-04-15)
+**Milestone:** Replaced the hardcoded sidebar version pill with dynamic chips (distribution + semver, optional enterprise tier, active Amprealize context) backed by a single read-only `GET /api/v1/platform/runtime` surface in OSS and Enterprise APIs.
+
+**Implementation (Completed):**
+
+1. **Backend** (`amprealize/platform_runtime.py`, `amprealize/api.py` and enterprise mirrors): canonical payload from `importlib.metadata` version, `detect_edition()`, and `get_context_name()` with `:pg` suffix stripped for display.
+2. **Web console** (`web-console/src/api/platformRuntime.ts`, `WorkspaceShell.tsx`, `WorkspaceShell.css`): React Query hook with 404-safe fallback; footer chip row with truncation for long context names.
+3. **Tests** (`tests/unit/test_platform_runtime_api.py`).
+
+**Behaviors applied:** `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-15_ |
+| 196 | AI learning wiki maintenance workflow for agents | ### #196 - AI learning wiki maintenance workflow for agents (2026-04-14)
+**Milestone:** Formalized the expectation that AI-related Amprealize work must keep the AI Learning Wiki current, so future agents treat wiki maintenance as part of delivery rather than optional follow-up.
+
+**Implementation (Completed):**
+
+1. **Agent handbook workflow** (`AGENTS.md`):
+   - added `behavior_maintain_ai_learning_wiki` covering when to search, update, create, lint, and report AI learning wiki changes
+   - added quick-trigger and critical-rule entries so the behavior is discoverable at task start
+
+2. **Platform wiki playbook** (`wiki/platform/howto/maintain-ai-learning-wiki.md`, `wiki/platform/index.md`, `wiki/platform/reference/agent-handbook.md`):
+   - documented the concrete decision flow for when AI-related work should update `wiki/ai-learning/`
+   - added a checklist and MCP-tool-based workflow agents can follow consistently
+   - linked the new guide from the platform wiki index and handbook reference
+
+3. **Validation**:
+   - verified the handbook and platform wiki now consistently describe AI learning wiki maintenance as part of the definition of done
+
+**Behaviors applied:** `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-14_ |
+| 195 | Whiteboard intent prefetch for faster canvas open | ### #195 - Whiteboard intent prefetch for faster canvas open (2026-04-14)
+**Milestone:** Reduced the perceived delay when opening the brainstorming canvas by preloading the heavy editor bundle on real user intent instead of waiting until the final room navigation step.
+
+**Implementation (Completed):**
+
+1. **Shared whiteboard loader** (`web-console/src/components/whiteboard/whiteboardCanvasLoader.ts`):
+   - added a promise-cached `preloadWhiteboardCanvas()` helper alongside the lazy `WhiteboardCanvas` export so multiple UI surfaces can warm the same editor chunk without duplicate imports
+
+2. **Whiteboard lobby warm-up** (`web-console/src/components/whiteboard/WhiteboardPage.tsx`):
+   - preloads the editor bundle after a short delay when the user is on the whiteboard lobby, unless the browser signals data-saver or a very slow connection
+   - preloads immediately on room-card hover/focus, input focus, button hover/focus, and before creating a new room so the canvas is often already downloading before navigation completes
+
+3. **Sidebar intent prefetch** (`web-console/src/components/sidebar/SidebarNav.tsx`):
+   - preloads the editor bundle on hover/focus/click of the persistent sidebar whiteboard launcher so users warming up to enter the feature get a head start before the lobby or room route renders
+
+4. **Validation**:
+   - verified `npm test -- SidebarNavWikiLauncher.test.tsx WhiteboardPage.test.tsx` ✅
+   - verified `npm run build` in `web-console` ✅
+   - confirmed the route split remains intact (`WhiteboardPage` ~3.46 kB, async `WhiteboardCanvas` bridge ~0.81 kB) while the heavy `whiteboard-vendor` chunk stays off the critical path until preloaded or navigated
+
+**Behaviors applied:** `behavior_enforce_quality_gates`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-14_ |
+| 194 | Web console whiteboard canvas lazy boundary | ### #194 - Web console whiteboard canvas lazy boundary (2026-04-14)
+**Milestone:** Deferred the heavy `tldraw` editor stack until a user actually opens a whiteboard room in the web console. The whiteboard lobby now stays lightweight while the collaborative canvas/editor code loads behind its own `React.lazy` boundary.
+
+**Implementation (Completed):**
+
+1. **Canvas-only lazy load** (`web-console/src/components/whiteboard/WhiteboardPage.tsx`):
+   - replaced the direct `WhiteboardCanvas` import with a `React.lazy()` boundary so `/whiteboard` can render the lobby without eagerly loading the editor stack
+   - added a whiteboard-native suspense fallback for direct `/whiteboard/:roomId` navigation while the editor bundle downloads
+
+2. **Loading-state polish** (`web-console/src/components/whiteboard/WhiteboardPage.css`):
+   - added a lightweight loading shell that preserves the whiteboard navigation chrome while the editor chunk initializes
+
+3. **Frontend env placeholder** (`web-console/.env`):
+   - added a local placeholder for `VITE_TLDRAW_LICENSE_KEY` so the expected editor env is explicit in frontend development
+
+4. **Validation**:
+   - verified `npm run build` in `web-console` ✅
+   - confirmed the build now emits a tiny route chunk for `WhiteboardPage` (~3.57 kB minified) and a tiny async `WhiteboardCanvas` bridge chunk (~0.81 kB minified), with the heavy `whiteboard-vendor` bundle loading only when the canvas route is rendered
+
+**Behaviors applied:** `behavior_update_docs_after_changes`, `behavior_enforce_quality_gates`
+
+_Last Updated: 2026-04-14_ |
+| 193 | Whiteboard runtime schema fallback for MCP/API | ### #193 - Whiteboard runtime schema fallback for MCP/API (2026-04-14)
+**Milestone:** Hardened whiteboard-backed brainstorm runtime flows so local MCP/API sessions no longer fail when context-driven PostgreSQL DSNs are present but the `whiteboard_rooms` table has not been migrated yet. Instead of crashing on first use, whiteboard services now probe schema readiness and fall back to in-memory storage with a clear warning.
+
+**Implementation (Completed):**
+
+1. **PostgreSQL schema readiness probe** (`amprealize/storage/whiteboard_postgres.py`):
+   - added `ensure_schema_ready()` to verify the `whiteboard_rooms` table exists before using the Postgres-backed whiteboard storage
+
+2. **MCP runtime hardening** (`amprealize/mcp_server.py`):
+   - updated `whiteboard_service()` to fall back to `InMemoryStorage` when Postgres is configured but the whiteboard schema is not ready
+   - preserves normal Postgres behavior when the migration is present while keeping brainstorm MCP tools usable in local/dev contexts
+
+3. **API parity** (`amprealize/api.py`):
+   - applied the same schema-probe + in-memory fallback pattern to the API whiteboard service path so MCP and REST stay aligned
+
+4. **Validation**:
+   - verified `tests/test_mcp_cli_setup.py` ✅
+   - verified `tests/test_brainstorm_bridge.py tests/test_whiteboard_api.py` ✅
+   - verified launcher-based MCP smoke invocation of `brainstorm_openwhiteboard` ✅
+
+**Behaviors applied:** `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-14_ |
+| 192 | MCP monorepo package bootstrap for whiteboard tools | ### #192 - MCP monorepo package bootstrap for whiteboard tools (2026-04-14)
+**Milestone:** Fixed local MCP/CLI runtime startup so standalone monorepo packages under `packages/*/src` are importable without separately installing each package. This closes the runtime gap where `brainstorm.openWhiteboard` and related `whiteboard.*` tools were discoverable but failed at execution with `ModuleNotFoundError: whiteboard`.
+
+**Implementation (Completed):**
+
+1. **Monorepo import bootstrap** (`amprealize/__init__.py`):
+   - added a lightweight startup helper that prepends `packages/*/src` directories to `sys.path` when running from a repo checkout
+   - keeps wheel installs unchanged because the helper no-ops when the monorepo package layout is absent
+
+2. **Runtime regression coverage** (`tests/test_mcp_cli_setup.py`):
+   - added a subprocess-based regression test that starts with only the repo root on `PYTHONPATH`
+   - verifies `MCPServer` can still discover `brainstorm_openwhiteboard` and successfully invoke it end-to-end
+
+**Behaviors applied:** `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-14_ |
+| 191 | Brainstorm bridge + whiteboard MCP integration | ### #191 - Brainstorm bridge + whiteboard MCP integration (2026-04-14)
+**Milestone:** Added brainstorm-aware whiteboard orchestration so MCP clients and agent flows can open session-bound canvases, add ideas/themes, summarize boards, and close/export sessions through a consistent bridge layer. Whiteboard tool registration was also completed for lazy-loaded/bundled MCP manifests so the new tools are discoverable in runtime clients.
+
+**Implementation (Completed):**
+
+1. **Brainstorm Bridge Service + Handlers** (`amprealize/services/brainstorm_bridge.py`, `amprealize/mcp/handlers/brainstorm_handlers.py`, `amprealize/mcp_server.py`):
+   - added `BrainstormBridge` for session-scoped room reuse, brainstorm idea/theme placement, board summarization, and close/export flows
+   - registered `brainstorm.*` MCP dispatch in `mcp_server.py`
+   - fixed `whiteboard.*` dispatch to inject session context before invoking handlers
+
+2. **Whiteboard Agent Operations** (`packages/whiteboard/src/whiteboard/canvas_ops.py`, `packages/whiteboard/src/whiteboard/service.py`, `amprealize/mcp/handlers/whiteboard_handlers.py`):
+   - added service-level helpers for `add_shape`, `add_sticky_note`, `add_text_annotation`, `get_canvas_state`, and `read_canvas_summary`
+   - aligned whiteboard MCP handlers with flat manifest inputs and richer export/read responses
+   - enriched canvas summaries with extracted text, color, and category metadata to support agent reasoning
+
+3. **Manifest + Lazy Loader Registration** (`mcp/tools/brainstorm.*.json`, `amprealize/mcp_tool_manifests/*.json`, `amprealize/mcp_tool_groups.py`):
+   - added canonical brainstorm manifests and bundled whiteboard/brainstorm manifest copies
+   - exposed whiteboard + brainstorm tools through core/execution tool groups so lazy loading can activate them reliably
+
+4. **Validation** (`tests/test_brainstorm_bridge.py`, `tests/test_whiteboard_api.py`):
+   - added focused unit coverage for the new bridge and handler flows
+   - verified `tests/test_brainstorm_bridge.py` ✅
+   - verified `tests/test_whiteboard_api.py tests/test_brainstorm_bridge.py` ✅
+
+**Behaviors applied:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity`
+
+_Last Updated: 2026-04-14_ |
 | 190 | Amprealize rebrand: MCP/runtime wording, research copy, deferred test sync | ### #190 - Amprealize rebrand: MCP/runtime wording, research copy, deferred test sync (2026-04-03)
 **Milestone:** Cleared another implementation-side rebrand tranche across active runtime/help surfaces. **`amprealize/mcp_server.py`**, **`amprealize/mcp_device_flow.py`**, **`amprealize/device_flow.py`**, **`amprealize/bci_service.py`**, **`amprealize/mcp_auth_middleware.py`**, **`amprealize/services/work_item_execution_api.py`**, and **`amprealize/mcp/handlers/work_item_execution_handlers.py`** now present **Amprealize** instead of stale Amprealize wording where safe. **`amprealize/research_service.py`** and **`amprealize/research_contracts.py`** now evaluate research against **Amprealize** fit/value criteria. **`amprealize/cost_alert_service.py`** now defaults alert sender names and copy to **Amprealize**. Bootstrap-generated handbook templates and agent playbooks now use Amprealize branding and the `amprealize` CLI where those references are presentation text rather than compatibility contracts. Testing work was explicitly deferred on the board so implementation can close independently of blocked BreakerAmp verification.
 
@@ -10,6 +153,7 @@ _Last Updated: 2026-04-03_ |
 **Behaviors applied:** `behavior_update_docs_after_changes`, `behavior_prefer_mcp_tools`
 
 _Last Updated: 2026-04-03_ |
+| 191 | Large-board first paint recovery with progressive board hydration | **Achievement:** Reduced board and dashboard first-paint latency by switching board work-item loading from eager all-page hydration to progressive first-page render with background paging, server-backed filters, virtualized board columns, and visible-project presence on the dashboard.<br><br>**What shipped:**<br>- Added progressive `useWorkItems(boardId, { query, pageSize, progressive })` loading in `web-console/src/api/boards.ts` with page-1 render, background hydration, partial-load metadata, and Raze perf events for `board.shell_ready`, `board.first_items_page_ready`, and `board.full_hydration_ready`<br>- Moved board filters in `web-console/src/components/boards/useBoardFilters.ts` and `web-console/src/components/boards/BoardPage.tsx` to server-backed `/v1/work-items` queries, including multi-value type/priority filters, unassigned-assignee support, and filtered ancestor hydration via new `POST /v1/work-items/batch`<br>- Extended `amprealize/services/board_service.py` and `amprealize/services/board_api_v2.py` with batch lookup plus multi-value work-item filtering so filtered hierarchy context no longer requires an eager full-board fetch<br>- Reworked `web-console/src/components/boards/BoardPage.tsx` column rendering to flatten hierarchy rows, dedupe duplicate item IDs, and virtualize `board-column-items` with `@tanstack/react-virtual` while preserving drag/drop, selection, and collapse state<br>- Added partial hydration UI (`Loaded X of Y items`) and explicit load-more affordances so board chrome appears before the entire dataset finishes loading<br>- Moved dashboard project-card presence to `useVisibleProjectAgentPresence(projectIds)` and delayed the full agent panel until after initial paint so OSS remains strictly personal/project scoped with no org assumptions<br>- Added targeted regression coverage in `web-console/src/test/Dashboard.test.tsx`, `web-console/src/test/boardFilterQueryParams.test.ts`, and `tests/unit/test_work_item_batch_rest_contract.py`<br><br>**Validation:**<br>- `npm --prefix /Users/nick/Main/amprealize/web-console run build` passes<br>- `npm --prefix /Users/nick/Main/amprealize/web-console test` passes (`17 files`, `98 tests`)<br>- `pytest /Users/nick/Main/amprealize/tests/unit/test_projects_api.py /Users/nick/Main/amprealize/tests/unit/test_board_boards_rest_contract.py /Users/nick/Main/amprealize/tests/unit/test_work_item_batch_rest_contract.py` passes (`6 passed`)<br><br>**Behaviors applied:** `behavior_enforce_quality_gates`, `behavior_prefer_mcp_tools`, `behavior_use_raze_for_logging`, `behavior_update_docs_after_changes`<br><br>**Impact:** Large OSS boards now render usable chrome and the first page of cards quickly, filtered views stay accurate without loading the entire board first, and dashboard cards no longer wait on full assignment hydration before becoming useful.<br><br>_Last Updated: 2026-04-15_ | 2026-04-15 |
 | 188 | Alembic test schema + default modular-monolith Postgres (Podman) | ### #188 - Alembic test schema + default modular-monolith Postgres (2026-04-03)
 **Milestone:** `scripts/run_tests.sh` applies domain schemas via **`scripts/run_alembic_migrations.py`** when `AMPREALIZE_TEST_PER_SERVICE_PG_DATABASES` is unset/0; workflow/action/run/compliance/auth DSNs target the **same** Postgres as behavior with per-schema `search_path`. **`infra/docker-compose.test.yml`**: compose **`profiles: [per-service-db]`** on legacy multi-DB services so default **`podman compose up`** only starts monolith + telemetry + metrics + Redis. **`tests/conftest.py`**: Alembic bootstrap, unified `get_postgres_dsn` `search_path`, infra check requires only **BEHAVIOR** in monolith mode, **unit**-only sessions skip DB fixtures. **`.github/workflows/ci.yml`**: single modulith Postgres service, **`run_alembic_migrations.py`**, **`--cov=amprealize`**.
 

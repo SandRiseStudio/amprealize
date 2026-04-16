@@ -41,7 +41,7 @@ from amprealize.services.board_service import (
     TaskNotFoundError,
     WorkItemTransitionError,
 )
-from amprealize.multi_tenant.board_contracts import (
+from amprealize.boards.contracts import (
     CreateBoardRequest,
     UpdateBoardRequest,
     CreateColumnRequest,
@@ -903,7 +903,7 @@ class TestBoardPermissions:
 
     def test_board_permissions_exist(self):
         """Verify board permissions are defined in ProjectPermission enum."""
-        from amprealize.multi_tenant.permissions import ProjectPermission
+        from amprealize.tenant.permissions import ProjectPermission
 
         # All board permissions should exist
         assert hasattr(ProjectPermission, 'VIEW_BOARDS')
@@ -919,7 +919,7 @@ class TestBoardPermissions:
 
     def test_role_permissions_include_board_access(self):
         """Verify role permission matrices include board permissions."""
-        from amprealize.multi_tenant.permissions import (
+        from amprealize.tenant.permissions import (
             ProjectPermission,
             ProjectRole,
             PROJECT_ROLE_PERMISSIONS,

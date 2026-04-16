@@ -17,7 +17,6 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "paths": {
-      "@amprealize/collab-client": ["./src/vendor/collab-client-dist/index.d.ts"],
       "@amprealize/collab-client": ["./src/vendor/collab-client-dist/index.d.ts"]
     },
 

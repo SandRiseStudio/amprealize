@@ -24,15 +24,39 @@ import {
   CURRENT_SCOPE_LABEL,
   NEW_PROJECT_CTA,
   PERSONAL_SCOPE_LABEL,
-  resolveScopeSubtitle,
 } from '../../copy/scopeLabels';
 import { OrgSwitcher } from '../OrgSwitcher';
 import { orgContextStore, useOrgContext } from '../../store/orgContextStore';
 import { ActorAvatar } from '../actors/ActorAvatar';
+import { BrandLogo } from '../branding/BrandLogo';
 import { toActorViewModel } from '../../utils/actorViewModel';
 import { ProfileMenu } from './ProfileMenu';
 import { PRODUCT_DISPLAY_NAME } from '../../config/branding';
+import { useApiPlatformRuntime } from '../../api/platformRuntime';
 import './WorkspaceShell.css';
+
+function formatVersionLabel(raw: string): string {
+  const t = raw.trim();
+  if (!t) return 'v0.1.0';
+  if (t.startsWith('v') || t.startsWith('V')) return t;
+  return `v${t}`;
+}
+
+/** Compact semver for the narrow sidebar rail (full value stays in `title`). */
+function shortVersionForRail(raw: string): string {
+  const v = formatVersionLabel(raw);
+  const m = /^v?(\d+\.\d+)(?:\.\d+)?/i.exec(v);
+  if (m) return `v${m[1]}`;
+  return v;
+}
+
+function railDistributionLabel(distribution: 'oss' | 'enterprise' | undefined): string {
+  return distribution === 'enterprise' ? 'ENT' : 'OSS';
+}
+
+function railEditionAbbrev(edition: 'starter' | 'premium'): string {
+  return edition === 'premium' ? 'Pr' : 'St';
+}
 
 type ShellPresenceStatus = 'active' | 'idle' | 'away' | 'disconnected';
 
@@ -93,6 +117,27 @@ interface SidebarProps {
 
 const Sidebar = memo(function Sidebar({ collapsed, onToggle, children }: SidebarProps) {
   const sidebarRef = useRef<HTMLElement>(null);
+  const { data: runtime } = useApiPlatformRuntime();
+  const versionFull = formatVersionLabel(runtime?.version ?? '0.1.0');
+  const versionShort = shortVersionForRail(runtime?.version ?? '0.1.0');
+  const distRail = railDistributionLabel(runtime?.distribution);
+  const distFull = runtime?.distribution === 'enterprise' ? 'Enterprise' : 'OSS';
+  const edition = runtime?.edition ?? null;
+  const contextName = runtime?.context_name ?? 'unknown';
+
+  const runtimePillText = useMemo(() => {
+    const segments = [`${distRail} ${versionShort}`];
+    if (edition) segments.push(railEditionAbbrev(edition));
+    segments.push(contextName);
+    return segments.join(' · ');
+  }, [contextName, distRail, edition, versionShort]);
+
+  const runtimePillTitle = useMemo(() => {
+    const segments = [`${distFull} ${versionFull}`];
+    if (edition) segments.push(edition === 'premium' ? 'Premium' : 'Starter');
+    segments.push(contextName);
+    return segments.join(' · ');
+  }, [contextName, distFull, edition, versionFull]);
 
   return (
     <aside
@@ -125,12 +170,7 @@ const Sidebar = memo(function Sidebar({ collapsed, onToggle, children }: Sidebar
         </button>
         {!collapsed && (
           <div className="sidebar-brand animate-fade-in-up">
-            <span className="sidebar-brand-mark" aria-hidden="true">
-              <span className="sidebar-brand-mark-core" />
-            </span>
-            <span className="sidebar-brand-copy">
-              <span className="sidebar-title">{PRODUCT_DISPLAY_NAME}</span>
-            </span>
+            <BrandLogo variant="wordmark" alt={PRODUCT_DISPLAY_NAME} className="sidebar-brand-wordmark" />
           </div>
         )}
       </div>
@@ -138,10 +178,14 @@ const Sidebar = memo(function Sidebar({ collapsed, onToggle, children }: Sidebar
       <nav className="sidebar-nav">{children}</nav>
 
       <div className="sidebar-footer">
-        <ProfileMenu compact={collapsed} dropdownPosition="top" />
+        <div className="sidebar-footer-profile">
+          <ProfileMenu compact={collapsed} dropdownPosition="top" />
+        </div>
         {!collapsed && (
-          <div className="sidebar-footer-meta">
-            <span className="sidebar-version">v0.1.0</span>
+          <div className="sidebar-footer-meta" aria-label="Runtime environment">
+            <span className="sidebar-chip sidebar-chip--runtime" title={runtimePillTitle}>
+              {runtimePillText}
+            </span>
           </div>
         )}
       </div>
@@ -169,10 +213,6 @@ const Header = memo(function Header({ documentTitle, connectionState, presenceLi
     () => [...organizations].sort((a, b) => a.name.localeCompare(b.name)),
     [organizations]
   );
-  const currentOrg = useMemo(
-    () => organizations.find((org) => org.id === currentOrgId) ?? null,
-    [currentOrgId, organizations]
-  );
   const [commandPaletteHint, setCommandPaletteHint] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
@@ -183,7 +223,7 @@ const Header = memo(function Header({ documentTitle, connectionState, presenceLi
     if (location.pathname.startsWith('/projects')) return 'Projects';
     if (location.pathname.startsWith('/agents')) return 'Agents';
     if (location.pathname.startsWith('/orgs')) return 'Organizations';
-    if (location.pathname.startsWith('/bci')) return 'Tools';
+    if (location.pathname.startsWith('/bci') || location.pathname.startsWith('/whiteboard')) return 'Studio';
     if (location.pathname.startsWith('/settings')) return 'Settings';
     return PRODUCT_DISPLAY_NAME;
   }, [location.pathname]);
@@ -194,10 +234,6 @@ const Header = memo(function Header({ documentTitle, connectionState, presenceLi
   }, [resolvedDocumentTitle, surfaceLabel]);
 
   const displayName = actor?.displayName ?? actor?.email ?? actor?.id ?? 'Profile';
-  const currentScopeSubtitle = useMemo(
-    () => resolveScopeSubtitle(currentOrg?.name),
-    [currentOrg?.name]
-  );
   const initials = displayName
     .split(' ')
     .map((segment) => segment[0])
@@ -385,16 +421,14 @@ const Header = memo(function Header({ documentTitle, connectionState, presenceLi
       <div className="header-left">
         <div className="header-context">
           <div className="header-scope-panel" aria-label={CURRENT_SCOPE_LABEL}>
-            <span className="header-scope-kicker">{CURRENT_SCOPE_LABEL}</span>
-            <div className="header-scope-row">
-              <OrgSwitcher
-                organizations={sortedOrganizations}
-                currentOrgId={currentOrgId}
-                onSelect={(orgId) => orgContextStore.setCurrentOrgId(orgId)}
-              />
-              <span className="header-scope-subtitle">{currentScopeSubtitle}</span>
-            </div>
+            <OrgSwitcher
+              organizations={sortedOrganizations}
+              currentOrgId={currentOrgId}
+              onSelect={(orgId) => orgContextStore.setCurrentOrgId(orgId)}
+            />
           </div>
+
+          <span className="header-scope-separator" aria-hidden="true">/</span>
 
           <div className="header-breadcrumb" aria-label="Current location">
             <span className="breadcrumb-surface">{surfaceLabel}</span>
@@ -420,7 +454,7 @@ const Header = memo(function Header({ documentTitle, connectionState, presenceLi
             <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" />
             <path d="M11 11L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
-          <span>Jump to scopes, projects, boards, agents, or tools…</span>
+          <span>Jump to scopes, projects, boards, agents, and more…</span>
           {commandPaletteHint && (
             <kbd className="shortcut-hint animate-fade-in-up">⌘K</kbd>
           )}
@@ -628,16 +662,18 @@ export function WorkspaceShell({ children, sidebarContent, documentTitle, mode =
   const { currentOrgId } = useOrgContext();
   const { data: project } = useProject(projectId);
   const liveOrgId = currentOrgId ?? project?.org_id ?? null;
-  const { data: agents = [] } = useProjectAgents(Boolean(projectId));
+  const { data: agents = [] } = useProjectAgents(projectId ?? null, {
+    enabled: Boolean(projectId) && mode !== 'board',
+  });
   const { data: executionList } = useExecutionList(liveOrgId, projectId, {
-    enabled: Boolean(projectId),
+    enabled: Boolean(projectId) && mode !== 'board',
     limit: 12,
     refetchInterval: 4000,
   });
   const executionStream = useExecutionStream({
     orgId: liveOrgId,
     projectId,
-    enabled: Boolean(projectId && liveOrgId),
+    enabled: Boolean(projectId && liveOrgId) && mode !== 'board',
   });
 
   const livePresenceList = useMemo<ShellPresenceParticipant[]>(() => {

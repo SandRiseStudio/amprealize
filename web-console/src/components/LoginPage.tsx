@@ -16,9 +16,12 @@ import {
   ArrowLeft,
   ArrowRight,
   Bot,
+  Check,
+  Copy,
   KeyRound,
   LaptopMinimal,
   Link2,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { authStore, AUTH_STORE_INSTANCE_ID } from '../stores/authStore';
@@ -33,10 +36,16 @@ import {
 import './LoginPage.css';
 
 type LoginMode = 'human' | 'device-flow' | 'agent-credentials';
+type EntrySection = 'install' | 'sign-in';
 
 interface LocationState {
   from?: string;
 }
+
+/* ─── Install metadata ────────────────────────────────────────────────── */
+
+const INSTALL_COMMAND = 'npx @amprealize/cli wizard';
+const DOCS_URL = '/docs/getting-started/wizard';
 
 function GitHubLogo(): React.JSX.Element {
   return (
@@ -101,7 +110,9 @@ export function LoginPage() {
   } = useAuth();
 
   const [mode, setMode] = useState<LoginMode>('human');
+  const [entrySection, setEntrySection] = useState<EntrySection>('sign-in');
   const [copied, setCopied] = useState(false);
+  const [installCopied, setInstallCopied] = useState(false);
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [credentialsError, setCredentialsError] = useState<string | null>(null);
@@ -192,6 +203,14 @@ export function LoginPage() {
       }
     }
   }, [deviceCode?.userCode]);
+
+  const handleCopyInstall = useCallback(async () => {
+    const success = await copyToClipboard(INSTALL_COMMAND);
+    if (success) {
+      setInstallCopied(true);
+      setTimeout(() => setInstallCopied(false), 2000);
+    }
+  }, []);
 
   const handleBackToHuman = useCallback(() => {
     cancelLogin();
@@ -292,16 +311,16 @@ export function LoginPage() {
 
   let panelEyebrow = 'Welcome back';
   let panelTitle = `Sign in to ${PRODUCT_DISPLAY_NAME}`;
-  let panelSubtitle = 'Choose how you want to sign in. Human access stays front and center, with service credentials available when you need them.';
+  let panelSubtitle = 'Capture what works from reasoning traces. Coordinate agents, plan multi-step workflows, and cut inference costs as your behavioral playbook evolves.';
 
   if (mode === 'device-flow') {
     panelEyebrow = 'Device flow';
     panelTitle = 'Authorize this session';
-    panelSubtitle = 'Use a verification code in your browser, then come right back. The page updates automatically when you finish.';
+    panelSubtitle = 'Finish in the browser, then return here.';
   } else if (mode === 'agent-credentials') {
     panelEyebrow = 'Service access';
     panelTitle = 'Sign in with client credentials';
-    panelSubtitle = 'Use this path for agents and service accounts that need direct, programmatic access.';
+    panelSubtitle = 'For service accounts and automation.';
   }
 
   return (
@@ -321,80 +340,140 @@ export function LoginPage() {
     >
       {mode === 'human' && (
         <div className="login-home animate-fade-in-up">
-          <div className="login-social-stack">
+          {/* ── Two side-by-side entry buttons ──────────────────────────── */}
+          <div className="login-entry-row">
             <button
               type="button"
-              className="login-social-button login-social-button-primary login-social-button-github"
-              onClick={() => handleSocialLogin('github')}
-              aria-label="Continue with GitHub"
+              className={`login-entry-button${entrySection === 'install' ? ' login-entry-button--active' : ''}`}
+              onClick={() => setEntrySection('install')}
+              aria-pressed={entrySection === 'install'}
             >
-              <span className="login-social-icon-wrap" aria-hidden="true">
-                <GitHubLogo />
-              </span>
-              <span className="login-social-copy">
-                <strong>Continue with GitHub</strong>
-                <span>Best for engineering teams and connected repos</span>
-              </span>
-              <ArrowRight className="login-action-arrow" size={18} strokeWidth={2} aria-hidden="true" />
+              <Sparkles size={16} strokeWidth={2} aria-hidden="true" />
+              <span>Install in repo</span>
             </button>
-
             <button
               type="button"
-              className="login-social-button login-social-button-primary login-social-button-google"
-              onClick={() => handleSocialLogin('google')}
-              aria-label="Continue with Google"
-              disabled={googlePopupPending}
+              className={`login-entry-button${entrySection === 'sign-in' ? ' login-entry-button--active' : ''}`}
+              onClick={() => setEntrySection('sign-in')}
+              aria-pressed={entrySection === 'sign-in'}
             >
-              <span className="login-social-icon-wrap login-social-icon-wrap-google" aria-hidden="true">
-                <GoogleLogo />
-              </span>
-              <span className="login-social-copy">
-                <strong>Continue with Google</strong>
-                <span>
-                  {googlePopupPending
-                    ? 'Waiting for the Google sign-in window to finish...'
-                    : 'Opens a small sign-in window and keeps this page in place'}
-                </span>
-              </span>
-              <ArrowRight className="login-action-arrow" size={18} strokeWidth={2} aria-hidden="true" />
+              <span>Sign in</span>
+              <ArrowRight size={14} strokeWidth={2} aria-hidden="true" />
             </button>
           </div>
 
-          <div className="login-secondary-block">
-            <span className="login-section-label">Alternative human sign-in</span>
-            <button
-              type="button"
-              className="login-device-button"
-              onClick={() => void handleStartDeviceFlow()}
+          {/* ── Install with AI section ─────────────────────────────────── */}
+          {entrySection === 'install' && (
+            <div
+              className="login-install-section animate-fade-in-up"
+              role="region"
+              aria-label="Install in repo"
+              data-install-command={INSTALL_COMMAND}
+              data-install-method="npx"
             >
-              <span className="login-device-button-icon" aria-hidden="true">
-                <LaptopMinimal size={20} strokeWidth={2} />
-              </span>
-              <span className="login-device-button-copy">
-                <strong>Use browser code instead</strong>
-                <span>Open a verification page, enter a one-time code, and finish without typing passwords here.</span>
-              </span>
-              <ArrowRight className="login-action-arrow" size={18} strokeWidth={2} aria-hidden="true" />
-            </button>
-          </div>
+              <p className="login-install-desc">
+                Add {PRODUCT_DISPLAY_NAME} to the repo you’re in with the setup wizard.
+              </p>
+              <div className="login-install-command-row">
+                <button
+                  type="button"
+                  className="login-install-command"
+                  onClick={() => void handleCopyInstall()}
+                  aria-label={`Copy command: ${INSTALL_COMMAND}`}
+                  data-command={INSTALL_COMMAND}
+                >
+                  <span className="login-install-prompt" aria-hidden="true">{'>'}</span>
+                  <code className="login-install-code">
+                    <span className="login-install-bin">npx</span>{' '}
+                    <span className="login-install-pkg">@amprealize/cli</span>{' '}
+                    <span className="login-install-arg">wizard</span>
+                  </code>
+                  <span className="login-install-copy-icon" aria-hidden="true">
+                    {installCopied ? <Check size={15} strokeWidth={2} /> : <Copy size={15} strokeWidth={2} />}
+                  </span>
+                </button>
+                <a href={DOCS_URL} className="login-install-learn-more">Learn more</a>
+              </div>
 
-          <div className="login-agent-entry">
-            <button
-              type="button"
-              className="login-agent-toggle"
-              onClick={() => setMode('agent-credentials')}
-            >
-              <span className="login-agent-toggle-copy">
-                <strong>Signing in an agent or service account?</strong>
-                <span>Use client credentials for direct, programmatic access.</span>
-              </span>
-              <Bot size={18} strokeWidth={2} aria-hidden="true" />
-            </button>
-          </div>
+              {/* Hidden structured data for AI agents parsing the page */}
+              <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{
+                  __html: JSON.stringify({
+                    '@context': 'https://schema.org',
+                    '@type': 'SoftwareApplication',
+                    name: 'Amprealize CLI',
+                    operatingSystem: 'macOS, Linux, Windows',
+                    applicationCategory: 'DeveloperApplication',
+                    installUrl: 'https://www.npmjs.com/package/@amprealize/cli',
+                    softwareRequirements: 'Node.js 18+, Python 3.10+',
+                    description:
+                      'AI-powered developer tooling and task orchestration. Install via: ' +
+                      INSTALL_COMMAND,
+                  }),
+                }}
+              />
+            </div>
+          )}
 
-          <a href="/docs/api/authentication" className="login-help-link">
-            Need help getting credentials?
-          </a>
+          {/* ── Sign in section ────────────────────────────────────────── */}
+          {entrySection === 'sign-in' && (
+            <div className="login-signin-section animate-fade-in-up">
+              <div className="login-social-stack">
+                <button
+                  type="button"
+                  className="login-social-button login-social-button-primary login-social-button-github"
+                  onClick={() => handleSocialLogin('github')}
+                  aria-label="Continue with GitHub"
+                >
+                  <span className="login-social-icon-wrap" aria-hidden="true">
+                    <GitHubLogo />
+                  </span>
+                  <span className="login-social-copy">
+                    <strong>Continue with GitHub</strong>
+                    <span>Use your GitHub identity and connect repos when needed.</span>
+                  </span>
+                  <ArrowRight className="login-action-arrow" size={18} strokeWidth={2} aria-hidden="true" />
+                </button>
+
+                <button
+                  type="button"
+                  className="login-social-button login-social-button-primary login-social-button-google"
+                  onClick={() => handleSocialLogin('google')}
+                  aria-label="Continue with Google"
+                  disabled={googlePopupPending}
+                >
+                  <span className="login-social-icon-wrap login-social-icon-wrap-google" aria-hidden="true">
+                    <GoogleLogo />
+                  </span>
+                  <span className="login-social-copy">
+                    <strong>Continue with Google</strong>
+                    <span>{googlePopupPending ? 'Waiting…' : `Use your Google identity with ${PRODUCT_DISPLAY_NAME}`}</span>
+                  </span>
+                  <ArrowRight className="login-action-arrow" size={18} strokeWidth={2} aria-hidden="true" />
+                </button>
+              </div>
+
+              <div className="login-secondary-actions">
+                <button
+                  type="button"
+                  className="login-secondary-action"
+                  onClick={() => void handleStartDeviceFlow()}
+                >
+                  <LaptopMinimal size={16} strokeWidth={2} aria-hidden="true" />
+                  <span>Use browser code</span>
+                </button>
+                <button
+                  type="button"
+                  className="login-secondary-action"
+                  onClick={() => setMode('agent-credentials')}
+                >
+                  <Bot size={16} strokeWidth={2} aria-hidden="true" />
+                  <span>Use client credentials</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -423,8 +502,8 @@ export function LoginPage() {
             <div className="login-step">
               <span className="login-step-number">2</span>
               <div className="login-step-copy">
-                <strong>Enter your one-time code</strong>
-                <span>{PRODUCT_DISPLAY_NAME} listens for approval and completes the session automatically.</span>
+                <strong>Enter the code</strong>
+                <span>We’ll continue here once it’s approved.</span>
               </div>
             </div>
           </div>
@@ -432,7 +511,7 @@ export function LoginPage() {
           {deviceFlowStatus === 'pending' && !deviceCode && (
             <div className="login-polling" aria-live="polite">
               <div className="login-status-spinner large" aria-hidden="true" />
-              <p>Preparing your secure verification code...</p>
+              <p>Preparing your code…</p>
             </div>
           )}
 
@@ -446,7 +525,7 @@ export function LoginPage() {
               >
                 <span className="login-code-label">Your sign-in code</span>
                 <span className="login-code-value">{deviceCode.userCode}</span>
-                <span className="login-code-hint">{copied ? 'Copied to clipboard' : 'Click to copy'}</span>
+                <span className="login-code-hint">{copied ? 'Copied' : 'Click to copy'}</span>
               </button>
 
               {deviceCode.verificationUriComplete && (
@@ -457,14 +536,14 @@ export function LoginPage() {
                   rel="noopener noreferrer"
                 >
                   <Link2 size={18} strokeWidth={2} aria-hidden="true" />
-                  <span>Open the verification page with your code already attached</span>
+                  <span>Open with code attached</span>
                 </a>
               )}
 
               <div className="login-status-card" aria-live="polite">
                 <div className="login-status">
                   <div className="login-status-spinner" aria-hidden="true" />
-                  <span>Waiting for authorization...</span>
+                  <span>Waiting for approval…</span>
                 </div>
                 {timeRemaining !== null && timeRemaining > 0 && (
                   <p className="login-timer">Code expires in {formatTime(timeRemaining)}</p>
@@ -546,8 +625,8 @@ export function LoginPage() {
               <KeyRound size={18} strokeWidth={2} />
             </div>
             <div className="login-agent-banner-copy">
-              <strong>Client credentials only</strong>
-              <span>This path is intended for service accounts and automated agents.</span>
+              <strong>Direct access</strong>
+              <span>For agents, CI jobs, and service automation.</span>
             </div>
           </div>
 

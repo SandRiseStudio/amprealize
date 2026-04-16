@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from amprealize.multi_tenant.board_contracts import (
+from amprealize.boards.contracts import (
     AgentSuggestion,
     AgentWorkload,
     AssigneeType,
@@ -18,7 +18,7 @@ from amprealize.multi_tenant.board_contracts import (
     SuggestAgentRequest,
     SuggestAgentResponse,
 )
-from amprealize.multi_tenant.contracts import AgentStatus
+from amprealize.projects.contracts import AgentStatus
 from amprealize.services.board_service import BoardService, Actor
 from amprealize.storage.postgres_pool import PostgresPool
 from amprealize.telemetry import TelemetryClient

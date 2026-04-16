@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "wiki.create_page",
+  "description": "Create a new wiki page with frontmatter and markdown body. Returns lint warnings for the domain after creation so you can self-correct.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "domain": {
+        "type": "string",
+        "enum": ["research", "infra", "ai-learning"],
+        "description": "Wiki domain"
+      },
+      "page_path": {
+        "type": "string",
+        "description": "Path relative to wiki/<domain>/ (e.g., \"troubleshooting/podman-disk-full.md\")"
+      },
+      "title": {
+        "type": "string",
+        "description": "Page title"
+      },
+      "page_type": {
+        "type": "string",
+        "description": "Page type. Infra: reference | howto | architecture | troubleshooting | practice. Research: entity | concept | evaluation-summary | synthesis | contradiction. AI-Learning: concept | technology | pattern | glossary | in-practice | learning-path."
+      },
+      "body": {
+        "type": "string",
+        "description": "Markdown body content"
+      },
+      "extra_frontmatter": {
+        "type": "object",
+        "description": "Additional frontmatter fields (e.g., difficulty, sources, applies_to, tags)"
+      }
+    },
+    "required": ["domain", "page_path", "title", "page_type", "body"]
+  }
+}

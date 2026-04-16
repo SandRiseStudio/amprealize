@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 
 from amprealize.adapters import MCPTaskAssignmentAdapter
 from amprealize.services.assignment_service import AssignmentService
-from amprealize.multi_tenant.board_contracts import (
+from amprealize.boards.contracts import (
     SuggestAgentRequest,
     SuggestAgentResponse,
     AgentSuggestion,

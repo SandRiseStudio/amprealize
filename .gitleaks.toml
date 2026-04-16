@@ -39,7 +39,7 @@ paths = [
     '''\.secrets\.baseline$''',
 
     # BreakerAmp blueprints (env-var interpolation templates, not real secrets)
-    '''config/breakeramp/blueprints/.*\.yaml$''',
+    '''packages/breakeramp/src/breakeramp/blueprints/.*\.yaml$''',
 
     # Nginx container config (env-var defaults, not real secrets)
     '''config/nginx/.*''',

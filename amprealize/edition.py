@@ -1,11 +1,11 @@
 """Edition resolver — detect OSS vs Enterprise and surface capabilities.
 
-Edition is determined by whether ``amprealize-enterprise`` is installed.
-Tier (Starter/Premium) within Enterprise is resolved by the enterprise
-package's billing integration — here it's represented as Pattern 1 stub
-(``resolve_tier = None``).
+In the OSS build, ``detect_edition()`` always returns ``Edition.OSS``.
+The Enterprise fork overrides this file to wire tier resolution.
 
-Part of Phases 1 & 4 of GUIDEAI-748 (Modular Installation System).
+The Edition enum and capability definitions are kept here so that
+UI/docs/migration tooling can reference all tiers without importing
+enterprise code.
 """
 
 from __future__ import annotations
@@ -14,8 +14,6 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
-
-from amprealize import HAS_ENTERPRISE
 
 if TYPE_CHECKING:
     from amprealize.config.schema import ModulesConfig
@@ -34,15 +32,6 @@ class Edition(str, Enum):
     OSS = "oss"
     ENTERPRISE_STARTER = "enterprise_starter"
     ENTERPRISE_PREMIUM = "enterprise_premium"
-
-
-# ---------------------------------------------------------------------------
-# Tier resolution — Pattern 1 stub (None means "not available in OSS")
-# ---------------------------------------------------------------------------
-# The enterprise package replaces this with a real callable:
-#   from amprealize_enterprise.edition_tier import resolve_tier
-# That function calls BillingService to determine Starter vs Premium.
-resolve_tier = None
 
 
 # ---------------------------------------------------------------------------
@@ -128,22 +117,10 @@ _ENTERPRISE_PREMIUM_CAPS = EditionCapabilities(
 def detect_edition() -> Edition:
     """Detect which edition is running.
 
-    * No ``amprealize-enterprise`` → :attr:`Edition.OSS`
-    * Enterprise installed, tier resolution available → delegate to
-      ``resolve_tier()`` from the enterprise package
-    * Enterprise installed, no tier resolution → default to Starter
+    Always returns :attr:`Edition.OSS` in the open-source build.
+    The enterprise fork overrides this module to resolve Starter/Premium.
     """
-    if not HAS_ENTERPRISE:
-        return Edition.OSS
-
-    if resolve_tier is not None:
-        tier = resolve_tier()
-        if tier == "premium":
-            return Edition.ENTERPRISE_PREMIUM
-        return Edition.ENTERPRISE_STARTER
-
-    # Enterprise installed but tier resolution not wired → Starter default
-    return Edition.ENTERPRISE_STARTER
+    return Edition.OSS
 
 
 def get_caps(edition: Edition | None = None) -> EditionCapabilities:

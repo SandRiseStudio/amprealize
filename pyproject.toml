@@ -94,9 +94,6 @@ ml = [
 breakeramp = [
   "breakeramp[cli]>=0.1.0",
 ]
-enterprise = [
-  "amprealize-enterprise~=0.1.0",
-]
 
 [project.scripts]
 amprealize = "amprealize.cli:main"

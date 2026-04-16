@@ -85,7 +85,8 @@ describe('BoardAgentPresenceRail', () => {
       />,
     );
     const avatars = screen.getAllByRole('button', { name: /Agent \d/ });
-    expect(avatars).toHaveLength(7); // 6 participants + View all
+    expect(avatars).toHaveLength(6);
+    expect(screen.getByRole('button', { name: 'View all' })).toBeInTheDocument();
   });
 
   it('shows overflow chip for members beyond 6', () => {

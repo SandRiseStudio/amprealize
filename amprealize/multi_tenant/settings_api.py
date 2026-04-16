@@ -1,20 +1,15 @@
 """Settings API routes — enterprise feature.
 
-Full implementation available in amprealize-enterprise package.
-Install: pip install amprealize-enterprise
+Full implementation lives in the enterprise fork.
 """
 
-try:
-    from amprealize_enterprise.multi_tenant.settings_api import create_settings_routes
-    SETTINGS_ROUTES_AVAILABLE = True
-except ImportError:
-    SETTINGS_ROUTES_AVAILABLE = False
+SETTINGS_ROUTES_AVAILABLE = False
 
-    def create_settings_routes(*args, **kwargs):
-        """No-op: settings routes require amprealize-enterprise."""
-        raise ImportError(
-            "Settings API requires amprealize-enterprise. "
-            "Install: pip install amprealize-enterprise"
-        )
+
+def create_settings_routes(*args, **kwargs):
+    """No-op: settings routes require enterprise fork."""
+    raise ImportError(
+        "Settings API requires the enterprise fork."
+    )
 
 __all__ = ["create_settings_routes", "SETTINGS_ROUTES_AVAILABLE"]

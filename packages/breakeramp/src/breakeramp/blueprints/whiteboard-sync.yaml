@@ -1,0 +1,75 @@
+# Whiteboard Sync Blueprint - Node.js sidecar for real-time tldraw collaboration
+#
+# Architecture:
+#   - whiteboard-sync: Node.js sidecar running @tldraw/sync on port 3040
+#   - Connects to existing Python API (port 8000) for auth + persistence
+#   - Requires local-dev or production blueprint for database + API
+#
+# Usage:
+#   breakeramp plan --blueprint whiteboard-sync --env development
+#   breakeramp apply --blueprint whiteboard-sync --env development
+#
+# Port Conventions:
+#   whiteboard-sync: 3040 (WebSocket sync server)
+
+name: whiteboard-sync
+version: 0.1.0
+
+# =============================================================================
+# MODULES
+# =============================================================================
+modules:
+  sync:
+    description: "Whiteboard real-time sync sidecar"
+    enabled: true
+
+# =============================================================================
+# SERVICES
+# =============================================================================
+services:
+  # ---------------------------------------------------------------------------
+  # MODULE: SYNC - Node.js tldraw sync sidecar
+  # ---------------------------------------------------------------------------
+  whiteboard-sync:
+    module: sync
+    image: "node:20-alpine"
+    build:
+      context: "../../packages/whiteboard-sync"
+      dockerfile: "Dockerfile"
+    ports:
+      - "3040:3040"
+    environment:
+      SYNC_PORT: "3040"
+      PYTHON_API_BASE: "http://host.containers.internal:8000/api/v1"
+      ROOM_IDLE_TIMEOUT_MS: "300000"
+      PERSIST_INTERVAL_MS: "30000"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3040/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on: []
+    restart: unless-stopped
+    labels:
+      breakeramp.module: sync
+      breakeramp.service: whiteboard-sync
+
+# =============================================================================
+# ENVIRONMENT OVERRIDES
+# =============================================================================
+environments:
+  development:
+    services:
+      whiteboard-sync:
+        environment:
+          PYTHON_API_BASE: "http://host.containers.internal:8000/api/v1"
+          ROOM_IDLE_TIMEOUT_MS: "60000"
+          PERSIST_INTERVAL_MS: "10000"
+  production:
+    services:
+      whiteboard-sync:
+        environment:
+          PYTHON_API_BASE: "http://api:8000/api/v1"
+          ROOM_IDLE_TIMEOUT_MS: "300000"
+          PERSIST_INTERVAL_MS: "30000"
+        restart: always

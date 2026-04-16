@@ -30,7 +30,7 @@ from .action_contracts import Actor
 from .agent_registry_contracts import Agent, AgentVersion
 from .agent_registry_service import AgentRegistryService
 from .auth.llm_credential_repository import LLMCredentialRepository
-from .multi_tenant.board_contracts import WorkItem, WorkItemStatus, AssigneeType
+from .boards.contracts import WorkItem, WorkItemStatus, AssigneeType
 from .run_contracts import Run, RunCreateRequest, RunProgressUpdate, RunStatus, RunStep
 from .run_service import RunService, RunNotFoundError
 from .services.board_service import BoardService, WorkItemNotFoundError
@@ -50,6 +50,7 @@ from .task_cycle_service import TaskCycleService
 from .telemetry import TelemetryClient
 from .utils.dsn import resolve_postgres_dsn
 from .work_item_execution_contracts import (
+    AgentExecutionMode,
     AvailableModel,
     ExecuteWorkItemRequest,
     ExecuteWorkItemResponse,
@@ -70,12 +71,12 @@ from .work_item_execution_contracts import (
     generate_pr_branch_name,
     get_model,
 )
-from .multi_tenant.settings import (
+from .projects.settings import (
     ExecutionMode,
     LOCAL_CAPABLE_SURFACES,
     REMOTE_ONLY_SURFACES,
-    SettingsService,
 )
+from .multi_tenant.settings import SettingsService
 from .workspace_agent import (
     AmprealizeWorkspaceClient,
     WorkspaceConfig,
@@ -840,6 +841,7 @@ class WorkItemExecutionService:
                     "agent_version": agent_version.version if agent_version else None,
                     "exec_policy": exec_policy.to_dict() if exec_policy else None,
                     "github_repo": github_repo,  # For workspace provisioning
+                    "agent_execution_mode": request.agent_execution_mode.value if request.agent_execution_mode else None,
                 },
             )
 
@@ -874,6 +876,7 @@ class WorkItemExecutionService:
                 user_id=user_id,
                 org_id=org_id,
                 project_id=project_id,
+                agent_execution_mode=request.agent_execution_mode,
             ))
 
         return ExecuteWorkItemResponse(
@@ -900,6 +903,7 @@ class WorkItemExecutionService:
         user_id: str,
         org_id: Optional[str],
         project_id: Optional[str],
+        agent_execution_mode: Optional["AgentExecutionMode"] = None,
     ) -> None:
         """Run the execution loop in the background.
 
@@ -1004,6 +1008,7 @@ class WorkItemExecutionService:
                 user_id=user_id,
                 org_id=org_id,
                 project_id=project_id,
+                execution_mode=agent_execution_mode,
             )
 
             # Mark success for cleanup policy
@@ -2048,7 +2053,7 @@ class WorkItemExecutionService:
     ) -> None:
         """Update work item with run_id link."""
         try:
-            from amprealize.multi_tenant.board_contracts import UpdateWorkItemRequest
+            from amprealize.boards.contracts import UpdateWorkItemRequest
             from amprealize.services.board_service import Actor as BoardActor
             actor = BoardActor(id="system", role="system", surface="internal")
             request = UpdateWorkItemRequest(run_id=run_id)  # type: ignore[call-arg]
@@ -2098,7 +2103,7 @@ class WorkItemExecutionService:
     ) -> None:
         """Move work item to completed column."""
         try:
-            from amprealize.multi_tenant.board_contracts import UpdateWorkItemRequest, WorkItemStatus, MoveWorkItemRequest
+            from amprealize.boards.contracts import UpdateWorkItemRequest, WorkItemStatus, MoveWorkItemRequest
             from amprealize.services.board_service import Actor as BoardActor
             actor = BoardActor(id="system", role="system", surface="internal")
 

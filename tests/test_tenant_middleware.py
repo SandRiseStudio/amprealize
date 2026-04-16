@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from amprealize.auth.middleware import AuthConfig, AuthMiddleware
 from amprealize.auth.jwt_service import JWTService
-from amprealize.multi_tenant.context import TenantMiddleware, TenantContext
+from amprealize.tenant.context import TenantMiddleware, TenantContext
 
 
 # ---------------------------------------------------------------------------

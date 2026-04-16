@@ -151,49 +151,29 @@ const POLLING_INTERVAL = 30_000; // 30 seconds
 /**
  * Fetch dashboard statistics (aggregated counts)
  */
+const EMPTY_STATS: DashboardStats = {
+  total_projects: 0,
+  total_agents: 0,
+  active_agents: 0,
+  busy_agents: 0,
+  total_runs: 0,
+  running_runs: 0,
+  completed_runs_today: 0,
+  failed_runs_today: 0,
+  total_behaviors: 0,
+};
+
 export function useDashboardStats() {
   return useQuery({
     queryKey: dashboardKeys.stats(),
     queryFn: async (): Promise<DashboardStats> => {
       try {
-        // Try the dedicated stats endpoint first
         return await apiClient.get('/v1/dashboard/stats');
       } catch {
-        // Fallback: construct stats from individual endpoints
-        const [projectsRes, agentsRes, runsRes, behaviorsRes] = await Promise.allSettled([
-          apiClient.get('/v1/projects'),
-          apiClient.get('/v1/agents'),
-          apiClient.get('/v1/runs?limit=100'),
-          apiClient.get('/v1/behaviors'),
-        ]);
-
-        const projects = projectsRes.status === 'fulfilled'
-          ? extractItems(projectsRes.value as ListResponse<Project> | Project[])
-          : [];
-        const agents = agentsRes.status === 'fulfilled'
-          ? extractItems(agentsRes.value as ListResponse<Agent> | Agent[])
-          : [];
-        const runs = runsRes.status === 'fulfilled'
-          ? extractItems(runsRes.value as ListResponse<Run> | Run[])
-          : [];
-        const behaviors = behaviorsRes.status === 'fulfilled'
-          ? extractItems(behaviorsRes.value as ListResponse<Behavior> | Behavior[])
-          : [];
-
-        const today = new Date().toISOString().split('T')[0];
-        const todaysRuns = runs.filter((r: Run) => r.started_at?.startsWith(today));
-
-        return {
-          total_projects: projects.length,
-          total_agents: agents.length,
-          active_agents: agents.filter((a: Agent) => a.status === 'active').length,
-          busy_agents: agents.filter((a: Agent) => a.status === 'busy').length,
-          total_runs: runs.length,
-          running_runs: runs.filter((r: Run) => r.status === 'RUNNING').length,
-          completed_runs_today: todaysRuns.filter((r: Run) => r.status === 'COMPLETED').length,
-          failed_runs_today: todaysRuns.filter((r: Run) => r.status === 'FAILED').length,
-          total_behaviors: behaviors.length,
-        };
+        // Return zeroed stats on failure; the dashboard already fetches
+        // projects/agents/runs independently so there's no need to
+        // duplicate those requests here.  Polling will retry shortly.
+        return EMPTY_STATS;
       }
     },
     refetchInterval: POLLING_INTERVAL,
@@ -222,28 +202,28 @@ export function useOrganizations() {
       if (!capabilities.routes.orgs) {
         return [];
       }
-      const endpoints = ['/v1/orgs', '/v1/organizations'];
-      for (const endpoint of endpoints) {
-        try {
-          // Orgs are optional for user-level login: if the org service is unavailable
-          // (404) or protected differently (401/403), treat as "no orgs" without
-          // triggering a global logout/refresh cycle.
-          const response = await apiClient.get(endpoint, { skipRetry: true }) as
-            | ListResponse<Organization>
-            | Organization[];
-          return extractItems(response);
-        } catch (error) {
-          if (error instanceof ApiError) {
-            if (error.status === 404 || error.status === 401 || error.status === 403) {
+      try {
+        const response = await apiClient.get('/v1/orgs', { skipRetry: true }) as
+          | ListResponse<Organization>
+          | Organization[];
+        return extractItems(response);
+      } catch (error) {
+        if (error instanceof ApiError) {
+          if (error.status === 404) {
+            try {
+              const response = await apiClient.get('/v1/organizations', { skipRetry: true }) as
+                | ListResponse<Organization>
+                | Organization[];
+              return extractItems(response);
+            } catch {
               return [];
             }
-            return [];
           }
         }
+        return [];
       }
-      return [];
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes - orgs change rarely
+    staleTime: 5 * 60 * 1000,
   });
 }
 

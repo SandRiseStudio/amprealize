@@ -85,7 +85,7 @@ jobs:
         run: sleep 30
 
       - name: Install from npm
-        run: npm install -g @sandrisesf/amprealize
+        run: npm install -g @amprealize/cli
 
       - name: Verify CLI
         run: amprealize --version

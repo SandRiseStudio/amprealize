@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "infra_wiki.ingest",
+  "description": "Ingest a source file into the Infrastructure Wiki. Creates or updates a wiki page with LLM-generated documentation of the source file, tracking source hashes for staleness detection.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "source_file": {
+        "type": "string",
+        "description": "Repo-relative path to the source file (e.g., scripts/run_tests.sh)"
+      },
+      "page_path": {
+        "type": "string",
+        "description": "Target wiki page path (e.g., reference/run-tests-sh.md)"
+      },
+      "title": {
+        "type": "string",
+        "description": "Page title"
+      },
+      "page_type": {
+        "type": "string",
+        "enum": ["reference", "howto", "architecture", "troubleshooting", "practice"],
+        "description": "Type of wiki page"
+      },
+      "summary": {
+        "type": "string",
+        "description": "LLM-generated documentation/summary of the source file"
+      },
+      "applies_to": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["dev", "test", "staging", "prod"]
+        },
+        "description": "Environments this applies to (default: dev, test)"
+      }
+    },
+    "required": ["source_file", "page_path", "title", "page_type", "summary"]
+  }
+}

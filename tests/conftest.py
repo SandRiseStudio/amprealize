@@ -40,6 +40,11 @@ from amprealize.storage.redis_cache import get_cache
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+for package_src in REPO_ROOT.glob("packages/*/src"):
+    package_src_str = str(package_src)
+    if package_src_str not in sys.path:
+        sys.path.insert(0, package_src_str)
+
 # Exclude interactive/manual scripts that have no pytest test functions
 # and execute module-level code on import (blocking pytest collection)
 collect_ignore = [
@@ -223,6 +228,10 @@ _PRODUCTION_DB_NAMES = frozenset({"amprealize", "telemetry"})
 # Hostnames that point to production containers.
 _PRODUCTION_HOSTNAMES = frozenset({"amprealize-db"})
 
+# Hostnames that are acceptable for destructive test helpers.
+# Intentionally narrow: safe_truncate should only ever target local test DBs.
+_LOCAL_TEST_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1", "host.containers.internal"})
+
 
 def _mask_dsn_password(dsn: str) -> str:
     """Replace password in a DSN with '***' for safe logging."""
@@ -242,19 +251,33 @@ def assert_test_database(dsn: str) -> None:
     Raises:
         RuntimeError: If the DSN targets a known production database.
     """
-    # Escape hatch for intentional overrides (must be explicit opt-in)
-    if os.environ.get("AMPREALIZE_TEST_SAFETY_OVERRIDE") == "1":
-        return
-
     # Mock DSNs used by smoke/load test fixtures are always safe
     if "mock" in dsn.lower():
         return
+
+    override_enabled = os.environ.get("AMPREALIZE_TEST_SAFETY_OVERRIDE") == "1"
 
     parsed = urllib.parse.urlparse(dsn)
     dbname = parsed.path.lstrip("/").split("?")[0]  # strip leading / and query params
     hostname = parsed.hostname or ""
 
     masked = _mask_dsn_password(dsn)
+
+    # Even with the explicit override, destructive test helpers must remain local.
+    # This prevents pytest runs from truncating an active cloud context such as Neon.
+    if override_enabled and hostname not in _LOCAL_TEST_HOSTNAMES:
+        raise RuntimeError(
+            f"\n{'='*72}\n"
+            f"SAFETY GUARD: Refusing to use remote/cloud database for test truncation!\n"
+            f"  DSN:    {masked}\n"
+            f"  Host:   {hostname or '(missing)'}\n"
+            f"  Reason: AMPREALIZE_TEST_SAFETY_OVERRIDE only permits LOCAL hosts.\n"
+            f"\n"
+            f"To fix:\n"
+            f"  - Use breakeramp test infrastructure (localhost / host.containers.internal)\n"
+            f"  - Or switch away from the active cloud context before running destructive tests\n"
+            f"{'='*72}"
+        )
 
     # Block known production hostnames (breakeramp container names)
     if hostname in _PRODUCTION_HOSTNAMES:
@@ -272,7 +295,7 @@ def assert_test_database(dsn: str) -> None:
         )
 
     # Block known production database names
-    if dbname in _PRODUCTION_DB_NAMES:
+    if dbname in _PRODUCTION_DB_NAMES and not override_enabled:
         raise RuntimeError(
             f"\n{'='*72}\n"
             f"SAFETY GUARD: Refusing to use production database!\n"

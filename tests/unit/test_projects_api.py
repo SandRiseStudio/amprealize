@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from amprealize.projects_api import create_project_routes
-from amprealize.multi_tenant.contracts import Project, ProjectVisibility
+from amprealize.projects.contracts import Project, ProjectVisibility
 
 
 pytestmark = pytest.mark.unit

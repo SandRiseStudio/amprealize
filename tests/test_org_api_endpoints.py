@@ -25,7 +25,7 @@ from fastapi import FastAPI
 from starlette.requests import Request
 
 # Import contracts for type checking
-from amprealize.multi_tenant.contracts import (
+from amprealize.projects.contracts import (
     Project,
     Agent,
     AgentType,
@@ -431,7 +431,7 @@ class TestListInvitationsEndpoint:
 
     def test_list_invitations_success(self, mock_invitation_service, sample_invitation):
         """Successfully list invitations."""
-        from amprealize.multi_tenant.contracts import InvitationListResponse
+        from amprealize.projects.contracts import InvitationListResponse
 
         mock_invitation_service.list_org_invitations.return_value = InvitationListResponse(
             invitations=[sample_invitation],
@@ -452,7 +452,7 @@ class TestListInvitationsEndpoint:
 
     def test_list_invitations_with_status_filter(self, mock_invitation_service, sample_invitation):
         """Filter invitations by status."""
-        from amprealize.multi_tenant.contracts import InvitationListResponse
+        from amprealize.projects.contracts import InvitationListResponse
 
         mock_invitation_service.list_org_invitations.return_value = InvitationListResponse(
             invitations=[sample_invitation],
@@ -481,7 +481,7 @@ class TestCreateInvitationEndpoint:
 
     def test_create_invitation_success(self, mock_invitation_service, sample_invitation):
         """Successfully create an invitation."""
-        from amprealize.multi_tenant.contracts import CreateInvitationRequest
+        from amprealize.projects.contracts import CreateInvitationRequest
 
         mock_invitation_service.create_invitation.return_value = sample_invitation
 
@@ -502,7 +502,7 @@ class TestCreateInvitationEndpoint:
 
     def test_create_invitation_duplicate_email(self, mock_invitation_service):
         """Raise error for duplicate pending invitation."""
-        from amprealize.multi_tenant.contracts import CreateInvitationRequest
+        from amprealize.projects.contracts import CreateInvitationRequest
 
         mock_invitation_service.create_invitation.side_effect = ValueError(
             "An active invitation already exists for this email"

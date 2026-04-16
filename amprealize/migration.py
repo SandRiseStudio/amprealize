@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from amprealize.multi_tenant.board_contracts import (
+from amprealize.boards.contracts import (
     Board,
     BoardSettings,
     CreateBoardRequest,

@@ -30,3 +30,9 @@ repos:
         language: system
         files: ^tests/.*\.py$
         pass_filenames: false
+      - id: enterprise-guard
+        name: No enterprise references in OSS
+        entry: python scripts/check_enterprise_guard.py
+        language: python
+        files: ^amprealize/.*\.py$
+        pass_filenames: false

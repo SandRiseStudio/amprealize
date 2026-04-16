@@ -1,0 +1,28 @@
+{
+  "name": "@amprealize/whiteboard-sync",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node.js sidecar for tldraw real-time collaborative whiteboard sync via @tldraw/sync",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@tldraw/sync": "^4.5.9",
+    "dotenv": "^16.4.7",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.14",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

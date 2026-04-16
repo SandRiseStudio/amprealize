@@ -1,9 +1,8 @@
 """Caps enforcer — resource limit checking for OSS and Enterprise editions.
 
 In the OSS edition, all capability checks pass unconditionally via the no-op
-``CapsEnforcer``.  For Enterprise Starter, ``EditionCapsEnforcer`` checks
-resource counts against the limits defined in ``EditionCapabilities``.
-Enterprise Premium and OSS are both uncapped.
+``CapsEnforcer``.  The Enterprise fork overrides the ``get_caps_enforcer()``
+factory to wire tier-based caps.
 
 Usage::
 
@@ -12,8 +11,6 @@ Usage::
     enforcer = get_caps_enforcer()
     enforcer.check("projects", current_count=42)  # True in OSS
     enforcer.enforce("projects", current_count=42)  # raises if over cap
-
-Part of Phases 1 & 4 of GUIDEAI-748 (Modular Installation System).
 """
 
 from __future__ import annotations
@@ -147,30 +144,14 @@ _enforcer: CapsEnforcer | None = None
 def get_caps_enforcer() -> CapsEnforcer:
     """Return the caps enforcer singleton.
 
-    Resolution order:
-    1. Real enforcer from ``amprealize_enterprise`` (if installed)
-    2. ``EditionCapsEnforcer`` for Enterprise Starter (capped)
-    3. No-op ``CapsEnforcer`` for OSS / Enterprise Premium (uncapped)
+    OSS edition is fully uncapped — always returns the no-op enforcer.
+    The enterprise fork overrides this factory.
     """
     global _enforcer
     if _enforcer is not None:
         return _enforcer
 
-    try:
-        from amprealize_enterprise.caps_enforcer import (  # type: ignore[import-not-found]
-            CapsEnforcer as EnterpriseCapsEnforcer,
-        )
-
-        _enforcer = EnterpriseCapsEnforcer()
-    except ImportError:
-        from amprealize.edition import Edition, detect_edition
-
-        edition = detect_edition()
-        if edition == Edition.ENTERPRISE_STARTER:
-            _enforcer = EditionCapsEnforcer()
-        else:
-            _enforcer = CapsEnforcer()
-
+    _enforcer = CapsEnforcer()
     return _enforcer
 
 

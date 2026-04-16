@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "ai_learning_wiki.ingest",
+  "description": "Ingest a new concept, technology, pattern, or glossary entry into the AI/ML Learning Wiki.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "page_path": {
+        "type": "string",
+        "description": "Target page path (e.g., concepts/attention-mechanism.md)"
+      },
+      "title": {
+        "type": "string",
+        "description": "Page title"
+      },
+      "page_type": {
+        "type": "string",
+        "enum": ["concept", "technology", "pattern", "glossary", "in-practice", "learning-path"],
+        "description": "Type of wiki page"
+      },
+      "body": {
+        "type": "string",
+        "description": "Markdown content for the page"
+      },
+      "difficulty": {
+        "type": "string",
+        "enum": ["beginner", "intermediate", "advanced"],
+        "description": "Difficulty level (default: beginner)"
+      },
+      "prerequisites": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Prerequisite page links"
+      },
+      "sources": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Source citations"
+      },
+      "amprealize_relevance": {
+        "type": "string",
+        "description": "How this concept relates to Amprealize"
+      }
+    },
+    "required": ["page_path", "title", "page_type", "body"]
+  }
+}

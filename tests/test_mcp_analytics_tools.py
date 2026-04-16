@@ -28,6 +28,12 @@ def _authenticated_server(server):
     server._session_context.is_admin = True
     server._session_context.granted_scopes = {"*"}
     server._session_context.expires_at = datetime.utcnow() + timedelta(hours=1)
+    # Reset distributed rate limiter so prior tests' Redis state doesn't bleed through
+    drl = getattr(server, "_distributed_rate_limiter", None)
+    if drl is not None:
+        drl._memory_counters.clear()
+        drl._redis_client = None
+        drl._use_redis = False
     return server
 
 

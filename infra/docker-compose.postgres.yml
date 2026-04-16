@@ -271,6 +271,30 @@ services:
     networks:
       - amprealize-postgres-net
 
+  # Whiteboard Sync Sidecar — tldraw CRDT real-time collaboration (GUIDEAI-937)
+  whiteboard-sync:
+    build:
+      context: ../packages/whiteboard-sync
+      dockerfile: Dockerfile
+    hostname: whiteboard-sync
+    container_name: amprealize-whiteboard-sync
+    ports:
+      - "3040:3040"
+    environment:
+      SYNC_PORT: "3040"
+      PYTHON_API_BASE: "http://host.containers.internal:8000/api/v1"
+      WHITEBOARD_SERVICE_TOKEN: "${WHITEBOARD_SERVICE_TOKEN:-}"
+      WHITEBOARD_MAX_CANVAS_SIZE_BYTES: "5242880"
+      ROOM_IDLE_TIMEOUT_MS: "300000"
+      PERSIST_INTERVAL_MS: "30000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3040/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - amprealize-postgres-net
+
   # PgBouncer - Connection Pooler
   pgbouncer:
     image: edoburu/pgbouncer:latest

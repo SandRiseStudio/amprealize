@@ -43,18 +43,33 @@ const LEGACY_FALLBACK: ApiCapabilitiesResponse = {
 
 const CAPABILITIES_QUERY_KEY = ['api', 'capabilities'] as const;
 
+/**
+ * Module-level cache so call sites without a React Query client (e.g. queryFn
+ * callbacks in executions.ts) share a single in-flight result and never fire
+ * more than one HTTP request per 60-second window.
+ */
+let _moduleCache: { data: ApiCapabilitiesResponse; expiresAt: number } | null = null;
+const MODULE_CACHE_TTL_MS = 60_000;
+
 async function fetchCapabilities(): Promise<ApiCapabilitiesResponse> {
+  const now = Date.now();
+  if (_moduleCache && _moduleCache.expiresAt > now) {
+    return _moduleCache.data;
+  }
   try {
-    return await apiClient.get<ApiCapabilitiesResponse>('/v1/capabilities', { skipRetry: true });
+    const data = await apiClient.get<ApiCapabilitiesResponse>('/v1/capabilities', { skipRetry: true });
+    _moduleCache = { data, expiresAt: now + MODULE_CACHE_TTL_MS };
+    return data;
   } catch (error: unknown) {
     if (error instanceof ApiError && error.status === 404) {
+      _moduleCache = { data: LEGACY_FALLBACK, expiresAt: now + MODULE_CACHE_TTL_MS };
       return LEGACY_FALLBACK;
     }
     throw error;
   }
 }
 
-/**
+/**z
  * React Query hook — the single source of truth for capabilities.
  * All consumers should use this hook or getApiCapabilities() which reads from
  * the same React Query cache.

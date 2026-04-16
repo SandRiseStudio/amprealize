@@ -52,9 +52,9 @@ def _mock_pool() -> MagicMock:
     conn = MagicMock()
     cursor = MagicMock()
 
-    # Set up context manager chain
-    pool.get_connection.return_value.__enter__ = MagicMock(return_value=conn)
-    pool.get_connection.return_value.__exit__ = MagicMock(return_value=False)
+    # Set up context manager chain — uses connection() not get_connection()
+    pool.connection.return_value.__enter__ = MagicMock(return_value=conn)
+    pool.connection.return_value.__exit__ = MagicMock(return_value=False)
     conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
     conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -222,7 +222,7 @@ class TestActivationServiceActivate:
         mock_pool_class.return_value = mock_pool
 
         # Mock cursor to return pack exists
-        cursor = mock_pool.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor = mock_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
         cursor.fetchone.side_effect = [
             (1,),  # Pack exists check
             None,  # No existing activation
@@ -254,7 +254,7 @@ class TestActivationServiceActivate:
         mock_pool = _mock_pool()
         mock_pool_class.return_value = mock_pool
 
-        cursor = mock_pool.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor = mock_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
         # Pack exists, existing activation found
         cursor.fetchone.side_effect = [
             (1,),  # Pack exists
@@ -285,7 +285,7 @@ class TestActivationServiceGetActive:
         mock_pool_class.return_value = mock_pool
 
         now = datetime.now(timezone.utc)
-        cursor = mock_pool.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor = mock_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = (
             "act-123",
             "ws-abc",
@@ -315,7 +315,7 @@ class TestActivationServiceGetActive:
         mock_pool = _mock_pool()
         mock_pool_class.return_value = mock_pool
 
-        cursor = mock_pool.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor = mock_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = None
 
         service = ActivationService()
@@ -336,7 +336,7 @@ class TestActivationServiceDeactivate:
         mock_pool = _mock_pool()
         mock_pool_class.return_value = mock_pool
 
-        cursor = mock_pool.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor = mock_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
         # rowcount > 0 means update succeeded
         cursor.rowcount = 1
 
@@ -355,7 +355,7 @@ class TestActivationServiceDeactivate:
         mock_pool = _mock_pool()
         mock_pool_class.return_value = mock_pool
 
-        cursor = mock_pool.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor = mock_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
         cursor.rowcount = 0  # No rows updated
 
         service = ActivationService()
@@ -375,7 +375,7 @@ class TestActivationServiceList:
         mock_pool_class.return_value = mock_pool
 
         now = datetime.now(timezone.utc)
-        cursor = mock_pool.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor = mock_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
         # COUNT query returns 2
         # SELECT query returns 2 rows
         cursor.fetchone.return_value = (2,)
@@ -400,7 +400,7 @@ class TestActivationServiceList:
         mock_pool_class.return_value = mock_pool
 
         now = datetime.now(timezone.utc)
-        cursor = mock_pool.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor = mock_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = (1,)
         cursor.fetchall.return_value = [
             ("act-1", "ws-target", "pack-1", "1.0.0", None, now, None, "active"),
@@ -432,7 +432,7 @@ class TestContextIntegration:
         mock_pool_class.return_value = mock_pool
 
         now = datetime.now(timezone.utc)
-        cursor = mock_pool.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor = mock_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = (
             "act-ctx",
             "ws-ctx-test",
@@ -468,7 +468,7 @@ class TestContextIntegration:
         mock_pool = _mock_pool()
         mock_pool_class.return_value = mock_pool
 
-        cursor = mock_pool.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor = mock_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = None  # No active pack
 
         server = MCPServer.__new__(MCPServer)
@@ -513,7 +513,7 @@ class TestActivationLifecycle:
         mock_pool_class.return_value = mock_pool
 
         now = datetime.now(timezone.utc)
-        cursor = mock_pool.get_connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
+        cursor = mock_pool.connection.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value
 
         # Setup: pack exists, no prior activation
         cursor.fetchone.side_effect = [

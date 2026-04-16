@@ -5,11 +5,14 @@
  * - behavior_use_raze_for_logging (Student)
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import React from 'react';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, ApiError } from './client';
 import { apiClient as clientInstance } from './client';
 import { razeLog } from '../telemetry/raze';
 import { dashboardKeys, type Agent, type AgentStatus as DashboardAgentStatus } from './dashboard';
+import type { AgentPresence, PresenceState } from '../hooks/useAgentPresence';
+import { toActorViewModel } from '../utils/actorViewModel';
 
 export type AgentVisibility = 'PRIVATE' | 'ORGANIZATION' | 'PUBLIC';
 export type AgentStatus = 'DRAFT' | 'ACTIVE' | 'DEPRECATED';
@@ -146,8 +149,29 @@ export const agentRegistryKeys = {
   all: ['agentRegistry'] as const,
   list: (filters: AgentRegistryQuery) => [...agentRegistryKeys.all, 'list', filters] as const,
   detail: (agentId?: string | null) => [...agentRegistryKeys.all, 'detail', agentId] as const,
-  projectAgents: () => [...agentRegistryKeys.all, 'projectAgents'] as const,
+  projectAgents: (projectId?: string | null) => [...agentRegistryKeys.all, 'projectAgents', projectId ?? 'all'] as const,
+  projectPresence: (projectId?: string | null) => [...agentRegistryKeys.all, 'projectPresence', projectId ?? 'all'] as const,
 };
+
+interface ProjectAgentPresenceResponse {
+  agent_id: string;
+  project_id: string;
+  name: string;
+  agent_slug?: string | null;
+  presence_status: PresenceState;
+  last_activity_at?: string | null;
+  last_completed_at?: string | null;
+  active_item_count: number;
+  capacity_max: number;
+  current_work_item_id?: string | null;
+  updated_at?: string | null;
+}
+
+export interface VisibleProjectAgentPresenceEntry {
+  agents: AgentPresence[];
+  total: number;
+  summaryLine: string;
+}
 
 function normalizeApiError(error: unknown, fallback: string): string {
   if (error instanceof ApiError) return error.message;
@@ -228,10 +252,11 @@ function normalizeAssignmentList(response: unknown): Agent[] {
   return [];
 }
 
-async function listProjectAgents(): Promise<Agent[]> {
+async function listProjectAgents(projectId?: string | null): Promise<Agent[]> {
   try {
+    const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
     const response = await apiClient.get<Agent[] | { agents?: Agent[]; items?: Agent[] }>(
-      '/v1/projects/agents'
+      `/v1/projects/agents${query}`
     );
     return normalizeAssignmentList(response);
   } catch (error) {
@@ -240,6 +265,94 @@ async function listProjectAgents(): Promise<Agent[]> {
     }
     throw error;
   }
+}
+
+async function listProjectAgentPresence(projectId: string): Promise<ProjectAgentPresenceResponse[]> {
+  try {
+    const response = await apiClient.get<{ agents?: ProjectAgentPresenceResponse[]; items?: ProjectAgentPresenceResponse[] }>(
+      `/v1/projects/agents/presence?project_id=${encodeURIComponent(projectId)}`
+    );
+    return (response.agents ?? response.items ?? []);
+  } catch (error) {
+    if (error instanceof ApiError && error.status < 500) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+function getPresenceSummaryLine(agents: AgentPresence[]): string {
+  const working = agents.filter((agent) => agent.presence === 'working' || agent.presence === 'at_capacity').length;
+  const available = agents.filter((agent) => agent.presence === 'available').length;
+
+  if (working > 0) return `${working} agent${working === 1 ? '' : 's'} working now`;
+  if (available > 0) return `${agents.length} assigned · ${available} available`;
+  return `${agents.length} assigned`;
+}
+
+function mapPresenceToDashboardStatus(presence: PresenceState): DashboardAgentStatus {
+  switch (presence) {
+    case 'working':
+    case 'at_capacity':
+      return 'busy';
+    case 'paused':
+      return 'paused';
+    case 'finished_recently':
+      return 'idle';
+    case 'offline':
+      return 'archived';
+    case 'available':
+    default:
+      return 'active';
+  }
+}
+
+function mapProjectAgentPresence(agent: ProjectAgentPresenceResponse): AgentPresence {
+  const presence = agent.presence_status ?? 'offline';
+  const agentName = agent.name || `Agent ${agent.agent_id.slice(0, 8)}`;
+  const updatedAt = agent.updated_at ?? new Date().toISOString();
+  const actor = toActorViewModel(
+    {
+      id: agent.agent_id,
+      name: agentName,
+      agent_type: agent.agent_slug ?? 'Agent',
+      status: mapPresenceToDashboardStatus(presence),
+      config: {},
+      created_at: updatedAt,
+      updated_at: updatedAt,
+    },
+    {
+      id: agent.agent_id,
+      subtitle: agent.agent_slug ?? 'Agent',
+      presenceState: presence,
+    },
+  );
+
+  return {
+    agentId: agent.agent_id,
+    name: agentName,
+    agentType: agent.agent_slug ?? 'Agent',
+    avatar: actor.displayName.slice(0, 2).toUpperCase(),
+    actor,
+    presence,
+    statusLine:
+      presence === 'working'
+        ? `Working on ${Math.max(agent.active_item_count, 1)} item${Math.max(agent.active_item_count, 1) === 1 ? '' : 's'}`
+        : presence === 'available'
+          ? 'Available'
+          : presence === 'at_capacity'
+            ? 'At capacity'
+            : presence === 'finished_recently'
+              ? 'Finished recently'
+              : presence === 'paused'
+                ? 'Paused'
+                : 'Offline',
+    utilization: `${agent.active_item_count}/${agent.capacity_max}`,
+    lastCompletedAt: agent.last_completed_at ?? undefined,
+    currentItemTitle: undefined,
+    activeItemCount: agent.active_item_count,
+    rawStatus: mapPresenceToDashboardStatus(presence),
+  };
 }
 
 async function listAgentRegistry(filters: AgentRegistryQuery): Promise<AgentRegistryListItem[]> {
@@ -311,20 +424,76 @@ export function useAgentRegistryDetail(agentId?: string | null) {
   });
 }
 
-export function useProjectAgents(enabled = true) {
+export function useProjectAgents(
+  projectId?: string | null,
+  options?: { enabled?: boolean },
+) {
   const hasToken = clientInstance.hasToken();
 
   return useQuery({
-    queryKey: agentRegistryKeys.projectAgents(),
-    queryFn: listProjectAgents,
+    queryKey: agentRegistryKeys.projectAgents(projectId),
+    queryFn: () => listProjectAgents(projectId),
     staleTime: 30_000,
-    enabled: enabled && hasToken,
+    enabled: (options?.enabled ?? true) && hasToken,
     retry: (failureCount, error) => {
       if (error instanceof ApiError && error.status < 500) return false;
       return failureCount < 2;
     },
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
   });
+}
+
+export function useAllProjectAgents(options?: { enabled?: boolean }) {
+  return useProjectAgents(null, options);
+}
+
+export function useVisibleProjectAgentPresence(
+  projectIds: string[],
+  options?: { enabled?: boolean },
+): {
+  data: Map<string, VisibleProjectAgentPresenceEntry>;
+  isLoading: boolean;
+  isFetching: boolean;
+} {
+  const hasToken = clientInstance.hasToken();
+  const stableProjectIds = React.useMemo(
+    () => [...new Set(projectIds.filter(Boolean))].sort(),
+    [projectIds],
+  );
+
+  const queries = useQueries({
+    queries: stableProjectIds.map((projectId) => ({
+      queryKey: agentRegistryKeys.projectPresence(projectId),
+      queryFn: () => listProjectAgentPresence(projectId),
+      enabled: (options?.enabled ?? true) && hasToken,
+      staleTime: 30_000,
+      retry: (failureCount: number, error: unknown) => {
+        if (error instanceof ApiError && error.status < 500) return false;
+        return failureCount < 2;
+      },
+    })),
+  });
+
+  const data = React.useMemo(() => {
+    const map = new Map<string, VisibleProjectAgentPresenceEntry>();
+
+    stableProjectIds.forEach((projectId, index) => {
+      const projectAgents = (queries[index]?.data ?? []).map(mapProjectAgentPresence);
+      map.set(projectId, {
+        agents: projectAgents,
+        total: projectAgents.length,
+        summaryLine: getPresenceSummaryLine(projectAgents),
+      });
+    });
+
+    return map;
+  }, [queries, stableProjectIds]);
+
+  return {
+    data,
+    isLoading: queries.some((result) => result.isLoading),
+    isFetching: queries.some((result) => result.isFetching),
+  };
 }
 
 export async function createRegistryAgent(payload: CreateAgentInput): Promise<CreateAgentResponse> {
@@ -518,8 +687,9 @@ export function useAssignAgent() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: assignRegistryAgentToProject,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: agentRegistryKeys.projectAgents() });
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({ queryKey: agentRegistryKeys.projectAgents(variables.projectId) });
+      await queryClient.invalidateQueries({ queryKey: agentRegistryKeys.projectAgents(null) });
       await queryClient.invalidateQueries({ queryKey: dashboardKeys.agents() });
     },
   });
@@ -531,7 +701,7 @@ export function useUnassignAgent() {
     mutationFn: ({ assignmentId }: { assignmentId: string }) =>
       unassignAgentFromProject(assignmentId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: agentRegistryKeys.projectAgents() });
+      await queryClient.invalidateQueries({ queryKey: agentRegistryKeys.all });
       await queryClient.invalidateQueries({ queryKey: dashboardKeys.agents() });
     },
   });

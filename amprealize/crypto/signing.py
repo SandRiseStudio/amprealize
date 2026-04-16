@@ -1,7 +1,7 @@
 """Ed25519 cryptographic signing — OSS Stub.
 
-Full implementation moved to amprealize-enterprise.
-This module re-exports stubs from amprealize.crypto for backward compatibility.
+Re-exports stubs from amprealize.crypto for backward compatibility.
+The enterprise edition provides a full signing implementation.
 """
 
 from amprealize.crypto import (

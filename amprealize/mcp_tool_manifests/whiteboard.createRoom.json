@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "whiteboard.createRoom",
+  "description": "Create a new whiteboard room for collaborative brainstorming. Returns a room ID that can be shared with participants.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "description": "Whiteboard room title"
+      },
+      "session_id": {
+        "type": "string",
+        "description": "Optional brainstorm session ID to link this whiteboard to (optional, uses session)"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID for scoping (optional, uses session)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID for multi-tenant context (optional, uses session)"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Optional key-value metadata to attach to the room"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "room": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "string" },
+          "session_id": { "type": "string" },
+          "created_by": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

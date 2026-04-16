@@ -59,12 +59,12 @@ describe('OAuthCallback', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     mockNavigate.mockReset();
     vi.clearAllMocks();
   });
 
   it('shows a processing state and redirects immediately after successful OAuth completion', async () => {
-    vi.useFakeTimers();
     const exchange = deferred<void>();
     const completeOAuthLogin = vi.fn().mockReturnValue(exchange.promise);
     const logout = vi.fn().mockResolvedValue(undefined);
@@ -90,14 +90,10 @@ describe('OAuthCallback', () => {
       expect(screen.getByText(/sign-in successful/i)).toBeInTheDocument();
     });
 
-    vi.advanceTimersByTime(900);
-
     await waitFor(() => {
       expect(completeOAuthLogin).toHaveBeenCalledWith('abc123', 'xyz');
       expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
-    });
-
-    vi.useRealTimers();
+    }, { timeout: 1500 });
   });
 
   it('shows a recovery action when OAuth completion fails', async () => {

@@ -9,7 +9,7 @@ import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 
 from amprealize.storage import postgres_metrics
@@ -25,6 +25,11 @@ __all__ = ["PostgresPool"]
 
 _T = TypeVar("_T")
 
+# All application schemas in resolution order.  Every raw connection sets this
+# as search_path so unqualified table names resolve correctly regardless of
+# whether the caller explicitly calls set_tenant_context().
+_APP_SEARCH_PATH = "board, auth, execution, behavior, workflow, consent, audit, compliance, credentials, messaging, research, public"
+
 _POOL_CACHE: Dict[Tuple[str, int, int, int, int, int], Engine] = {}
 _CACHE_LOCK = threading.Lock()
 
@@ -36,27 +41,48 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
-def _pool_config() -> Tuple[int, int, int, int, int]:
-    """Get pool configuration from settings or environment variables."""
+def _is_cloud_dsn(dsn: str) -> bool:
+    """Detect if DSN points to a known serverless/cloud PostgreSQL host."""
+    cloud_hosts = ("neon.tech", "supabase.co", "timescaledb.io", "cockroachlabs.cloud")
+    return any(h in dsn for h in cloud_hosts)
+
+
+def _pool_config(dsn: str = "") -> Tuple[int, int, int, int, int]:
+    """Get pool configuration from settings or environment variables.
+
+    Cloud-hosted databases (e.g. Neon) idle connections after ~5 min,
+    so pool_recycle is reduced and connect_timeout increased.
+    """
+    cloud = _is_cloud_dsn(dsn) or os.getenv("AMPREALIZE_CLOUD_DB", "").lower() in (
+        "1",
+        "true",
+    )
+
     if SETTINGS_AVAILABLE:
-        # Prefer settings.database configuration
         pool_size = settings.database.pool_size
         max_overflow = settings.database.max_overflow
         pool_timeout = settings.database.pool_timeout
-        pool_recycle = _int_env("AMPREALIZE_PG_POOL_RECYCLE", 1800)
-        connect_timeout = _int_env("AMPREALIZE_PG_CONNECT_TIMEOUT", 5)
+        pool_recycle = _int_env(
+            "AMPREALIZE_PG_POOL_RECYCLE", 270 if cloud else 1800
+        )
+        connect_timeout = _int_env(
+            "AMPREALIZE_PG_CONNECT_TIMEOUT", 10 if cloud else 5
+        )
     else:
-        # Fallback to legacy environment variables
-        pool_size = _int_env("AMPREALIZE_PG_POOL_SIZE", 10)
-        max_overflow = _int_env("AMPREALIZE_PG_POOL_MAX_OVERFLOW", 20)
+        pool_size = _int_env("AMPREALIZE_PG_POOL_SIZE", 5 if cloud else 10)
+        max_overflow = _int_env("AMPREALIZE_PG_POOL_MAX_OVERFLOW", 10 if cloud else 20)
         pool_timeout = _int_env("AMPREALIZE_PG_POOL_TIMEOUT", 30)
-        pool_recycle = _int_env("AMPREALIZE_PG_POOL_RECYCLE", 1800)
-        connect_timeout = _int_env("AMPREALIZE_PG_CONNECT_TIMEOUT", 5)
+        pool_recycle = _int_env(
+            "AMPREALIZE_PG_POOL_RECYCLE", 270 if cloud else 1800
+        )
+        connect_timeout = _int_env(
+            "AMPREALIZE_PG_CONNECT_TIMEOUT", 10 if cloud else 5
+        )
     return pool_size, max_overflow, pool_timeout, pool_recycle, connect_timeout
 
 
 def _get_engine(dsn: str) -> Engine:
-    config = _pool_config()
+    config = _pool_config(dsn)
     key = (dsn, *config)
     with _CACHE_LOCK:
         engine = _POOL_CACHE.get(key)
@@ -72,6 +98,17 @@ def _get_engine(dsn: str) -> Engine:
                 connect_args={"connect_timeout": connect_timeout},
                 future=True,
             )
+
+            # Set search_path once when a physical connection is first created
+            # (not on every checkout).  This eliminates a ~75ms neon round-trip
+            # that was previously paid on every connection() call.
+            @event.listens_for(engine, "connect")
+            def _set_search_path(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                cursor.execute(f"SET search_path = {_APP_SEARCH_PATH}")
+                cursor.close()
+                dbapi_conn.commit()
+
             _POOL_CACHE[key] = engine
         return engine
 
@@ -136,13 +173,21 @@ class PostgresPool:
 
     @contextmanager
     def connection(self, *, autocommit: bool = True):
-        """Acquire a raw psycopg2 connection with optional autocommit."""
+        """Acquire a raw psycopg2 connection with optional autocommit.
+
+        The connection's ``search_path`` is automatically set to include all
+        application schemas so unqualified table names (e.g. ``runs``,
+        ``actions``) resolve correctly regardless of the PostgreSQL default.
+        """
         with self._engine.connect() as connection:
             raw = connection.connection
             previous_autocommit = getattr(raw, "autocommit", False)
             try:
                 if hasattr(raw, "autocommit"):
                     raw.autocommit = autocommit
+                # search_path is set once per physical connection via the
+                # SQLAlchemy "connect" event (see _get_engine), so we do
+                # NOT need to SET it on every checkout.
                 yield raw
                 # Always commit before returning connection to pool
                 # Even in autocommit mode, ensure any pending statements are flushed
@@ -306,9 +351,8 @@ class PostgresPool:
             user_id: User ID to set as current_user_id
         """
         with conn.cursor() as cur:
-            # Set search_path to include all application schemas
-            # This allows unqualified table names to work across schemas
-            cur.execute("SET LOCAL search_path = board, auth, execution, workflow, research, public")
+            # search_path is set once per physical connection via the
+            # SQLAlchemy "connect" event — no need to re-SET here.
 
             # Set org context for RLS policies
             if org_id:

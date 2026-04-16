@@ -167,7 +167,7 @@ class ActivationService:
         PackNotFoundError:
             If the referenced pack+version doesn't exist in storage.
         """
-        with self._pool.get_connection() as conn:
+        with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 # Check if pack exists (optional - can be disabled for ephemeral packs)
                 cur.execute(
@@ -268,7 +268,7 @@ class ActivationService:
         Optional[Activation]:
             The active pack activation, or None if no pack is active.
         """
-        with self._pool.get_connection() as conn:
+        with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -309,7 +309,7 @@ class ActivationService:
         bool:
             True if a pack was deactivated, False if no active pack existed.
         """
-        with self._pool.get_connection() as conn:
+        with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -358,7 +358,7 @@ class ActivationService:
         ActivationListResult:
             List of activations with pagination info.
         """
-        with self._pool.get_connection() as conn:
+        with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 # Build WHERE clause
                 conditions = []
@@ -433,7 +433,7 @@ class ActivationService:
         Optional[Activation]:
             The activation record, or None if not found.
         """
-        with self._pool.get_connection() as conn:
+        with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """

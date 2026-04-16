@@ -1,25 +1,17 @@
-"""Amprealize Midnighter Integration — OSS Stub.
+"""Amprealize Midnighter Integration.
 
-The full implementation has moved to amprealize-enterprise.
-Install amprealize-enterprise[midnighter] for BC-SFT training integration.
+Provides stubs for the Midnighter scheduler.  The enterprise edition
+replaces this module with BC-SFT training integration.
 """
 
-try:
-    from amprealize_enterprise.midnighter import (
-        create_midnighter_service,
-        MidnighterService,
-        MidnighterHooks,
-    )
-except ImportError:
 
-    def create_midnighter_service(**kwargs):  # type: ignore[misc]
-        raise ImportError(
-            "Midnighter integration requires amprealize-enterprise. "
-            "Install with: pip install amprealize-enterprise[midnighter]"
-        )
+def create_midnighter_service(**kwargs):
+    """Create a Midnighter service. Returns None in OSS."""
+    return None
 
-    MidnighterService = None  # type: ignore[assignment,misc]
-    MidnighterHooks = None  # type: ignore[assignment,misc]
+
+MidnighterService = None
+MidnighterHooks = None
 
 __all__ = [
     "create_midnighter_service",

@@ -8,17 +8,45 @@ does not pay a multi-second penalty for pulling in SQLAlchemy, asyncpg, etc.
 from __future__ import annotations
 
 import importlib
+import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-# ---------------------------------------------------------------------------
-# Enterprise edition detection
-# ---------------------------------------------------------------------------
-try:
-    import amprealize_enterprise as _enterprise  # noqa: F401
 
-    HAS_ENTERPRISE = True
-except ImportError:
-    HAS_ENTERPRISE = False
+def _bootstrap_monorepo_package_paths() -> None:
+    """Expose standalone packages when running from a monorepo checkout.
+
+    Amprealize keeps reusable packages under ``packages/*/src``. Local CLI and
+    MCP entrypoints often start with only the repo root on ``PYTHONPATH``, which
+    makes imports like ``whiteboard`` fail unless each package has been
+    separately installed. When the checkout layout is present, prepend those src
+    directories so runtime imports match the test harness and shared launcher.
+    """
+
+    repo_root = Path(__file__).resolve().parent.parent
+    packages_dir = repo_root / "packages"
+    if not packages_dir.is_dir():
+        return
+
+    existing_paths = set(sys.path)
+    package_src_paths = [
+        str(package_src)
+        for package_src in sorted(packages_dir.glob("*/src"))
+        if package_src.is_dir()
+    ]
+
+    for package_src in reversed(package_src_paths):
+        if package_src not in existing_paths:
+            sys.path.insert(0, package_src)
+            existing_paths.add(package_src)
+
+
+_bootstrap_monorepo_package_paths()
+
+# ---------------------------------------------------------------------------
+# Edition flag — OSS edition; enterprise is a separate fork.
+# ---------------------------------------------------------------------------
+HAS_ENTERPRISE = False
 
 # ---------------------------------------------------------------------------
 # Lazy import mapping: attribute_name → (relative_module, attribute_name_in_module)

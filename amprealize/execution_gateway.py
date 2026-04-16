@@ -36,7 +36,7 @@ from .execution_gateway_contracts import (
     resolve_execution_mode,
     resolve_output_target,
 )
-from .multi_tenant.board_contracts import AssigneeType, WorkItem
+from .boards.contracts import AssigneeType, WorkItem
 from .output_handlers import (
     OutputContext,
     OutputResult,
@@ -46,6 +46,7 @@ from .output_handlers import (
 from .run_contracts import RunCreateRequest, RunProgressUpdate
 from .task_cycle_contracts import CyclePhase, CreateCycleRequest
 from .work_item_execution_contracts import (
+    AgentExecutionMode,
     ExecutionPolicy,
     ExecutionState,
 )
@@ -186,6 +187,18 @@ class ExecutionGateway:
                     f"Available: {list(self._executors.keys())}"
                 )
 
+            # Resolve agent execution mode (GEP vs SESSION)
+            agent_exec_mode = request.agent_execution_mode or AgentExecutionMode.GEP
+
+            # Wrap in SessionModeExecutor when session mode requested
+            if agent_exec_mode == AgentExecutionMode.SESSION:
+                from .mode_executors import SessionModeExecutor
+                executor = SessionModeExecutor(inner_executor=executor)
+                logger.info(
+                    f"Session Mode requested for run {run_id} — "
+                    f"wrapping {mode.value} executor in SessionModeExecutor"
+                )
+
             # Link run to work item
             self._link_run_to_work_item(request.work_item_id, run_id, request.org_id)
 
@@ -229,8 +242,11 @@ class ExecutionGateway:
     ) -> None:
         """Run the full provision → execute → deliver → cleanup lifecycle."""
         try:
-            # 1. Provision workspace
-            resolved = await executor.provision_workspace(resolved)
+            # 1. Provision workspace (SessionModeExecutor uses setup/cleanup)
+            if hasattr(executor, "provision_workspace"):
+                resolved = await executor.provision_workspace(resolved)
+            elif hasattr(executor, "setup"):
+                await executor.setup(resolved)
             logger.info(
                 f"Workspace provisioned for run {resolved.run_id}: "
                 f"mode={resolved.mode.value}, path={resolved.workspace_path}"

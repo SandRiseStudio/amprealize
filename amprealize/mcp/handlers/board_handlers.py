@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ...services.board_service import BoardService, Actor, BoardNotFoundError, WorkItemNotFoundError, WorkItemValidationError, ColumnNotFoundError, AuthorNotFoundError
-from ...multi_tenant.board_contracts import (
+from ...boards.contracts import (
     Board,
     BoardTemplate,
     BoardWithColumns,
@@ -333,10 +333,19 @@ def handle_list_work_items(
         offset=offset,
     )
 
+    total = service.count_work_items(
+        project_id=project_id,
+        board_id=board_id,
+        item_type=item_type,
+        status=status,
+        parent_id=parent_id,
+        org_id=org_id,
+    )
+
     return {
         "success": True,
         "items": [_work_item_to_dict(i) for i in items],
-        "total": len(items),
+        "total": total,
         "limit": limit,
         "offset": offset,
     }

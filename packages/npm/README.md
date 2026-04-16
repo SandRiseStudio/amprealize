@@ -5,7 +5,7 @@ AI-powered developer tooling and task orchestration.
 ## Installation
 
 ```bash
-npm install -g @sandrisesf/amprealize
+npm install -g @amprealize/cli
 ```
 
 This npm package is a wrapper that manages the Python-based Amprealize CLI. Python 3.10+ is required and will be detected automatically.
@@ -22,6 +22,9 @@ The wrapper will automatically install the Python package on first use if not al
 ```bash
 # Initialize a new project
 amprealize init
+
+# AI-powered setup wizard (requires API key)
+amprealize wizard
 
 # Check installation health
 amprealize doctor

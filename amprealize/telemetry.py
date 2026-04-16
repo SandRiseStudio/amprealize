@@ -139,6 +139,11 @@ def create_sink_from_env(*, default_path: Optional[Path] = None) -> TelemetrySin
 
     Environment variables:
 
+    ``AMPREALIZE_TELEMETRY_ENABLED``
+        When set to ``false`` (case-insensitive), returns a :class:`NullTelemetrySink`
+        that silently discards all events.  Useful for cloud-dev where no telemetry
+        database is available.
+
     ``AMPREALIZE_TELEMETRY_PG_DSN``
         When set, a :class:`PostgresTelemetrySink` will be created using the
         provided DSN.  Optionally accepts ``AMPREALIZE_TELEMETRY_PG_TIMEOUT`` to
@@ -148,6 +153,9 @@ def create_sink_from_env(*, default_path: Optional[Path] = None) -> TelemetrySin
         When Postgres is not configured, falls back to a JSONL file sink.  This
         variable overrides the default location used by :class:`FileTelemetrySink`.
     """
+
+    if os.environ.get("AMPREALIZE_TELEMETRY_ENABLED", "true").lower() == "false":
+        return NullTelemetrySink()
 
     default_path = default_path or Path.home() / ".amprealize" / "telemetry" / "events.jsonl"
 

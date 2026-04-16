@@ -4,7 +4,17 @@ Billing tests use MockBillingProvider which is fully in-memory.
 No PostgreSQL or Redis required.
 """
 
+from pathlib import Path
+import sys
+
 import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+STANDALONE_BILLING_SRC = REPO_ROOT / "packages" / "billing" / "src"
+
+if str(STANDALONE_BILLING_SRC) not in sys.path:
+    sys.path.insert(0, str(STANDALONE_BILLING_SRC))
 
 try:
     from tests.conftest import safe_truncate  # noqa: F401

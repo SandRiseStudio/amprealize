@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "whiteboard.readCanvas",
+  "description": "Read the current state of a whiteboard canvas. Returns an LLM-friendly summary including shape count, text content of all elements, and connection info. Agents should use this to understand what is on the board before adding new content.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "room_id": {
+        "type": "string",
+        "description": "Whiteboard room ID to read (optional, uses session)"
+      },
+      "format": {
+        "type": "string",
+        "enum": ["summary", "raw"],
+        "description": "Output format: 'summary' returns an LLM-friendly digest with shape list and connections; 'raw' returns the full tldraw JSON canvas. Defaults to 'summary'."
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID for scoping (optional, uses session)"
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID for multi-tenant context (optional, uses session)"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "room_id": { "type": "string" },
+      "format": { "type": "string" },
+      "canvas": {
+        "type": "object",
+        "description": "Canvas data — shape summary (if format=summary) or full tldraw JSON (if format=raw)"
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

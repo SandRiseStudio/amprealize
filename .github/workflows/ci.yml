@@ -305,6 +305,9 @@ jobs:
       - name: Check for raw TRUNCATE in tests
         run: bash scripts/check_no_raw_truncate.sh
 
+      - name: Enterprise guard (no enterprise refs in OSS)
+        run: python scripts/check_enterprise_guard.py
+
       - name: Run pytest with coverage (parallel)
         run: |
           pytest -n auto \

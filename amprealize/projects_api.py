@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from amprealize.multi_tenant.organization_service import OrganizationService
 
-from amprealize.multi_tenant.contracts import (
+from amprealize.projects.contracts import (
     Agent,
     AgentType,
     AgentPresenceResponse,

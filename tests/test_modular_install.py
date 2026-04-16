@@ -28,6 +28,7 @@ Phase 4 additions (GUIDEAI-752):
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -88,6 +89,15 @@ from amprealize.module_registry import (
 )
 
 pytestmark = pytest.mark.unit
+
+
+def _has_enterprise() -> bool:
+    """Return True if amprealize-enterprise is installed."""
+    try:
+        import amprealize_enterprise  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 
 # ===========================================================================
@@ -343,24 +353,17 @@ class TestEdition:
         assert Edition.ENTERPRISE_STARTER.value == "enterprise_starter"
         assert Edition.ENTERPRISE_PREMIUM.value == "enterprise_premium"
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", False)
     def test_detect_oss(self) -> None:
         assert detect_edition() == Edition.OSS
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", None)
     def test_detect_enterprise_default_starter(self) -> None:
-        assert detect_edition() == Edition.ENTERPRISE_STARTER
+        assert detect_edition() == Edition.OSS
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", lambda: "premium")
     def test_detect_enterprise_premium(self) -> None:
-        assert detect_edition() == Edition.ENTERPRISE_PREMIUM
+        assert detect_edition() == Edition.OSS
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", lambda: "starter")
     def test_detect_enterprise_starter_explicit(self) -> None:
-        assert detect_edition() == Edition.ENTERPRISE_STARTER
+        assert detect_edition() == Edition.OSS
 
 
 class TestEditionCapabilities:
@@ -391,7 +394,6 @@ class TestEditionCapabilities:
         assert caps.self_improving is True
         assert caps.custom_branding is True
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", False)
     def test_get_caps_auto_detect(self) -> None:
         caps = get_caps()
         assert caps.edition == Edition.OSS
@@ -438,25 +440,21 @@ class TestResolveServiceEndpoints:
 class TestValidateDeployment:
     """validate_deployment — config validation."""
 
-    @patch("amprealize.deployment.HAS_ENTERPRISE", False)
     def test_cloud_without_enterprise(self) -> None:
         cfg = DeploymentConfig(mode="cloud")
         errors = validate_deployment(cfg)
-        assert any("amprealize-enterprise" in e for e in errors)
+        assert any("enterprise edition" in e for e in errors)
 
-    @patch("amprealize.deployment.HAS_ENTERPRISE", True)
     def test_cloud_with_enterprise(self) -> None:
         cfg = DeploymentConfig(mode="cloud")
         errors = validate_deployment(cfg)
-        assert not any("amprealize-enterprise" in e for e in errors)
+        assert any("enterprise edition" in e for e in errors)
 
-    @patch("amprealize.deployment.HAS_ENTERPRISE", False)
     def test_local_always_valid(self) -> None:
         cfg = DeploymentConfig(mode="local")
         errors = validate_deployment(cfg)
-        assert not any("amprealize-enterprise" in e for e in errors)
+        assert not any("enterprise edition" in e for e in errors)
 
-    @patch("amprealize.deployment.HAS_ENTERPRISE", True)
     def test_services_override_outside_hybrid(self) -> None:
         cfg = DeploymentConfig(
             mode="local",
@@ -494,7 +492,7 @@ class TestCapsEnforcer:
         assert enforcer.get_usage_summary() == {}
 
     def test_factory_returns_oss_stub(self) -> None:
-        """Without amprealize-enterprise, factory returns OSS stub."""
+        """OSS factory always returns the no-op enforcer."""
         reset_caps_enforcer()
         enforcer = get_caps_enforcer()
         assert isinstance(enforcer, CapsEnforcer)
@@ -512,31 +510,31 @@ class TestCloudClient:
 
     def test_upload_raises(self) -> None:
         client = CloudClient()
-        with pytest.raises(ImportError, match="amprealize-enterprise"):
+        with pytest.raises(ImportError, match="enterprise edition"):
             client.upload()
 
     def test_download_raises(self) -> None:
         client = CloudClient()
-        with pytest.raises(ImportError, match="amprealize-enterprise"):
+        with pytest.raises(ImportError, match="enterprise edition"):
             client.download()
 
     def test_submit_job_raises(self) -> None:
         client = CloudClient()
-        with pytest.raises(ImportError, match="amprealize-enterprise"):
+        with pytest.raises(ImportError, match="enterprise edition"):
             client.submit_job()
 
     def test_authenticate_raises(self) -> None:
         client = CloudClient()
-        with pytest.raises(ImportError, match="amprealize-enterprise"):
+        with pytest.raises(ImportError, match="enterprise edition"):
             client.authenticate()
 
     def test_request_raises(self) -> None:
         client = CloudClient()
-        with pytest.raises(ImportError, match="amprealize-enterprise"):
+        with pytest.raises(ImportError, match="enterprise edition"):
             client.request()
 
     def test_factory_returns_oss_stub(self) -> None:
-        """Without amprealize-enterprise, factory returns OSS stub."""
+        """Factory always returns OSS stub (enterprise fork overrides module)."""
         client = get_cloud_client()
         assert isinstance(client, CloudClient)
         with pytest.raises(ImportError):
@@ -549,31 +547,31 @@ class TestCloudClient:
 
 
 class TestDeployMigrate:
-    """deploy_migrate — OSS Pattern 3 stubs."""
+    """deploy_migrate — OSS stubs always raise ImportError."""
 
     def test_export_data_raises(self) -> None:
         from amprealize.deploy_migrate import export_data
-        with pytest.raises(ImportError, match="amprealize-enterprise"):
+        with pytest.raises(ImportError, match="enterprise edition"):
             export_data()
 
     def test_import_data_raises(self) -> None:
         from amprealize.deploy_migrate import import_data
-        with pytest.raises(ImportError, match="amprealize-enterprise"):
+        with pytest.raises(ImportError, match="enterprise edition"):
             import_data()
 
     def test_sync_to_cloud_raises(self) -> None:
         from amprealize.deploy_migrate import sync_to_cloud
-        with pytest.raises(ImportError, match="amprealize-enterprise"):
+        with pytest.raises(ImportError, match="enterprise edition"):
             sync_to_cloud()
 
     def test_sync_from_cloud_raises(self) -> None:
         from amprealize.deploy_migrate import sync_from_cloud
-        with pytest.raises(ImportError, match="amprealize-enterprise"):
+        with pytest.raises(ImportError, match="enterprise edition"):
             sync_from_cloud()
 
     def test_migrate_deployment_raises(self) -> None:
         from amprealize.deploy_migrate import migrate_deployment
-        with pytest.raises(ImportError, match="amprealize-enterprise"):
+        with pytest.raises(ImportError, match="enterprise edition"):
             migrate_deployment()
 
 
@@ -1026,11 +1024,17 @@ class TestEnvSchemaFiltering:
     def _import_env():
         """Import migrations.env with Alembic context mocked."""
         import importlib
+        import alembic
 
         mock_ctx = MagicMock()
         mock_ctx.config = MagicMock()
         mock_ctx.config.config_file_name = None
-        with patch.dict(sys.modules, {"alembic.context": mock_ctx}):
+        mock_ctx.config.get_main_option = MagicMock(return_value="sqlite:///:memory:")
+        mock_ctx.config.set_main_option = MagicMock()
+        # Patch both sys.modules and the alembic module attribute so
+        # ``from alembic import context`` resolves to our mock.
+        with patch.dict(sys.modules, {"alembic.context": mock_ctx}), \
+             patch.object(alembic, "context", mock_ctx):
             # Force reimport so the patched context is used
             if "migrations.env" in sys.modules:
                 mod = importlib.reload(sys.modules["migrations.env"])
@@ -1215,9 +1219,7 @@ class TestEditionCapsEnforcer:
     def test_lazy_caps_resolution(self) -> None:
         """EditionCapsEnforcer resolves caps lazily on first access."""
         enforcer = EditionCapsEnforcer(caps=None)
-        with patch("amprealize.edition.HAS_ENTERPRISE", False):
-            # Should auto-detect OSS caps
-            assert enforcer.check("projects", current_count=999) is True
+        assert enforcer.check("projects", current_count=999) is True
 
 
 class TestCapsExceededError:
@@ -1238,23 +1240,18 @@ class TestCapsExceededError:
 class TestCapsEnforcerFactory:
     """get_caps_enforcer factory with edition awareness."""
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", False)
     def test_oss_returns_noop(self) -> None:
         reset_caps_enforcer()
         enforcer = get_caps_enforcer()
         assert type(enforcer) is CapsEnforcer
         reset_caps_enforcer()
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", None)
     def test_starter_returns_edition_enforcer(self) -> None:
         reset_caps_enforcer()
         enforcer = get_caps_enforcer()
-        assert isinstance(enforcer, EditionCapsEnforcer)
+        assert type(enforcer) is CapsEnforcer
         reset_caps_enforcer()
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", lambda: "premium")
     def test_premium_returns_noop(self) -> None:
         reset_caps_enforcer()
         enforcer = get_caps_enforcer()
@@ -1290,11 +1287,9 @@ class TestEditionRank:
 class TestEditionAtLeast:
     """edition_at_least helper."""
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", False)
     def test_oss_meets_oss(self) -> None:
         assert edition_at_least(Edition.OSS) is True
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", False)
     def test_oss_fails_starter(self) -> None:
         assert edition_at_least(Edition.ENTERPRISE_STARTER) is False
 
@@ -1351,12 +1346,8 @@ class TestRequiresEditionDecorator:
         def my_func() -> str:
             return "ok"
 
-        with patch("amprealize.edition.HAS_ENTERPRISE", False):
-            assert my_func() == "ok"
+        assert my_func() == "ok"
 
-    @patch(
-        "amprealize.edition.HAS_ENTERPRISE", False,
-    )
     def test_raises_when_edition_not_met(self) -> None:
         @requires_edition(Edition.ENTERPRISE_STARTER, feature="collab")
         def my_func() -> str:
@@ -1377,7 +1368,6 @@ class TestRequiresEditionDecorator:
 class TestRequiresCapabilityDecorator:
     """@requires_capability decorator."""
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", False)
     def test_oss_lacks_collaboration(self) -> None:
         @requires_capability("collaboration")
         def collab_fn() -> str:
@@ -1386,33 +1376,33 @@ class TestRequiresCapabilityDecorator:
         with pytest.raises(EditionGateError):
             collab_fn()
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", None)
     def test_starter_has_collaboration(self) -> None:
         @requires_capability("collaboration")
         def collab_fn() -> str:
             return "ok"
 
-        assert collab_fn() == "ok"
+        with patch("amprealize.edition.detect_edition", return_value=Edition.ENTERPRISE_STARTER), \
+             patch("amprealize.edition.get_caps", return_value=get_caps(Edition.ENTERPRISE_STARTER)):
+            assert collab_fn() == "ok"
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", None)
     def test_starter_lacks_self_improving(self) -> None:
         @requires_capability("self_improving")
         def si_fn() -> str:
             return "ok"
 
-        with pytest.raises(EditionGateError):
-            si_fn()
+        with patch("amprealize.edition.detect_edition", return_value=Edition.ENTERPRISE_STARTER), \
+             patch("amprealize.edition.get_caps", return_value=get_caps(Edition.ENTERPRISE_STARTER)):
+            with pytest.raises(EditionGateError):
+                si_fn()
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", lambda: "premium")
     def test_premium_has_self_improving(self) -> None:
         @requires_capability("self_improving")
         def si_fn() -> str:
             return "ok"
 
-        assert si_fn() == "ok"
+        with patch("amprealize.edition.detect_edition", return_value=Edition.ENTERPRISE_PREMIUM), \
+             patch("amprealize.edition.get_caps", return_value=get_caps(Edition.ENTERPRISE_PREMIUM)):
+            assert si_fn() == "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -1541,44 +1531,36 @@ class TestSelfImprovingPremiumGating:
 class TestIsModuleEditionAllowed:
     """is_module_edition_allowed — check module vs current edition."""
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", False)
     def test_goals_always_allowed(self) -> None:
         assert is_module_edition_allowed("goals") is True
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", False)
     def test_agents_allowed_in_oss(self) -> None:
         assert is_module_edition_allowed("agents") is True
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", False)
     def test_collaboration_blocked_in_oss(self) -> None:
         assert is_module_edition_allowed("collaboration") is False
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", None)
     def test_collaboration_allowed_in_starter(self) -> None:
-        assert is_module_edition_allowed("collaboration") is True
+        with patch("amprealize.edition.detect_edition", return_value=Edition.ENTERPRISE_STARTER):
+            assert is_module_edition_allowed("collaboration") is True
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", False)
     def test_self_improving_blocked_in_oss(self) -> None:
         assert is_module_edition_allowed("self_improving") is False
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", None)
     def test_self_improving_blocked_in_starter(self) -> None:
-        assert is_module_edition_allowed("self_improving") is False
+        with patch("amprealize.edition.detect_edition", return_value=Edition.ENTERPRISE_STARTER):
+            assert is_module_edition_allowed("self_improving") is False
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", lambda: "premium")
     def test_self_improving_allowed_in_premium(self) -> None:
-        assert is_module_edition_allowed("self_improving") is True
+        with patch("amprealize.edition.detect_edition", return_value=Edition.ENTERPRISE_PREMIUM):
+            assert is_module_edition_allowed("self_improving") is True
 
     def test_unknown_module_allowed(self) -> None:
         assert is_module_edition_allowed("nonexistent_module") is True
 
-    @patch("amprealize.edition.HAS_ENTERPRISE", True)
-    @patch("amprealize.edition.resolve_tier", lambda: "premium")
     def test_collaboration_allowed_in_premium(self) -> None:
-        assert is_module_edition_allowed("collaboration") is True
+        with patch("amprealize.edition.detect_edition", return_value=Edition.ENTERPRISE_PREMIUM):
+            assert is_module_edition_allowed("collaboration") is True
 
 
 class TestModuleMinEditionField:
@@ -1598,3 +1580,18 @@ class TestModuleMinEditionField:
 
     def test_behaviors_no_min_edition(self) -> None:
         assert MODULE_REGISTRY["behaviors"].min_edition is None
+
+
+class TestEnterpriseGuardRail:
+    """GUIDEAI-793: No unexpected amprealize_enterprise refs in OSS."""
+
+    def test_guard_rail_script_passes(self) -> None:
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "scripts/check_enterprise_guard.py"],
+            capture_output=True, text=True,
+            cwd=str(Path(__file__).resolve().parent.parent),
+        )
+        assert result.returncode == 0, (
+            f"Guard rail failed:\n{result.stdout}\n{result.stderr}"
+        )

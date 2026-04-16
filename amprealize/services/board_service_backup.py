@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from amprealize.multi_tenant.board_contracts import (
+from amprealize.boards.contracts import (
     AcceptanceCriterion,
     AddAcceptanceCriterionRequest,
     AddAttachmentRequest,

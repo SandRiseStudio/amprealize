@@ -364,7 +364,7 @@ async def require_project_context(
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from amprealize.multi_tenant.permissions import AsyncPermissionService
+    from amprealize.tenant.permissions import AsyncPermissionService
 
 
 async def get_permission_service(request: Request) -> "AsyncPermissionService":
@@ -423,7 +423,7 @@ def require_org_permission_dep(permission_name: str):
         user: dict = None,  # Will be injected if get_current_user is also a dependency
         org_id: Optional[str] = Header(None, alias="X-Org-ID"),
     ) -> None:
-        from amprealize.multi_tenant.permissions import OrgPermission, NotAMember, PermissionDenied
+        from amprealize.tenant.permissions import OrgPermission, NotAMember, PermissionDenied
 
         # Get user from request state if not injected
         user_id = getattr(request.state, "user_id", None)
@@ -505,7 +505,7 @@ def require_project_permission_dep(permission_name: str):
         user: dict = None,
         project_id: Optional[str] = Header(None, alias="X-Project-ID"),
     ) -> None:
-        from amprealize.multi_tenant.permissions import ProjectPermission, NotAMember, PermissionDenied
+        from amprealize.tenant.permissions import ProjectPermission, NotAMember, PermissionDenied
 
         # Get user from request state if not injected
         user_id = getattr(request.state, "user_id", None)

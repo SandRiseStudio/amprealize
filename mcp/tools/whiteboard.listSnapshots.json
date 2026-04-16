@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "whiteboard.listSnapshots",
+  "description": "List persisted whiteboard snapshots archived when brainstorm sessions were closed. Returns snapshots visible to the current user, optionally filtered by room or session.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "room_id": {
+        "type": "string",
+        "description": "Filter snapshots by whiteboard room ID (optional)."
+      },
+      "session_id": {
+        "type": "string",
+        "description": "Filter snapshots by brainstorm session ID (optional)."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum number of snapshots to return. Defaults to 50.",
+        "default": 50
+      },
+      "offset": {
+        "type": "integer",
+        "description": "Pagination offset. Defaults to 0.",
+        "default": 0
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID for scoping (optional, uses session)."
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID for scoping (optional, uses session)."
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "snapshots": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "room_id": { "type": "string" },
+            "session_id": { "type": "string" },
+            "title": { "type": "string" },
+            "format": { "type": "string" },
+            "exported_at": { "type": "string" },
+            "created_by": { "type": "string" }
+          }
+        }
+      },
+      "total": { "type": "integer" },
+      "message": { "type": "string" }
+    }
+  }
+}

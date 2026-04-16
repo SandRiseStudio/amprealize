@@ -20,10 +20,14 @@ UPSTREAM_API_HOST="${UPSTREAM_API_HOST:-amprealize-api}"
 UPSTREAM_API_PORT="${UPSTREAM_API_PORT:-8000}"
 UPSTREAM_WEB_CONSOLE_HOST="${UPSTREAM_WEB_CONSOLE_HOST:-web-console}"
 UPSTREAM_WEB_CONSOLE_PORT="${UPSTREAM_WEB_CONSOLE_PORT:-5173}"
+# Whiteboard sync (optional compose service; defaults keep nginx -t valid when absent)
+UPSTREAM_WHITEBOARD_SYNC_HOST="${UPSTREAM_WHITEBOARD_SYNC_HOST:-whiteboard-sync}"
+UPSTREAM_WHITEBOARD_SYNC_PORT="${UPSTREAM_WHITEBOARD_SYNC_PORT:-3040}"
 export UPSTREAM_API_HOST UPSTREAM_API_PORT UPSTREAM_WEB_CONSOLE_HOST UPSTREAM_WEB_CONSOLE_PORT
+export UPSTREAM_WHITEBOARD_SYNC_HOST UPSTREAM_WHITEBOARD_SYNC_PORT
 
 # Run envsubst on template to generate actual nginx.conf
-envsubst '$NGINX_RESOLVER $UPSTREAM_API_HOST $UPSTREAM_API_PORT $UPSTREAM_WEB_CONSOLE_HOST $UPSTREAM_WEB_CONSOLE_PORT' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf
+envsubst '$NGINX_RESOLVER $UPSTREAM_API_HOST $UPSTREAM_API_PORT $UPSTREAM_WEB_CONSOLE_HOST $UPSTREAM_WEB_CONSOLE_PORT $UPSTREAM_WHITEBOARD_SYNC_HOST $UPSTREAM_WHITEBOARD_SYNC_PORT' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf
 
 # -------------------------------------------------------------------------
 # Optional TLS configuration

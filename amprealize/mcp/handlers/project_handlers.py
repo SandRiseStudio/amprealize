@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ...multi_tenant.organization_service import OrganizationService
-from ...multi_tenant.contracts import (
+from ...projects.contracts import (
     Project,
     ProjectVisibility,
     MemberRole,

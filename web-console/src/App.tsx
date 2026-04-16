@@ -43,6 +43,8 @@ const BoardPage = lazy(() => import('./components/boards/BoardPage').then((modul
 const OrganizationsPage = lazy(() => import('./components/orgs/OrganizationsPage').then((module) => ({ default: module.OrganizationsPage })));
 const AgentsPage = lazy(() => import('./components/agents/AgentsPage').then((module) => ({ default: module.AgentsPage })));
 const GitHubAppCallbackPage = lazy(() => import('./pages/GitHubAppCallbackPage').then((module) => ({ default: module.GitHubAppCallbackPage })));
+const WikiPage = lazy(() => import('./components/wiki/WikiPage').then((module) => ({ default: module.WikiPage })));
+const WhiteboardPage = lazy(() => import('./components/whiteboard/WhiteboardPage').then((module) => ({ default: module.WhiteboardPage })));
 
 function RouteFallback() {
   return <div className="app-route-fallback animate-fade-in-up">Loading…</div>;
@@ -153,6 +155,15 @@ function AnimatedRoutes() {
                 <Route path="/projects/:projectId/settings" element={<ProjectSettingsPage />} />
                 <Route path="/projects/:projectId/boards/:boardId" element={<BoardPage />} />
                 <Route path="/projects/:projectId/boards/:boardId/items/:itemId" element={<BoardPage />} />
+                <Route path="/wiki" element={<WikiPage />} />
+                <Route path="/wiki/:domain" element={<WikiPage />} />
+                <Route path="/wiki/:domain/*" element={<WikiPage />} />
+                {isModuleEnabled('whiteboard') && (
+                  <>
+                    <Route path="/whiteboard" element={<WhiteboardPage />} />
+                    <Route path="/whiteboard/:roomId" element={<WhiteboardPage />} />
+                  </>
+                )}
               </Route>
 
               {/* Catch-all */}

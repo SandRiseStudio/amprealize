@@ -24,7 +24,11 @@ async function fetchModules(): Promise<ApiModulesResponse> {
   try {
     return await apiClient.get<ApiModulesResponse>('/v1/modules', { skipRetry: true });
   } catch (error: unknown) {
-    if (error instanceof ApiError && error.status === 404) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 0)) {
+      return LEGACY_FALLBACK;
+    }
+    if (error instanceof TypeError) {
+      // Fetch-level network failures (often surfaced as CORS/network errors in browser)
       return LEGACY_FALLBACK;
     }
     throw error;
@@ -40,6 +44,7 @@ export function useModules() {
     queryKey: MODULES_QUERY_KEY,
     queryFn: fetchModules,
     staleTime: 60_000,
+    retry: 1,
   });
 
   const enabledSet = new Set(query.data?.enabled_modules ?? LEGACY_FALLBACK.enabled_modules);

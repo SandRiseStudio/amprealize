@@ -20,6 +20,7 @@ from .execution_gateway_contracts import (
     ResolvedExecution,
     SourceType,
 )
+from .work_item_execution_contracts import AgentExecutionMode
 from .source_providers import (
     CloneStrategy,
     SourceProvider,
@@ -416,6 +417,64 @@ class LocalDirectExecutor:
 
 
 # ---------------------------------------------------------------------------
+# Session Mode Executor
+# ---------------------------------------------------------------------------
+
+
+class SessionModeExecutor:
+    """Lightweight executor for conversational agent sessions.
+
+    Wraps the standard AgentExecutionLoop but always runs in SESSION mode,
+    producing a 3-phase flow: PLANNING → EXECUTING → COMPLETING.
+
+    This executor is surface-agnostic — it can wrap any isolation executor
+    (ContainerIsolated, ContainerConnected, LocalDirect) or run standalone
+    when no container orchestration is needed.
+    """
+
+    def __init__(
+        self,
+        inner_executor: Any = None,
+    ) -> None:
+        """
+        Args:
+            inner_executor: Optional inner executor (ContainerIsolated, etc.)
+                for workspace provisioning. When None, assumes workspace is
+                already available (e.g., local CLI/IDE).
+        """
+        self._inner = inner_executor
+
+    async def setup(self, resolved: ResolvedExecution) -> None:
+        """Delegate workspace setup to inner executor if present."""
+        if self._inner and hasattr(self._inner, "setup"):
+            await self._inner.setup(resolved)
+
+    async def execute(
+        self,
+        resolved: ResolvedExecution,
+        execution_loop: Any,
+        *,
+        work_item: Any,
+        agent: Any,
+        agent_version: Any,
+        exec_policy: Any,
+    ) -> Dict[str, Any]:
+        return await _drive_loop(
+            resolved, execution_loop,
+            work_item=work_item,
+            agent=agent,
+            agent_version=agent_version,
+            exec_policy=exec_policy,
+            execution_mode=AgentExecutionMode.SESSION,
+        )
+
+    async def cleanup(self, resolved: ResolvedExecution) -> None:
+        """Delegate cleanup to inner executor if present."""
+        if self._inner and hasattr(self._inner, "cleanup"):
+            await self._inner.cleanup(resolved)
+
+
+# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
@@ -428,6 +487,7 @@ async def _drive_loop(
     agent: Any,
     agent_version: Any,
     exec_policy: Any,
+    execution_mode: AgentExecutionMode = AgentExecutionMode.GEP,
 ) -> Dict[str, Any]:
     """Drive the AgentExecutionLoop with the resolved context."""
     return await loop.run(
@@ -441,4 +501,5 @@ async def _drive_loop(
         user_id=resolved.request.user_id,
         org_id=resolved.request.org_id,
         project_id=resolved.request.project_id,
+        execution_mode=execution_mode,
     )

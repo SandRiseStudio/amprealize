@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from amprealize.bootstrap.detector import WorkspaceDetector
     from amprealize.knowledge_pack.activation_service import ActivationService
     from amprealize.knowledge_pack.overlay_rules import OverlayClassifier
+    from amprealize.knowledge_pack.storage import KnowledgePackStorage
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +53,14 @@ class ContextResolver:
         workspace_detector: Optional["WorkspaceDetector"] = None,
         activation_service: Optional["ActivationService"] = None,
         overlay_classifier: Optional["OverlayClassifier"] = None,
+        pack_storage: Optional["KnowledgePackStorage"] = None,
         telemetry: Any = None,
         cache_ttl: int = _DEFAULT_CACHE_TTL,
     ) -> None:
         self._detector = workspace_detector
         self._activation = activation_service
         self._classifier = overlay_classifier
+        self._pack_storage = pack_storage
         self._telemetry = telemetry
         self._cache_ttl = cache_ttl
         # In-memory TTL cache: key → (RuntimeContext, expiry_ts)
@@ -236,12 +239,23 @@ class ContextResolver:
     ) -> Optional[Dict[str, Any]]:
         """Load pack manifest dict from storage.
 
-        Currently returns None — will be wired when pack storage is
-        queryable at runtime.  The resolver still functions with the
-        pack_id / pack_version for scoped filtering.
+        Returns the stored manifest JSON (including ``_primer_text`` under
+        the ``primer_text`` key for downstream consumption).  Falls back
+        to ``None`` when storage is unavailable or the pack isn't found.
         """
-        # TODO: wire to pack manifest storage once runtime query path exists.
-        return None
+        if not self._pack_storage:
+            return None
+        try:
+            data = self._pack_storage.get_manifest_for_runtime(pack_id, version)
+            if data is None:
+                return None
+            # Promote _primer_text → primer_text for downstream consumers
+            if "_primer_text" in data and "primer_text" not in data:
+                data["primer_text"] = data["_primer_text"]
+            return data
+        except Exception:
+            logger.debug("Failed to load pack manifest %s", pack_id, exc_info=True)
+            return None
 
     def _classify_task(self, task_description: Optional[str]) -> Optional[str]:
         """Classify the task description into a TaskFamily value."""

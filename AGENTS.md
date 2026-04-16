@@ -17,6 +17,7 @@
 | Never hardcode secrets | `behavior_prevent_secret_leaks` | Security, auditability |
 | Run pre-commit before pushing | `behavior_prevent_secret_leaks` | Catches leaks before they reach git |
 | Update docs after API/workflow changes | `behavior_update_docs_after_changes` | Keeps team aligned |
+| Update the AI Learning Wiki when AI behavior or platform usage changes | `behavior_maintain_ai_learning_wiki` | Keeps the teaching layer current for future agents |
 
 ---
 
@@ -329,6 +330,7 @@ Scan this table before starting any task. If keywords match, follow the linked b
 | telemetry event, Kafka, metrics dashboard | `behavior_instrument_metrics_pipeline` | 📖 Student |
 | CORS, auth decorator, bearer token, cookie | `behavior_lock_down_security_surface` | 📖 Student |
 | PRD sync, alignment log, checklist, progress tracker | `behavior_update_docs_after_changes`, `behavior_handbook_compliance_prompt` | 📖 Student |
+| AI concept, retrieval strategy, prompt pattern, model behavior, embeddings, RAG, agent orchestration, AI learning wiki, in-practice page, new service, new module, architecture change, capability added | `behavior_maintain_ai_learning_wiki` | 📖 Student |
 | consent, JIT auth, scope catalog, prototype | `behavior_prototype_consent_ux` | 🎓 Teacher |
 | budget, ROI, forecast, payback | `behavior_validate_financial_impact` | 🎓 Teacher |
 | launch plan, messaging, funnel, adoption | `behavior_plan_go_to_market` | 🎓 Teacher |
@@ -353,6 +355,9 @@ Scan this table before starting any task. If keywords match, follow the linked b
 | pack bootstrap, workspace migration, pack rollback | `behavior_bootstrap_pack_migration` | 📖 Student |
 | auto-reflection, learning loop, reflection trigger | `behavior_run_auto_reflection` | 📖 Student |
 | work item naming, GWS, title convention, item standard | `behavior_standardize_work_items` | 📖 Student |
+| new feature, feature idea, feature proposal, feature scope, feature design | `behavior_define_feature_scope` | 🎓 Teacher |
+| brainstorm, ideate, creative session, thinking session, explore ideas, deep dive, what if, whiteboard ideas, think through, pros and cons, weigh options, open-ended discussion | `behavior_facilitate_brainstorm` | 🎓 Teacher |
+| whiteboard session, canvas room, tldraw, real-time drawing, collaborative canvas, brainstorm canvas, ephemeral session, whiteboard snapshot | `behavior_manage_whiteboard_sessions` | 📖 Student |
 | **pattern observed 3+ times, need new behavior** | `behaviors.propose` → propose new behavior | 🧠 Metacognitive Strategist |
 | **creating examples, documentation, tutorials** | Relevant domain behavior | 🎓 Teacher |
 | **code review, quality validation** | Relevant domain behavior | 🎓 Teacher |
@@ -384,6 +389,7 @@ Scan this table before starting any task. If keywords match, follow the linked b
 
 ### Documentation
 - Update `README.md`, `PRD.md`, `BUILD_TIMELINE.md` when APIs/workflows change
+- For AI-related platform work, update `wiki/ai-learning/` pages or explicitly state why no wiki update was needed
 - Cite `behavior_update_docs_after_changes` in summary
 
 ### Data Integrity
@@ -563,6 +569,16 @@ Scan this table before starting any task. If keywords match, follow the linked b
   1. Update `README.md`, `PRD.md`, `WORK_STRUCTURE.md`, `BUILD_TIMELINE.md`.
   2. Regenerate API reference if schemas shift.
   3. Log in `BUILD_TIMELINE.md` and mention in summary.
+
+### `behavior_maintain_ai_learning_wiki`
+- **When**: AI-related platform work changes how Amprealize uses or explains concepts like embeddings, retrieval, prompting, agent orchestration, model behavior, or evaluation.
+- **Steps**:
+  1. Before coding or documenting, search the existing knowledge with `ai_learning_wiki.query` and `wiki.list_pages domain=ai-learning` to avoid duplicate pages.
+  2. Decide whether the work changes a general explanation (`concept`, `technology`, `pattern`, `glossary`) or an Amprealize-specific walkthrough (`in-practice`).
+  3. If the concept already exists, update the existing page with the new understanding, sources, prerequisites, and `amprealize_relevance`; otherwise create the missing page using the `wiki-contributor` skill and the wiki MCP tools.
+  4. For any AI capability implemented in code, add or refresh the matching `in-practice` page with concrete file paths and a simplified explanation of how the concept shows up in Amprealize.
+  5. Run `ai_learning_wiki.lint` after edits and fix broken links, stale references, or missing frontmatter before handoff.
+  6. In the final summary, cite the wiki page(s) updated or explicitly state why no AI Learning Wiki update was required.
 
 ### `behavior_prototype_consent_ux`
 - **When**: Designing or updating consent experiences across Web/CLI/IDE.
@@ -847,6 +863,46 @@ Scan this table before starting any task. If keywords match, follow the linked b
   6. **Validate before creating**: MCP and REST API enforce GWS automatically; agent prompts include GWS summary.
   7. **Use WorkItemPlanner**: For bulk planning, use `WorkItemPlanner.plan()` or the `work-item-planner` skill.
 
+### `behavior_define_feature_scope`
+- **When**: Designing a new product feature, scoping a major enhancement, or planning cross-surface feature coverage before implementation.
+- **Role**: 🎓 Teacher (facilitate structured design) or 📖 Student (follow established interview pattern)
+- **Reference**: `amprealize/agents/playbooks/AGENT_NEW_FEATURE.md` (playbook), `skills/new-feature-designer/SKILL.md` (skill), `amprealize/agents/feature_designer/models.py` (models)
+- **Steps**:
+  1. **Auto-discover context**: Use `Explore` subagent and MCP tools (`behaviors.getForTask`, `context.getContext`) to gather related services, behaviors, and patterns.
+  2. **Conduct 7-phase interview**: Identity & Distribution → Surface Coverage → Architecture & Integration → Behavioral Context → Feature Interactions → Security & Compliance → Success & Testing.
+  3. **Determine edition**: Decide OSS / Enterprise Starter / Enterprise Premium; if enterprise-only, select an OSS stub pattern.
+  4. **Map surface coverage**: For each surface (MCP, API, CLI, Web, VS Code), classify as day-one or follow-up.
+  5. **Identify service impacts**: List all impacted services, data model changes, and config items.
+  6. **Define acceptance criteria**: Every criterion must be testable with clear pass/fail — reject vague statements.
+  7. **Produce Feature Definition**: Use `FEATURE_DEFINITION_TEMPLATE.md` template; save to session memory.
+  8. **Hand off**: Route to Plan agent (implementation plan), WorkItemPlanner (work items), or save as file.
+
+### `behavior_facilitate_brainstorm`
+- **When**: User wants to brainstorm, ideate, explore ideas creatively, run a thinking session, conduct a deep dive, or think through any open-ended topic — whether product-related or not (e.g., process improvements, naming, strategy, architecture, research directions, team practices).
+- **Role**: 🎓 Teacher (facilitate creative exploration)
+- **Reference**: `amprealize/agents/playbooks/AGENT_BRAINSTORM.md` (playbook), `.agents/skills/brainstorm/SKILL.md` (skill), `amprealize/agents/templates/BRAINSTORM_SESSION_TEMPLATE.md` (output template)
+- **Steps**:
+  1. **Gather context**: Understand topic, background, constraints, and prior thinking. Auto-discover via Explore subagent and MCP tools if product-related; for non-product topics, gather context conversationally.
+  2. **Diverge (OPEN)**: Generate volume of ideas using SCAMPER, inversion, random stimulus, question-storming, analogy transfer. Minimum 5-8 exchanges.
+  3. **Deepen (EXPLORE)**: Drill into promising threads using 5 Whys, Six Thinking Hats, persona walks, constraint flips, second-order effects, future casting.
+  4. **Converge (CLOSE)**: Only after 8+ substantive exchanges. Rank, synthesize themes, identify sleepers.
+  5. **Checkpoint continuously**: Auto-save running idea board to `/memories/session/brainstorm-board.md` every 3-4 exchanges.
+  6. **Produce summary**: Use `BRAINSTORM_SESSION_TEMPLATE.md`; save to `/memories/session/brainstorm-summary.md`.
+  7. **Hand off**: Match output to session type. For product/feature ideas → NewFeature, Plan, or WorkItemPlanner. For non-product topics → save as decision doc, action items, memory note, or simply summarize conclusions. Offer "Continue brainstorming" for multi-day sessions.
+
+### `behavior_manage_whiteboard_sessions`
+- **When**: Creating, joining, or closing whiteboard sessions; managing canvas state; exporting snapshots; troubleshooting tldraw sync issues.
+- **Role**: 📖 Student (follow established patterns)
+- **Reference**: `amprealize/agents/playbooks/AGENT_BRAINSTORM.md` (whiteboard integration section), `docs/features/BRAINSTORM_WHITEBOARD_FEATURE_DEFINITION.md`
+- **Steps**:
+  1. **Check feature flag**: Whiteboard is gated by `ENABLE_WHITEBOARD`; verify it is enabled before proceeding.
+  2. **Create via brainstorm only**: Rooms are created exclusively through `brainstorm.openWhiteboard`. Direct creation via REST or MCP `whiteboard.createRoom` requires `metadata.source == "brainstorm_bridge"`.
+  3. **Use environment-aware URLs**: Room URLs use `AMPREALIZE_CONSOLE_URL` (defaults to `http://localhost:5173` for dev). Never hardcode hostnames.
+  4. **Manage ephemeral lifecycle**: Live canvas data evaporates on close. Call `brainstorm.closeSession` to persist a snapshot (rendered export + raw `canvas_elements` JSONB) before closing.
+  5. **Respect canvas size limits**: Canvas state is capped at 5MB (both sidecar and REST API enforce this). Warn users if approaching limit.
+  6. **Monitor via hooks**: Room create/close/archive events emit Raze telemetry and audit log entries via `AmprealizeWhiteboardHooks`.
+  7. **Troubleshoot sync**: If WebSocket issues occur, check nginx config (`/ws/whiteboard/` proxy), `whiteboard-sync` sidecar health (`/healthz`), and `VITE_WHITEBOARD_SYNC_URL` env var.
+
 ---
 
 ## ✅ Role-Specific Checklists
@@ -864,6 +920,7 @@ Use for routine execution following established patterns.
 | 3. **Execute** | Follow behavior steps, cite behavior+role in output | `Following behavior_use_raze_for_logging (Student)...` |
 | 4. **Validate** | Run smallest relevant automated check | `pytest tests/test_logging.py` |
 | 5. **Summarize** | List completed work with behavior+role citations | `Completed: Added Raze logging (Student, behavior_use_raze_for_logging)` |
+| 5a. **Wiki Check** | If AI-related work, update wiki or state why not | `Wiki: Updated wiki/ai-learning/concepts/embeddings.md` or `Wiki: No AI concept changes` |
 | 6. **Scout Patterns** | Note if same workaround was used before | `🔍 Pattern: Third time adding rate limiting manually` |
 | 7. **Escalate?** | If pattern occurs 3+ times, escalate to Strategist | `⬆️ Escalating: Student → Strategist (pattern observed 3+ times)` |
 

@@ -1,0 +1,411 @@
+# Cloud Development Blueprint - DATABASE ON CLOUD (Neon / Supabase / etc.)
+# Same services as local-dev but without local database containers.
+# DATABASE_URL and TELEMETRY_DATABASE_URL are passed through from host env vars
+# (set via `amprealize context use <name>` before `breakeramp fresh cloud-dev`).
+#
+# Architecture:
+#   - No amprealize-db or telemetry-db containers (databases live in the cloud)
+#   - All services receive DATABASE_URL / TELEMETRY_DATABASE_URL from the host
+#   - Redis still runs locally (low-latency cache)
+#   - Migrations run on the host via `amprealize context migrate`, NOT in containers
+#
+# Usage:
+#   amprealize context use neon            # activate cloud context (sets DATABASE_URL)
+#   breakeramp plan --blueprint cloud-dev --env cloud-dev
+#   breakeramp apply --blueprint cloud-dev --env cloud-dev
+#
+# Neon / cloud Postgres performance (host context, not Podman):
+#   - Prefer Neon's *pooler* connection string (often host contains "-pooler")
+#     over the direct instance host to cut connection latency and churn.
+#   - Append ?sslmode=require when Neon requires TLS.
+#   - Optional API pool tuning via env (see amprealize/storage/postgres_pool.py):
+#       AMPREALIZE_PG_POOL_RECYCLE, AMPREALIZE_PG_CONNECT_TIMEOUT,
+#       AMPREALIZE_PG_POOL_SIZE, AMPREALIZE_PG_POOL_MAX_OVERFLOW,
+#       or DATABASE_POOL_SIZE / DATABASE_MAX_OVERFLOW in settings.
+#   - Raising AMPREALIZE_API_WORKERS increases concurrent requests but multiplies
+#     DB pool usage per worker; stay within Neon max connections.
+# Podman here runs Redis/API/console/workers only; DB round-trips are API→Neon.
+#
+# Port Conventions (same as local-dev):
+#   Redis: 6379
+#   API: 8000
+#   Web Console: 5173
+
+name: cloud-dev
+version: 2.0.0
+
+# =============================================================================
+# MODULES
+# =============================================================================
+modules:
+  core:
+    description: "Core infrastructure (Redis only — databases are cloud-hosted)"
+    enabled: true
+  console:
+    description: "Amprealize API + web console (local dev)"
+    enabled: true
+  agents:
+    description: "Agent workspace management (requires Podman API service)"
+    enabled: true  # Required for queue-based execution (EXECUTION_MODE=queue)
+  streaming:
+    description: "Kafka streaming pipeline - optional"
+    enabled: false
+  monitoring:
+    description: "Prometheus/Grafana monitoring - optional"
+    enabled: false
+
+# =============================================================================
+# SERVICES
+# =============================================================================
+services:
+  # ---------------------------------------------------------------------------
+  # MODULE: CORE - Redis only (no database containers)
+  # ---------------------------------------------------------------------------
+
+  # --- Redis Cache ---
+  redis:
+    image: docker.io/library/redis:7-alpine
+    module: core
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    healthcheck_timeout_s: 15
+
+  # ---------------------------------------------------------------------------
+  # MODULE: AGENTS - Queue-Based Execution Workers
+  # ---------------------------------------------------------------------------
+
+  # --- Podman Socket Proxy (TCP gateway to Podman socket) ---
+  podman-socket-proxy:
+    image: docker.io/alpine/socat:1.0.5
+    module: agents
+    privileged: true
+    ports:
+      - "8888:8888"
+    volumes:
+      - "/run/user/501/podman/podman.sock:/run/podman/podman.sock"
+    command:
+      - "tcp-listen:8888,reuseaddr,fork"
+      - "unix-connect:/run/podman/podman.sock"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8888 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    healthcheck_timeout_s: 30
+
+  # --- Execution Worker Service (Queue Consumer) ---
+  execution-worker:
+    image: docker.io/library/python:3.11-slim-bookworm
+    module: agents
+    depends_on:
+      - redis
+      - podman-socket-proxy
+    volumes:
+      - "${AMPREALIZE_REPO_ROOT:-.}:/app"
+      - "execution-worker-pip-cache:/root/.cache/pip"
+    workdir: /app
+    command:
+      - "sh"
+      - "-c"
+      - "pip install -e . -e ./packages/execution-queue -e ./packages/raze -e ./packages/breakeramp && python -m amprealize.execution_worker"
+    environment:
+      # Redis Streams connection
+      REDIS_URL: "redis://redis:6379/0"
+      # Consumer identity
+      WORKER_ID: "${HOSTNAME:-worker-1}"
+      CONSUMER_GROUP: "amprealize-workers"
+      # Cloud database connections — passed through from host env vars
+      DATABASE_URL: "${DATABASE_URL}"
+      # Telemetry disabled in cloud-dev (no telemetry DB available)
+      AMPREALIZE_TELEMETRY_ENABLED: "false"
+      # Podman API via socket proxy (AmpOrchestrator)
+      PODMAN_HOST: "tcp://podman-socket-proxy:8888"
+      # LLM Provider API Keys
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      # Worker tuning
+      WORKER_HEARTBEAT_INTERVAL_S: "30"
+      WORKER_CLAIM_TIMEOUT_MS: "300000"
+      WORKER_MAX_RETRIES: "3"
+      # Workspace provisioning
+      PROVISION_WORKSPACE: "true"
+      WORKSPACE_DEFAULT_IMAGE: "docker.io/library/python:3.11-slim"
+      WORKSPACE_DEFAULT_MEMORY: "2g"
+      WORKSPACE_DEFAULT_CPU: "2.0"
+    extra_hosts:
+      - "host.containers.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "grep -r execution_worker /proc/*/cmdline >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+    healthcheck_timeout_s: 120
+
+  # ---------------------------------------------------------------------------
+  # MODULE: CONSOLE (Local API + Web Console + Gateway)
+  # ---------------------------------------------------------------------------
+
+  gateway:
+    image: docker.io/library/nginx:alpine
+    module: console
+    ports:
+      - "${GATEWAY_PORT:-8080}:80"
+      - "${GATEWAY_TLS_PORT:-8443}:443"
+    depends_on:
+      - amprealize-api
+      - web-console
+    volumes:
+      - "${AMPREALIZE_REPO_ROOT:-.}/config/nginx/nginx.conf:/etc/nginx/templates/nginx.conf.template:ro"
+      - "${AMPREALIZE_REPO_ROOT:-.}/config/nginx/docker-entrypoint.sh:/docker-entrypoint-custom.sh:ro"
+    environment:
+      NGINX_SSL_CERT: "${NGINX_SSL_CERT:-}"
+      NGINX_SSL_KEY: "${NGINX_SSL_KEY:-}"
+      NGINX_SSL_REDIRECT: "${NGINX_SSL_REDIRECT:-false}"
+    command: ["/bin/sh", "/docker-entrypoint-custom.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/nginx-health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    healthcheck_timeout_s: 60
+
+  amprealize-api:
+    image: docker.io/library/python:3.11-slim-bookworm
+    module: console
+    ports:
+      - "${AMPREALIZE_API_PORT:-8000}:8000"
+    depends_on:
+      - redis
+    extra_hosts:
+      - "host.containers.internal:host-gateway"
+    volumes:
+      - "${AMPREALIZE_REPO_ROOT:-.}:/app"
+      - "amprealize-api-pip-cache:/root/.cache/pip"
+    workdir: /app
+    command:
+      - "sh"
+      - "-c"
+      - "pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue && uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers ${AMPREALIZE_API_WORKERS:-1} --log-level info"
+    environment:
+      # Podman API for workspace provisioning (when using queue mode)
+      PODMAN_HOST: "${PODMAN_HOST:-tcp://host.containers.internal:8888}"
+      # =========================================================================
+      # Cloud database connections — passed through from host env vars
+      # Set via `amprealize context use <name>` before starting
+      # =========================================================================
+      DATABASE_URL: "${DATABASE_URL}"
+      # Telemetry disabled in cloud-dev (no telemetry DB available)
+      AMPREALIZE_TELEMETRY_ENABLED: "false"
+      # Explicit Org DSN — falls back to DATABASE_URL
+      AMPREALIZE_ORG_PG_DSN: "${DATABASE_URL}"
+
+      # =========================================================================
+      # LEGACY: Per-service DSNs — all pass through DATABASE_URL from host
+      # The dsn.py resolver chain (explicit → service env → DATABASE_URL) means
+      # these are optional, but we set them for backward compatibility.
+      # =========================================================================
+      AMPREALIZE_AUTH_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_BOARD_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_ACTION_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_RUN_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_EXECUTION_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_WORKFLOW_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_BEHAVIOR_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_COMPLIANCE_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_AGENT_REGISTRY_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_MESSAGING_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_METRICS_PG_DSN: "${TELEMETRY_DATABASE_URL:-${DATABASE_URL}}"
+      # Telemetry disabled — no separate telemetry DB in cloud-dev
+      AMPREALIZE_TELEMETRY_ENABLED: "false"
+
+      # =========================================================================
+      # OAuth settings (loaded from .env.google-oauth and .env.github-oauth)
+      # =========================================================================
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID:-}"
+      GITHUB_CLIENT_SECRET: "${GITHUB_CLIENT_SECRET:-}"
+      OAUTH_CLIENT_ID: "${OAUTH_CLIENT_ID:-}"
+      OAUTH_CLIENT_SECRET: "${OAUTH_CLIENT_SECRET:-}"
+
+      # =========================================================================
+      # GitHub App Configuration
+      # =========================================================================
+      GITHUB_APP_ID: "${GITHUB_APP_ID:-}"
+      GITHUB_APP_SLUG: "${GITHUB_APP_SLUG:-}"
+      GITHUB_APP_CLIENT_ID: "${GITHUB_APP_CLIENT_ID:-}"
+      GITHUB_APP_CLIENT_SECRET: "${GITHUB_APP_CLIENT_SECRET:-}"
+      GITHUB_APP_PRIVATE_KEY_PATH: "/app/secrets/${GITHUB_APP_PRIVATE_KEY_FILENAME:-github-app.pem}"
+      GITHUB_APP_CALLBACK_URL: "${GITHUB_APP_CALLBACK_URL:-http://localhost:5173/auth/github-app/callback}"
+
+      # =========================================================================
+      # Application settings
+      # =========================================================================
+      # Enable app-level modules explicitly for dev containers.
+      # BreakerAmp's infrastructure module filter (core/console/agents) does not
+      # automatically populate Amprealize's modular-install config.
+      AMPREALIZE_MODULES_AGENTS: "true"
+      AMPREALIZE_MODULES_BEHAVIORS: "true"
+      AMPREALIZE_MODULES_COLLABORATION: "true"
+      AMPREALIZE_CORS_ORIGINS: "http://localhost:${AMPREALIZE_WEB_CONSOLE_PORT:-5173},http://localhost:5173,http://localhost:3000"
+      AMPREALIZE_DEVICE_VERIFICATION_URI: "http://localhost:${AMPREALIZE_API_PORT:-8000}/v1/device/authorize"
+      REDIS_URL: "redis://redis:6379/0"
+      EXECUTION_MODE: "${EXECUTION_MODE:-queue}"
+
+      # =========================================================================
+      # LLM Provider API Keys
+      # =========================================================================
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      BYOK_ENCRYPTION_KEY: "${BYOK_ENCRYPTION_KEY:-F8mx5M0oI4byBM353Yu5dtcz8d4AxlEKl1cBf2FW0Y4=}"
+    healthcheck_timeout_s: 90
+    # NOTE: No post_start_commands for migrations — run on host via:
+    #   amprealize context migrate
+
+  # --- MCP Server ---
+  amprealize-mcp:
+    image: docker.io/library/python:3.11-slim-bookworm
+    module: console
+    ports:
+      - "${AMPREALIZE_MCP_PORT:-3000}:3000"
+    depends_on:
+      - redis
+    extra_hosts:
+      - "host.containers.internal:host-gateway"
+    volumes:
+      - "${AMPREALIZE_REPO_ROOT:-.}:/app"
+      - "amprealize-mcp-pip-cache:/root/.cache/pip"
+    workdir: /app
+    command:
+      - "sh"
+      - "-c"
+      - "pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue && tail -f /dev/null | python -m amprealize.mcp_server"
+    environment:
+      MCP_TRANSPORT: "${MCP_TRANSPORT:-stdio}"
+      MCP_IDLE_TIMEOUT: "${MCP_IDLE_TIMEOUT:-3600}"
+      MCP_SHUTDOWN_TIMEOUT: "${MCP_SHUTDOWN_TIMEOUT:-30}"
+      REDIS_URL: "redis://redis:6379/0"
+
+      # Cloud database connections — passed through from host env vars
+      DATABASE_URL: "${DATABASE_URL}"
+      # Telemetry disabled in cloud-dev (no telemetry DB available)
+      AMPREALIZE_TELEMETRY_ENABLED: "false"
+      AMPREALIZE_BEHAVIOR_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_WORKFLOW_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_ACTION_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_RUN_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_COMPLIANCE_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_METRICS_PG_DSN: "${TELEMETRY_DATABASE_URL:-${DATABASE_URL}}"
+
+      # LLM provider keys
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+    healthcheck:
+      test: ["CMD-SHELL", "grep -r amprealize.mcp_server /proc/*/cmdline >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+    healthcheck_timeout_s: 60
+
+  web-console:
+    image: docker.io/library/node:20-bullseye-slim
+    module: console
+    ports:
+      - "${AMPREALIZE_WEB_CONSOLE_PORT:-5173}:5173"
+    volumes:
+      - "${AMPREALIZE_REPO_ROOT:-.}/web-console:/app"
+      - "${AMPREALIZE_REPO_ROOT:-.}/packages/collab-client:/app/packages/collab-client"
+      - "amprealize-web-console-node-modules:/app/node_modules"
+    environment:
+      VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:8080}"
+      AMPREALIZE_REPO_ROOT: "/app"
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "200"
+    command:
+      - "sh"
+      - "-lc"
+      - "cd /app && npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173"
+    healthcheck_timeout_s: 180
+
+  # ---------------------------------------------------------------------------
+  # MODULE: STREAMING (Optional)
+  # ---------------------------------------------------------------------------
+
+  zookeeper:
+    image: docker.io/confluentinc/cp-zookeeper:7.5.0
+    module: streaming
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: "2181"
+      ZOOKEEPER_TICK_TIME: "2000"
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep -q imok || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    healthcheck_timeout_s: 30
+
+  kafka:
+    image: docker.io/confluentinc/cp-kafka:7.5.0
+    module: streaming
+    depends_on:
+      - zookeeper
+    ports:
+      - "${KAFKA_EXTERNAL_PORT:-10092}:9092"
+    environment:
+      KAFKA_BROKER_ID: "1"
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:${KAFKA_EXTERNAL_PORT:-10092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    healthcheck_timeout_s: 120
+
+  # ---------------------------------------------------------------------------
+  # MODULE: MONITORING (Optional)
+  # ---------------------------------------------------------------------------
+
+  prometheus:
+    image: docker.io/prom/prometheus:v2.47.0
+    module: monitoring
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    image: docker.io/grafana/grafana:10.1.0
+    module: monitoring
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin  # pragma: allowlist secret
+
+# =============================================================================
+# VOLUMES - No database volumes needed (cloud-hosted)
+# =============================================================================
+volumes:
+  amprealize-web-console-node-modules:
+    name: amprealize-cloud-web-console-node-modules
+  amprealize-api-pip-cache:
+    name: amprealize-cloud-api-pip-cache
+  amprealize-mcp-pip-cache:
+    name: amprealize-cloud-mcp-pip-cache
+  execution-worker-pip-cache:
+    name: amprealize-cloud-execution-worker-pip-cache

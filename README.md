@@ -49,6 +49,7 @@ Amprealize works across multiple surfaces: **Web Console**, **CLI**, **VS Code E
 - **Agent Orchestration** — run agents with behavior-conditioned inference (BCI) for token-efficient execution
 - **Compliance & Audit** — full action logging, hash-chained audit trails, and policy enforcement
 - **Structured Logging (Raze)** — centralized, queryable, context-enriched telemetry
+- **Brainstorm Whiteboard** — collaborative tldraw canvas for visual brainstorming with persistent rooms, snapshots, and real-time collaboration
 - **Environment Management (BreakerAmp)** — blueprint-driven container orchestration with compliance hooks
 - **Multi-Tenant** — org-scoped or personal projects with role-based access control
 - **OAuth & Device Flow Auth** — GitHub, Google, Microsoft providers with token vault
@@ -114,6 +115,7 @@ amprealize/                 # repository root (clone creates this directory name
 ├── packages/
 │   ├── raze/             # Structured logging (standalone)
 │   ├── breakeramp/       # Environment orchestration (standalone)
+│   ├── whiteboard/       # Brainstorm whiteboard canvas (standalone)
 │   ├── midnighter/       # Background task scheduler
 │   ├── notify/           # Notification service
 │   ├── observability/    # Metrics pipeline

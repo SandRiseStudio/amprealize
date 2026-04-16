@@ -148,6 +148,24 @@ def test_create_run_parity(run_service_sqlite: RunService, run_service_postgres:
     assert run_postgres.metadata == {"environment": "test", "execution": {"total_steps": 5}}
 
 
+def test_postgres_create_run_with_placeholder_actor_id(run_service_postgres: PostgresRunService) -> None:
+    """Postgres should allow API placeholder actors without requiring auth.users rows."""
+    request = RunCreateRequest(
+        actor=Actor(id="unknown", role="UNKNOWN", surface="api"),
+        workflow_name="Smoke Test Workflow",
+        initial_message="Create run without an authenticated user",
+        metadata={"environment": "test"},
+    )
+
+    run = run_service_postgres.create_run(request)
+
+    assert run.run_id
+    assert run.workflow_name == "Smoke Test Workflow"
+    assert run.message == "Create run without an authenticated user"
+    assert run.status == RunStatus.PENDING
+    assert run.actor.id == "system"
+
+
 def test_get_run_not_found(run_service_sqlite: RunService, run_service_postgres: PostgresRunService) -> None:
     """Both backends should raise RunNotFoundError for missing runs."""
     with pytest.raises(MemoryRunNotFoundError):

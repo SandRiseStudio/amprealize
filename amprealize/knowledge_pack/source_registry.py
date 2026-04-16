@@ -111,14 +111,22 @@ class SourceNotFoundError(SourceRegistryError):
 class SourceRegistryService:
     """PostgreSQL-backed source registry for knowledge packs."""
 
-    def __init__(self, *, dsn: Optional[str] = None) -> None:
-        self._dsn = resolve_postgres_dsn(
-            service="KP",
-            explicit_dsn=dsn,
-            env_var=_KP_PG_DSN_ENV,
-            default_dsn=_DEFAULT_PG_DSN,
-        )
-        self._pool = PostgresPool(self._dsn)
+    def __init__(
+        self,
+        *,
+        dsn: Optional[str] = None,
+        pool: Optional[PostgresPool] = None,
+    ) -> None:
+        if pool is not None:
+            self._pool = pool
+        else:
+            self._dsn = resolve_postgres_dsn(
+                service="KP",
+                explicit_dsn=dsn,
+                env_var=_KP_PG_DSN_ENV,
+                default_dsn=_DEFAULT_PG_DSN,
+            )
+            self._pool = PostgresPool(self._dsn)
 
     # ------------------------------------------------------------------ CRUD
 

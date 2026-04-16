@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from amprealize.multi_tenant.board_contracts import (
+from amprealize.boards.contracts import (
     CreateLabelRequest,
     DeleteResult,
     Label,

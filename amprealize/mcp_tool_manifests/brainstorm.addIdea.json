@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "brainstorm.addIdea",
+  "description": "Add a brainstorm idea to the whiteboard as a sticky note, or create a theme frame when kind is set to 'theme'. Useful for agents capturing ideas during brainstorming sessions.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "room_id": {
+        "type": "string",
+        "description": "Whiteboard room ID to add the idea to."
+      },
+      "idea": {
+        "type": "string",
+        "description": "The idea or theme text to place on the board."
+      },
+      "category": {
+        "type": "string",
+        "description": "Optional category for grouping similar ideas."
+      },
+      "kind": {
+        "type": "string",
+        "enum": ["idea", "theme"],
+        "description": "Whether to create a sticky-note idea or a theme frame. Defaults to 'idea'."
+      },
+      "connected_ideas": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional list of related ideas when kind is 'theme'."
+      },
+      "x": {
+        "type": "number",
+        "description": "Optional X position on canvas. Auto-positioned if omitted."
+      },
+      "y": {
+        "type": "number",
+        "description": "Optional Y position on canvas. Auto-positioned if omitted."
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Project ID for scoping (optional, uses session)."
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Organization ID for scoping (optional, uses session)."
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "room_id": { "type": "string" },
+      "shape_id": { "type": "string" },
+      "idea": { "type": "string" },
+      "theme": { "type": "string" },
+      "category": { "type": "string" },
+      "idea_type": { "type": "string" },
+      "message": { "type": "string" }
+    }
+  }
+}

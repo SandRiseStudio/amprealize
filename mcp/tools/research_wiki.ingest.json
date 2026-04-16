@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "research_wiki.ingest",
+  "description": "Ingest a research evaluation into the Research Wiki. Extracts entities and concepts from the report, creates/updates wiki pages, and maintains the index and log.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "paper_title": {
+        "type": "string",
+        "description": "Title of the evaluated paper"
+      },
+      "paper_id": {
+        "type": "string",
+        "description": "Unique paper identifier"
+      },
+      "verdict": {
+        "type": "string",
+        "enum": ["ADOPT", "ADAPT", "DEFER", "REJECT"],
+        "description": "Evaluation verdict"
+      },
+      "overall_score": {
+        "type": "number",
+        "description": "Evaluation score (0-10)"
+      },
+      "markdown_report": {
+        "type": "string",
+        "description": "Full evaluation report in markdown"
+      },
+      "sources": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Source references (URLs, arxiv IDs)"
+      }
+    },
+    "required": ["paper_title", "paper_id", "verdict", "overall_score", "markdown_report"]
+  }
+}

@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=69.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whiteboard"
+version = "0.1.0"
+description = "Real-time collaborative whiteboard service with tldraw sync, room lifecycle, and canvas persistence"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["whiteboard", "tldraw", "collaboration", "real-time", "canvas"]
+license = { text = "Apache-2.0" }
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+authors = [
+  { name = "Amprealize Team", email = "team@amprealize.com" }
+]
+dependencies = [
+  "pydantic>=2.5,<3.0",
+]
+
+[project.urls]
+Documentation = "https://github.com/Nas4146/amprealize"
+Source = "https://github.com/Nas4146/amprealize"
+Issues = "https://github.com/Nas4146/amprealize/issues"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4,<9.0",
+  "pytest-cov>=4.1,<6.0",
+  "pytest-asyncio>=0.21,<1.0",
+  "black>=23.0,<25.0",
+  "isort>=5.12,<6.0",
+  "mypy>=1.5,<2.0",
+]
+fastapi = [
+  "fastapi>=0.110,<1.0",
+  "uvicorn>=0.30,<1.0",
+]
+postgres = [
+  "psycopg2-binary>=2.9,<3.0",
+  "asyncpg>=0.29,<1.0",
+]
+all = [
+  "whiteboard[fastapi,postgres]",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

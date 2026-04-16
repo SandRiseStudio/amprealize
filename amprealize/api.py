@@ -12,6 +12,15 @@ for _env_file in [".env", ".env.github-oauth", ".env.google-oauth"]:
     if _env_path.exists():
         _load_dotenv(_env_path)
 
+# Apply active context DSN(s) to environment after loading .env.
+# This overrides hardcoded localhost DSNs in .env with the active context's
+# DSN (e.g., Neon cloud DB), ensuring API services connect to the right DB.
+try:
+    from amprealize.context import apply_context_to_environment as _apply_ctx
+    _apply_ctx(force=True)
+except Exception:
+    pass  # Context bridge is best-effort; don't block API startup
+
 import asyncio
 import base64
 from datetime import datetime, timezone
@@ -23,12 +32,13 @@ import secrets
 import textwrap
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Literal, Optional, cast
 
 from fastapi import FastAPI, HTTPException, Query, Response, status, Request, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, ValidationError
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 logging.basicConfig(level=logging.INFO)
@@ -206,7 +216,7 @@ except ImportError:
     create_settings_routes = None  # type: ignore[assignment, misc]
 
 # Lightweight OSS project service (fallback when enterprise not installed)
-from .multi_tenant.oss_project_service import OSSProjectService
+from .projects.service import OSSProjectService
 
 # Billing service (optional - requires billing package)
 try:
@@ -262,6 +272,15 @@ class ServiceCapabilitiesResponse(BaseModel):
 class ApiCapabilitiesResponse(BaseModel):
     routes: RouteCapabilitiesResponse
     services: ServiceCapabilitiesResponse
+
+
+class PlatformRuntimeMetadataResponse(BaseModel):
+    """Shell footer metadata: semantic version, distribution, optional tier, context."""
+
+    version: str
+    distribution: Literal["oss", "enterprise"]
+    edition: Optional[Literal["starter", "premium"]] = None
+    context_name: str
 
 
 def _env_flag(name: str, default: Optional[bool] = None) -> Optional[bool]:
@@ -575,6 +594,9 @@ class _ServiceContainer:
             MULTI_TENANT_AVAILABLE
             and ORG_ROUTES_AVAILABLE
             and SETTINGS_ROUTES_AVAILABLE
+            and OrganizationService is not None
+            and InvitationService is not None
+            and SettingsService is not None
             and create_org_routes is not None
             and create_settings_routes is not None
         )
@@ -1093,17 +1115,20 @@ def create_app(
     # Resolve disabled API router tags once at app startup so the
     # per-request middleware only does a fast set-lookup.
     _disabled_api_routers: set[str] = set()
+    _edition_gated_api_routers: dict[str, str] = {}
     try:
         from amprealize.config.loader import get_config as _get_cfg
         from amprealize.module_registry import (
             get_enabled_api_routers as _get_enabled_routers,
             get_all_module_api_routers as _get_all_routers,
+            get_edition_gated_api_routers as _get_edition_gated,
         )
 
         _mod_cfg_api = _get_cfg().modules
         _all_routers = _get_all_routers()
         _enabled_routers = _get_enabled_routers(_mod_cfg_api)
         _disabled_api_routers = _all_routers - _enabled_routers
+        _edition_gated_api_routers = _get_edition_gated()
     except Exception:
         pass  # No config yet (first run / init) -- allow everything
 
@@ -1111,12 +1136,29 @@ def create_app(
 
         @app.middleware("http")
         async def _module_gate_api_routes(request: Request, call_next):
-            """Return 404 for API routes belonging to disabled modules."""
+            """Return 404 for API routes belonging to disabled modules.
+
+            Routes that require a higher edition tier get 403 with an
+            upgrade message instead of the generic not-enabled 404.
+            """
             path = request.scope.get("path", "")
             if path.startswith("/api/v1/"):
                 # Extract the resource segment: /api/v1/<resource>/...
                 segment = path[len("/api/v1/"):].split("/")[0].split(":")[0]
                 if segment in _disabled_api_routers:
+                    # Edition-gated routes get a 403 with upgrade guidance
+                    required_edition = _edition_gated_api_routers.get(segment)
+                    if required_edition:
+                        return JSONResponse(
+                            status_code=403,
+                            content={
+                                "detail": (
+                                    f"The '{segment}' feature requires "
+                                    f"{required_edition.replace('_', ' ').title()} edition."
+                                ),
+                                "edition_required": required_edition,
+                            },
+                        )
                     return JSONResponse(
                         status_code=404,
                         content={
@@ -1148,7 +1190,42 @@ def create_app(
         cors_origin_regex = r"^http://(localhost|127\.0\.0\.1)(:\d+)?$"
 
     # Default allowed origins for CORS header injection on error responses
-    default_cors_origins = ["http://localhost:5173", "http://localhost:3000"]
+    default_cors_origins = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"]
+
+    # ------------------------------------------------------------------
+    # Edition & Caps Exception Handlers
+    # ------------------------------------------------------------------
+    # These must be registered before the catch-all Exception handler
+    # so they take priority.  Endpoints that call @requires_edition,
+    # @requires_capability, or caps_enforcer.enforce() automatically
+    # surface proper HTTP status codes.
+
+    from amprealize.edition import EditionGateError
+    from amprealize.caps_enforcer import CapsExceededError
+
+    @app.exception_handler(EditionGateError)
+    async def _edition_gate_handler(request: Request, exc: EditionGateError):
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": str(exc),
+                "edition_required": exc.required.value,
+                "edition_current": exc.current.value,
+                "feature": exc.feature,
+            },
+        )
+
+    @app.exception_handler(CapsExceededError)
+    async def _caps_exceeded_handler(request: Request, exc: CapsExceededError):
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": str(exc),
+                "resource": exc.resource,
+                "limit": exc.limit,
+                "current": exc.current,
+            },
+        )
 
     # ------------------------------------------------------------------
     # Exception Handler with CORS headers
@@ -1225,6 +1302,7 @@ def create_app(
         skip_paths={
             "/health", "/health/", "/metrics", "/docs", "/openapi.json", "/redoc",
             "/api/v1/capabilities",
+            "/api/v1/platform/runtime",
             "/api/v1/device/authorize",  # Device flow doesn't need auth
             "/api/v1/device/token",  # Token endpoint
             "/api/v1/activate",  # Activation page
@@ -1243,7 +1321,7 @@ def create_app(
             env_var="AMPREALIZE_ORG_PG_DSN",
         )
         if _tenant_dsn:
-            from amprealize.multi_tenant.context import TenantMiddleware
+            from amprealize.tenant.context import TenantMiddleware
             from amprealize.storage.postgres_pool import PostgresPool
             _tenant_pool = PostgresPool(dsn=_tenant_dsn)
             app.add_middleware(
@@ -1260,12 +1338,22 @@ def create_app(
     app.add_middleware(
         AuthMiddleware,
         config=auth_config,
-        device_flow_manager=container.device_flow_manager,
+        device_flow_manager=container.postgres_device_store or container.device_flow_manager,
     )
 
     @app.get("/api/v1/capabilities", response_model=ApiCapabilitiesResponse, tags=["platform"])
     def get_api_capabilities() -> ApiCapabilitiesResponse:
         return app.state.api_capabilities
+
+    @app.get(
+        "/api/v1/platform/runtime",
+        response_model=PlatformRuntimeMetadataResponse,
+        tags=["platform"],
+    )
+    def get_platform_runtime_metadata() -> PlatformRuntimeMetadataResponse:
+        from amprealize.platform_runtime import build_platform_runtime_dict
+
+        return PlatformRuntimeMetadataResponse(**build_platform_runtime_dict())
 
     @app.get("/api/v1/modules", tags=["platform"])
     def get_enabled_modules() -> Dict[str, Any]:
@@ -1298,7 +1386,7 @@ def create_app(
             }
 
     if auth_enabled:
-        from amprealize.multi_tenant.permissions import AsyncPermissionService
+        from amprealize.tenant.permissions import AsyncPermissionService
 
         # Initialize async permission service if DSN is available
         auth_dsn = resolve_optional_postgres_dsn(
@@ -6670,7 +6758,7 @@ def create_app(
     # =========================================================================
 
     @app.post("/api/v1/auth/service-principals", status_code=status.HTTP_201_CREATED)
-    def create_service_principal(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def create_service_principal(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
         """
         Create a new service principal for agent/service API authentication.
 
@@ -6699,7 +6787,7 @@ def create_app(
             )
 
         try:
-            request = CreateServicePrincipalRequest(
+            create_request = CreateServicePrincipalRequest(
                 name=name,
                 description=payload.get("description"),
                 allowed_scopes=payload.get("allowed_scopes", ["read", "write"]),
@@ -6707,8 +6795,15 @@ def create_app(
                 role=payload.get("role", "STUDENT"),
                 metadata=payload.get("metadata", {}),
             )
-            created_by = payload.get("created_by")  # User ID of creator
-            response = container.service_principal_service.create(request, created_by=created_by)
+            created_by = payload.get("created_by")
+            if not created_by:
+                auth_header = request.headers.get("Authorization", "")
+                if auth_header.startswith("Bearer "):
+                    try:
+                        created_by = _require_user_id(request)
+                    except HTTPException:
+                        created_by = None
+            response = container.service_principal_service.create(create_request, created_by=created_by)
 
             result = response.service_principal.to_dict()
             result["client_secret"] = response.client_secret
@@ -6936,11 +7031,12 @@ def create_app(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Failed to generate access token for service principal",
                 )
-            # Update the session with SP identity info so token resolves
-            # to the SP user via get_user_info_from_access_token()
+            token_subject = sp.created_by or "system"
+            # Update the session with identity info so token resolves to a real
+            # auth.users principal when the service principal has a creator.
             container.postgres_device_store.update_oauth_identity(
                 device_code=session.device_code,
-                oauth_user_id=sp.id,
+                oauth_user_id=token_subject,
                 oauth_username=sp.name,
                 oauth_email=f"{sp.client_id}@service-principal.amprealize.local",
                 oauth_display_name=sp.name,
@@ -6956,7 +7052,7 @@ def create_app(
             )
             container.device_flow_manager.approve_user_code(
                 session.user_code,
-                approver=sp.id,
+                approver=sp.created_by or "system",
                 approver_surface="SERVICE_PRINCIPAL",
             )
             access_token = session.access_token
@@ -8074,11 +8170,15 @@ def create_app(
     # Billing Service
     # ------------------------------------------------------------------
     if BILLING_AVAILABLE and container.billing_service is not None and create_billing_router is not None:
-        # Add billing routes at /api/v1/billing/*
-        billing_routes = create_billing_router(
-            billing_service=container.billing_service,
-        )
-        app.include_router(billing_routes, prefix="/api")
+        try:
+            # Add billing routes at /api/v1/billing/*
+            billing_routes = create_billing_router(
+                billing_service=container.billing_service,
+            )
+        except NotImplementedError as exc:
+            logger.warning("Billing routes unavailable: %s", exc)
+        else:
+            app.include_router(billing_routes, prefix="/api")
 
     # ------------------------------------------------------------------
     # Research (AI Paper Evaluation — read-only)
@@ -8101,6 +8201,66 @@ def create_app(
             logger.info("Research routes registered at /api/v1/research/*")
         except Exception as exc:
             logger.warning("Research routes unavailable: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Whiteboard (collaborative brainstorm canvas)
+    # ------------------------------------------------------------------
+    if os.getenv("AMPREALIZE_ENABLE_WHITEBOARD", "").lower() in ("true", "1", "yes"):
+        try:
+            from whiteboard import WhiteboardService, InMemoryStorage
+            from amprealize.services.whiteboard_api import create_whiteboard_routes
+
+            # Use context system to resolve whiteboard DB — falls back to
+            # InMemoryStorage when no Postgres DSN is available.
+            whiteboard_dsn = resolve_optional_postgres_dsn(
+                service="WHITEBOARD",
+                explicit_dsn=os.getenv("AMPREALIZE_WHITEBOARD_PG_DSN"),
+                env_var="AMPREALIZE_WHITEBOARD_PG_DSN",
+            )
+            if whiteboard_dsn:
+                from amprealize.storage.postgres_pool import PostgresPool
+                from amprealize.storage.whiteboard_postgres import PostgresWhiteboardStorage
+
+                whiteboard_pool = PostgresPool(whiteboard_dsn, service_name="whiteboard")
+                postgres_whiteboard_storage = PostgresWhiteboardStorage(pool=whiteboard_pool)
+                try:
+                    postgres_whiteboard_storage.ensure_schema_ready()
+                    whiteboard_storage = postgres_whiteboard_storage
+                    logger.info("Whiteboard using PostgreSQL storage (context system)")
+                except Exception as exc:
+                    whiteboard_storage = InMemoryStorage()
+                    logger.warning(
+                        "Whiteboard PostgreSQL storage unavailable (%s); falling back to InMemoryStorage",
+                        exc,
+                    )
+            else:
+                whiteboard_storage = InMemoryStorage()
+                logger.info("Whiteboard using InMemoryStorage (no DB configured)")
+
+            # Wire telemetry hooks (Raze) for whiteboard events
+            whiteboard_hooks = None
+            if RAZE_AVAILABLE and container.raze_service is not None:
+                from amprealize.services.whiteboard_hooks import AmprealizeWhiteboardHooks
+                whiteboard_hooks = AmprealizeWhiteboardHooks(raze_service=container.raze_service)
+
+            whiteboard_service = WhiteboardService(storage=whiteboard_storage, hooks=whiteboard_hooks)
+            whiteboard_routes = create_whiteboard_routes(service=whiteboard_service, tags=["whiteboard"])
+            app.include_router(whiteboard_routes, prefix="/api")
+            logger.info("Whiteboard routes registered at /api/v1/whiteboard/*")
+        except Exception as exc:
+            logger.warning("Whiteboard routes unavailable: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Wiki Routes (read-only, filesystem-based — no DB required)
+    # ------------------------------------------------------------------
+    try:
+        from amprealize.services.wiki_api import create_wiki_routes
+
+        wiki_routes = create_wiki_routes()
+        app.include_router(wiki_routes, prefix="/api")
+        logger.info("Wiki routes registered at /api/v1/wiki/*")
+    except Exception as exc:
+        logger.warning("Wiki routes unavailable: %s", exc)
 
     # ------------------------------------------------------------------
     # Conversation / Messaging Routes
@@ -8435,6 +8595,11 @@ def create_app(
             metrics_data = postgres_metrics.get_metrics()
 
         return Response(content=metrics_data, media_type="text/plain; version=0.0.4")
+
+    # GZip must be registered BEFORE CORSMiddleware. Starlette stacks middleware
+    # in reverse-registration order (last registered = outermost). GZip inner,
+    # CORS outer ensures Access-Control-Allow-Origin is always present.
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     # Add CORS middleware last so it wraps everything (outermost layer)
     # This ensures CORS headers are present even on 500 errors from inner layers

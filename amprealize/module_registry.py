@@ -88,10 +88,10 @@ MODULE_REGISTRY: dict[str, ModuleDefinition] = {
         description="Behavior engine, BCI, retrieval, handbook",
         depends_on=("goals",),
         db_schemas=("behaviors", "bci", "reflection"),
-        mcp_tool_prefixes=("behaviors", "bci"),
-        cli_groups=("behavior", "bci"),
-        api_routers=("behaviors", "bci"),
-        capability_flags=("behaviors", "bci"),
+        mcp_tool_prefixes=("behaviors", "bci", "reflection"),
+        cli_groups=("behavior", "bci", "reflection"),
+        api_routers=("behaviors", "bci", "reflection"),
+        capability_flags=("behaviors", "bci", "reflection"),
     ),
     "self_improving": ModuleDefinition(
         name="self_improving",
@@ -101,9 +101,6 @@ MODULE_REGISTRY: dict[str, ModuleDefinition] = {
         enterprise_only=True,
         min_edition="enterprise_premium",
         db_schemas=("auto_reflection",),
-        mcp_tool_prefixes=("reflection",),
-        cli_groups=("reflection",),
-        api_routers=("reflection",),
         capability_flags=("auto_reflection",),
     ),
     "collaboration": ModuleDefinition(
@@ -118,6 +115,17 @@ MODULE_REGISTRY: dict[str, ModuleDefinition] = {
         cli_groups=("workspace", "conversation"),
         api_routers=("collaboration", "conversations"),
         capability_flags=("collaboration", "conversations"),
+    ),
+    "whiteboard": ModuleDefinition(
+        name="whiteboard",
+        display_name="Whiteboard",
+        description="Real-time collaborative brainstorm canvas with tldraw",
+        depends_on=("goals",),
+        db_schemas=("whiteboard_rooms",),
+        mcp_tool_prefixes=("whiteboard",),
+        cli_groups=("whiteboard",),
+        api_routers=("whiteboard",),
+        capability_flags=("whiteboard",),
     ),
 }
 
@@ -204,6 +212,36 @@ def get_all_module_mcp_prefixes() -> set[str]:
     for mod in MODULE_REGISTRY.values():
         prefixes.update(mod.mcp_tool_prefixes)
     return prefixes
+
+
+def get_edition_gated_api_routers() -> dict[str, str]:
+    """Return API router tags that require a specific edition.
+
+    Maps *router_tag* → *min_edition* for enterprise-only modules.
+    Used by the API middleware to return 403 with upgrade guidance
+    instead of a generic 404 for module-disabled routes.
+    """
+    gated: dict[str, str] = {}
+    for mod in MODULE_REGISTRY.values():
+        if mod.enterprise_only and mod.min_edition:
+            for router in mod.api_routers:
+                gated[router] = mod.min_edition
+    return gated
+
+
+def get_edition_gated_cli_groups() -> dict[str, str]:
+    """Return CLI groups that require a specific edition.
+
+    Maps *cli_group* → *min_edition* for enterprise-only modules.
+    Used by CLI gating to show an upgrade message instead of a
+    generic module-disabled error.
+    """
+    gated: dict[str, str] = {}
+    for mod in MODULE_REGISTRY.values():
+        if mod.enterprise_only and mod.min_edition:
+            for group in mod.cli_groups:
+                gated[group] = mod.min_edition
+    return gated
 
 
 def get_all_module_api_routers() -> set[str]:

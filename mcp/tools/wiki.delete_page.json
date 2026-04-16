@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "wiki.delete_page",
+  "description": "Delete a wiki page. Cannot delete protected files (index.md, log.md, SCHEMA.md).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "domain": {
+        "type": "string",
+        "enum": ["research", "infra", "ai-learning"],
+        "description": "Wiki domain"
+      },
+      "page_path": {
+        "type": "string",
+        "description": "Path relative to wiki/<domain>/"
+      }
+    },
+    "required": ["domain", "page_path"]
+  }
+}

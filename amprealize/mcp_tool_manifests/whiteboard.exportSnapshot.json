@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "whiteboard.exportSnapshot",
+  "description": "Export a snapshot of the whiteboard canvas in the specified format (PNG, SVG, or JSON).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "room_id": {
+        "type": "string",
+        "description": "ID of the whiteboard room to export"
+      },
+      "format": {
+        "type": "string",
+        "enum": ["png", "svg", "json"],
+        "default": "json",
+        "description": "Export format: 'png' for image, 'svg' for vector, 'json' for raw tldraw document"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "snapshot": {
+        "type": "object",
+        "properties": {
+          "room_id": { "type": "string" },
+          "format": { "type": "string" },
+          "data": { "type": "string", "description": "Base64-encoded image data (png/svg) or JSON string" },
+          "exported_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "message": { "type": "string" }
+    }
+  }
+}

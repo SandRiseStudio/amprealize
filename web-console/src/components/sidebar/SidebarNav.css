@@ -238,6 +238,65 @@
   background: var(--color-accent-secondary);
 }
 
+.sidebar-nav-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.sidebar-nav-item--with-action {
+  min-width: 0;
+}
+
+.sidebar-nav-inline-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  width: 34px;
+  min-width: 34px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  opacity: 0.92;
+  transition:
+    opacity var(--duration-fast) var(--ease-out-quart),
+    background-color var(--duration-fast) var(--ease-out-quart),
+    border-color var(--duration-fast) var(--ease-out-quart),
+    color var(--duration-fast) var(--ease-out-quart),
+    transform var(--duration-fast) var(--ease-spring-gentle);
+}
+
+.sidebar-nav-row:hover .sidebar-nav-inline-action,
+.sidebar-nav-row:focus-within .sidebar-nav-inline-action,
+.sidebar-nav-inline-action:focus-visible {
+  opacity: 1;
+}
+
+.sidebar-nav-inline-action:hover,
+.sidebar-nav-inline-action:focus-visible {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: var(--color-border-subtle);
+  color: var(--color-accent);
+  transform: translateY(-1px);
+}
+
+.sidebar-nav-row.active .sidebar-nav-inline-action {
+  background: var(--color-accent-subtle);
+  border-color: rgba(34, 118, 210, 0.14);
+  color: var(--color-accent);
+}
+
+.sidebar-nav-inline-action .sidebar-nav-icon {
+  width: 14px;
+  height: 14px;
+}
+
 .sidebar-nav-item-leading {
   display: inline-flex;
   align-items: center;
@@ -577,9 +636,14 @@
 
 .workspace-sidebar.collapsed .sidebar-nav-copy,
 .workspace-sidebar.collapsed .sidebar-nav-trailing,
+.workspace-sidebar.collapsed .sidebar-nav-inline-action,
 .workspace-sidebar.collapsed .sidebar-board-picker,
 .workspace-sidebar.collapsed .sidebar-project-gear,
 .workspace-sidebar.collapsed .sidebar-board-chevron,
 .workspace-sidebar.collapsed .sidebar-project-row .project-name {
   display: none;
 }
+
+/* ---------------------------------------------------------------------------
+   Wiki section
+   --------------------------------------------------------------------------- */

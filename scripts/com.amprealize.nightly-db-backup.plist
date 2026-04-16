@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Amprealize Nightly DB Backup
+  Runs every day at 9:30 PM PST (04:30 UTC / 05:30 UTC depending on DST).
+  macOS launchd uses the system's local timezone, so we set 21:30 directly.
+
+  Install:  cp this file ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.amprealize.nightly-db-backup.plist
+  Uninstall: launchctl unload ~/Library/LaunchAgents/com.amprealize.nightly-db-backup.plist && rm ~/Library/LaunchAgents/com.amprealize.nightly-db-backup.plist
+  Or use:    scripts/manage_nightly_backup.sh install|uninstall|status
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.amprealize.nightly-db-backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__SCRIPT_PATH__</string>
+    </array>
+
+    <!-- 9:30 PM every day (uses system timezone — set your Mac to PST/PDT) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>21</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <!-- Environment variables available to the script -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
+    </dict>
+
+    <!-- Logging -->
+    <key>StandardOutPath</key>
+    <string>__HOME__/.amprealize/backups/launchd_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.amprealize/backups/launchd_stderr.log</string>
+
+    <!-- Run immediately if the scheduled time was missed (e.g. laptop was asleep) -->
+    <key>StartInterval</key>
+    <integer>0</integer>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

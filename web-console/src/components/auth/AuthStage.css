@@ -1,23 +1,41 @@
 .auth-stage-page {
+  position: relative;
+  isolation: isolate;
   min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: var(--color-bg-app);
+  background: #eef6fb;
+  overflow-y: auto;
+}
+
+.auth-stage-page::before,
+.auth-stage-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.auth-stage-page::before {
+  display: none;
+}
+
+.auth-stage-page::after {
+  display: none;
 }
 
 .auth-stage-shell {
   position: relative;
-  width: min(760px, calc(100vw - 48px));
+  width: min(744px, calc(100vw - 48px));
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 
 .auth-stage-header,
-.auth-stage-panel,
-.auth-stage-support {
+.auth-stage-panel {
   position: relative;
   z-index: 1;
 }
@@ -27,35 +45,48 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 6px;
+  padding: 0 10px;
 }
 
 .auth-stage-brand {
   display: inline-flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .auth-stage-brand-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  background: rgba(34, 118, 210, 0.12);
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(34, 118, 210, 0.08);
   border: 1px solid rgba(34, 118, 210, 0.18);
-  color: var(--color-accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48);
 }
 
 .auth-stage-brand-copy {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+}
+
+.auth-stage-brand-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.auth-stage-brand-wordmark {
+  display: block;
+  width: auto;
+  height: 28px;
+  object-fit: contain;
 }
 
 .auth-stage-brand-name {
-  font-size: 1.05rem;
+  font-size: 1.03rem;
   font-weight: var(--font-semibold);
   color: var(--color-text-primary);
   letter-spacing: -0.02em;
@@ -67,25 +98,57 @@
   color: var(--color-text-tertiary);
 }
 
+.auth-stage-brand-meta {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(51, 65, 85, 0.72);
+}
+
 .auth-stage-tagline {
   margin: 0;
-  line-height: 1.5;
+  max-width: 30ch;
+  padding-left: 16px;
+  border-left: 1px solid rgba(34, 118, 210, 0.16);
+  font-size: 0.79rem;
+  line-height: 1.42;
+  font-weight: var(--font-medium);
+  color: rgba(15, 23, 42, 0.66);
+  letter-spacing: -0.01em;
+  text-align: right;
 }
 
 .auth-stage-panel {
   overflow: hidden;
   border-radius: 30px;
-  border: 1px solid var(--color-border-subtle);
-  background: rgba(255, 255, 255, 0.58);
-  backdrop-filter: blur(20px);
+  border: 1px solid rgba(103, 145, 182, 0.28);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.auth-stage-panel::before,
+.auth-stage-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.auth-stage-panel::before {
+  display: none;
+}
+
+.auth-stage-panel::after {
+  display: none;
 }
 
 .auth-stage-panel-inner {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  padding: 34px 32px 28px;
-  background: rgba(255, 255, 255, 0.72);
+  gap: 24px;
+  padding: 28px 32px 22px;
+  background: transparent;
 }
 
 .auth-stage-panel-header {
@@ -98,31 +161,32 @@
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  min-height: 34px;
-  padding: 0 14px;
+  min-height: 29px;
+  padding: 0 13px;
   border-radius: var(--radius-full);
-  background: rgba(34, 118, 210, 0.08);
-  border: 1px solid rgba(34, 118, 210, 0.14);
-  color: var(--color-text-secondary);
-  font-size: 0.8rem;
+  background: rgba(34, 118, 210, 0.1);
+  border: 1px solid rgba(34, 118, 210, 0.18);
+  color: var(--color-accent);
+  font-size: 0.75rem;
   font-weight: var(--font-semibold);
-  letter-spacing: 0.01em;
+  letter-spacing: 0.05em;
 }
 
 .auth-stage-panel-title {
   margin: 0;
-  font-size: clamp(2.15rem, 4vw, 3rem);
+  font-size: clamp(1.68rem, 2.7vw, 2.04rem);
   line-height: 0.98;
-  letter-spacing: -0.06em;
+  letter-spacing: -0.05em;
   color: var(--color-text-primary);
 }
 
 .auth-stage-panel-subtitle {
   margin: 0;
-  max-width: 52ch;
-  font-size: var(--text-base);
-  line-height: 1.7;
-  color: var(--color-text-secondary);
+  width: 100%;
+  max-width: none;
+  font-size: 0.97rem;
+  line-height: 1.62;
+  color: rgba(15, 23, 42, 0.78);
 }
 
 .auth-stage-panel-body {
@@ -130,56 +194,11 @@
   flex-direction: column;
 }
 
-.auth-stage-support {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.auth-stage-support-item {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  border: 1px solid rgba(70, 108, 140, 0.14);
-  background: rgba(255, 255, 255, 0.5);
-  backdrop-filter: blur(12px);
-}
-
-.auth-stage-support-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  background: rgba(16, 152, 173, 0.1);
-  color: var(--color-accent-secondary);
-}
-
-.auth-stage-support-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.auth-stage-support-copy span {
-  font-size: 0.92rem;
-  font-weight: var(--font-semibold);
-  color: var(--color-text-primary);
-}
-
-.auth-stage-support-copy small {
-  font-size: 0.8rem;
-  line-height: 1.5;
-  color: var(--color-text-tertiary);
-}
-
 .auth-stage-ambient {
   position: absolute;
-  inset: -40px;
+  inset: -56px;
   pointer-events: none;
+  opacity: 0.54;
 }
 
 .auth-stage-orbit,
@@ -195,68 +214,68 @@
 }
 
 .auth-stage-orbit-a {
-  top: 24px;
-  right: -6px;
-  width: 220px;
-  height: 220px;
+  top: 16px;
+  right: 18px;
+  width: 188px;
+  height: 188px;
 }
 
 .auth-stage-orbit-b {
-  bottom: 8px;
-  left: -18px;
-  width: 140px;
-  height: 140px;
+  bottom: 18px;
+  left: 6px;
+  width: 108px;
+  height: 108px;
   border-color: rgba(16, 152, 173, 0.18);
 }
 
 .auth-stage-node {
   border-radius: 999px;
-  background: rgba(34, 118, 210, 0.14);
-  border: 1px solid rgba(34, 118, 210, 0.16);
+  background: rgba(34, 118, 210, 0.16);
+  border: 1px solid rgba(34, 118, 210, 0.14);
 }
 
 .auth-stage-node-a {
-  top: 58px;
-  right: 110px;
-  width: 14px;
-  height: 14px;
-}
-
-.auth-stage-node-b {
-  top: 188px;
-  right: 62px;
-  width: 20px;
-  height: 20px;
-  background: rgba(16, 152, 173, 0.16);
-  border-color: rgba(16, 152, 173, 0.22);
-}
-
-.auth-stage-node-c {
-  bottom: 84px;
-  left: 100px;
+  top: 56px;
+  right: 112px;
   width: 12px;
   height: 12px;
 }
 
+.auth-stage-node-b {
+  top: 164px;
+  right: 70px;
+  width: 16px;
+  height: 16px;
+  background: rgba(16, 152, 173, 0.16);
+  border-color: rgba(16, 152, 173, 0.14);
+}
+
+.auth-stage-node-c {
+  bottom: 90px;
+  left: 94px;
+  width: 10px;
+  height: 10px;
+}
+
 .auth-stage-line {
   height: 1px;
-  background: rgba(34, 118, 210, 0.16);
+  background: rgba(34, 118, 210, 0.18);
   transform-origin: left center;
 }
 
 .auth-stage-line-a {
-  top: 78px;
-  right: 122px;
-  width: 110px;
+  top: 74px;
+  right: 128px;
+  width: 86px;
   transform: rotate(18deg);
 }
 
 .auth-stage-line-b {
-  bottom: 104px;
-  left: 74px;
-  width: 104px;
+  bottom: 108px;
+  left: 72px;
+  width: 76px;
   transform: rotate(-28deg);
-  background: rgba(16, 152, 173, 0.16);
+  background: rgba(16, 152, 173, 0.18);
 }
 
 @media (max-width: 780px) {
@@ -265,7 +284,7 @@
   }
 
   .auth-stage-shell {
-    width: min(760px, calc(100vw - 32px));
+    width: min(744px, calc(100vw - 32px));
   }
 
   .auth-stage-header {
@@ -274,8 +293,11 @@
     padding: 0 2px;
   }
 
-  .auth-stage-support {
-    grid-template-columns: 1fr;
+  .auth-stage-tagline {
+    padding-left: 0;
+    border-left: 0;
+    max-width: none;
+    text-align: left;
   }
 }
 
@@ -285,26 +307,30 @@
   }
 
   .auth-stage-panel-inner {
-    gap: 22px;
-    padding: 24px 22px 20px;
+    gap: 16px;
+    padding: 22px 18px 16px;
   }
 
   .auth-stage-panel-title {
-    font-size: 2rem;
+    font-size: 1.56rem;
+  }
+
+  .auth-stage-panel-subtitle {
+    font-size: 0.93rem;
+    line-height: 1.58;
   }
 
   .auth-stage-tagline {
     font-size: 0.82rem;
   }
 
-  .auth-stage-support-item {
-    padding: 12px 14px;
+  .auth-stage-brand-wordmark {
+    height: 24px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .auth-stage-shell,
-  .auth-stage-support-item {
+  .auth-stage-shell {
     animation: none;
   }
 }
