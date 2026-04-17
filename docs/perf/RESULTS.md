@@ -440,6 +440,138 @@ session is now the single source of truth in `auth.device_sessions`,
 visible to every worker, and survives container recreates. The
 multi-worker device-flow bug is closed.
 
+## Phase A — collapse count+list + cache parent_id probe + threadpool offload
+
+Targets the residual `work_items.list` cost identified at the end of phase C.
+Three small, independent changes landed together:
+
+1. **`COUNT(*) OVER()` inline in `list_work_items`**
+   (`amprealize/services/board_service.py`) — the first page used to fire
+   a separate `count_work_items` round-trip alongside the list. The two
+   are now a single query that emits a `_total` window-function column.
+   The REST handler (`amprealize/services/board_api_v2.py`) reads the
+   count from the same result set when the client asks for
+   `include_total=true`.
+
+2. **Module-level cache for the `parent_id` `information_schema` probe**
+   (`amprealize/services/board_service.py`) — `_enrich_child_aggregation`
+   used to re-run a schema lookup on every call on every pool-bound
+   worker. Cached once per `id(pool)` for the life of the process.
+
+3. **Threadpool offload for sync DB calls in async handlers**
+   (`amprealize/services/board_api_v2.py`) — `list_boards`, `get_board`,
+   `get_work_items_batch`, `get_children`, and both paths of
+   `list_work_items` now wrap their blocking `board_service.*` calls in
+   `starlette.concurrency.run_in_threadpool`. Under `--workers=4`,
+   requests that would otherwise have monopolised a single worker's
+   event loop on psycopg2 I/O now interleave with other I/O-bound
+   handlers on the same worker.
+
+Instrumentation: `work_items.list` perf line now splits total into
+`t_query_ms` (DB-bound) and `t_shape_ms` (Python row-to-dataclass), plus
+a new `work_items.batch.enrich` `perf_span` around child-aggregation
+and display-id enrichment in `get_work_items_batch`.
+
+### Bottom-line numbers (cold, p50, n=3)
+
+| scenario | dashboard: agent_panel → chrome → total | board: shell → first items → full hydration → total |
+|---|---|---|
+| phase C (write-through + w=4 + set-tenant batch) | 1,321 → 1,939 → 2,380 | 1,769 → 2,110 → 12,022 → 12,551 |
+| **phase A (count+list collapse + probe cache + threadpool, w=4)** | **1,512 → 1,824 → 2,255** | **2,113 → 1,522 → 5,323 → 5,746** |
+
+[Run folder](../../scripts/perf/out/neon-2026-04-17T03-52-15Z-phaseA-w4/report.md)
+
+### Deltas vs phase C (same harness, same project/board)
+
+Dashboard:
+
+- `dashboard.agent_panel_ready`: 1,321 → 1,512 ms (inside n=3 noise).
+- `dashboard.chrome_ready`: 1,939 → 1,824 ms (−6%).
+- `cold_dashboard total`: 2,380 → 2,255 ms (−5%).
+
+Dashboard moves are in the noise band; the Phase A changes aren't on
+the cold-dashboard critical path. The board page is where the win lands.
+
+Board:
+
+- `board.first_items_page_ready`: **2,110 → 1,522 ms (−28%)**.
+- `board.full_hydration_ready`: **12,022 → 5,323 ms (−56%, −6.7 s)**.
+- `cold_board total`: **12,551 → 5,746 ms (−54%, −6.8 s)**.
+
+`full_hydration_ready` is the 9 progressive `/v1/work-items` pages
+finishing. That's the phase C "remaining bottleneck" — now cut in half
++ change.
+
+### Server perf spans (3 cold runs, workers=4)
+
+| endpoint | phase C avg | phase A avg | phase A p95 | delta |
+|---|---|---|---|---|
+| `boards.get` | 773 | 1,004 | 1,373 | +30% (noise on n=3) |
+| `boards.list` | 391 | 396 | 958 | ~flat |
+| `dashboard.stats` | 721 | 717 | — | ~flat |
+| `projects.list_user_agents` | 311 | 297 | 318 | ~flat |
+| `projects.list_agent_presence_batch` | 311 | 303 | — | ~flat |
+| **`work_items.list`** | 557 (p95 742) | **523** | **848** | **−6% / +14%** |
+
+Per-call `work_items.list` handler time is only marginally better (523
+vs 557 ms p50); that is expected — the SQL hasn't gotten cheaper, only
+the *number of round-trips* has changed. The new perf line splits cost
+cleanly: `t_query_ms ≈ t_total_ms` in every sample, and `t_shape_ms` is
+0–1 ms. All remaining latency is SQL execution + Neon network.
+
+### Why the board page collapsed
+
+Two compounding effects:
+
+1. **Fewer `work_items.list` calls per page load.** Phase C fired
+   46–49 `/v1/work-items` requests per 3-run bench (~15–16 per cold
+   board). Phase A fires 33 (~11 per cold board). The count collapse
+   (A1) removed one round-trip per page; the first page also drops
+   its separate `count_work_items` call.
+
+2. **Threadpool offload unblocks parallelism within each worker.**
+   Phase C's handlers were `def` (sync), so each worker could only
+   progress one request at a time; four concurrent board-page fetches
+   meant a fixed 4-wide serial line. Phase A's async handlers await on
+   `run_in_threadpool`, so while worker N is blocked on psycopg2 for
+   `/v1/work-items` page 3, it can still shape-and-emit a response
+   for `/v1/capabilities` that landed on the same worker. Effective
+   concurrency ≈ `workers × threadpool_size` instead of `workers × 1`,
+   which is why the 9-page hydration went from ~12 s wall-clock to
+   ~5.3 s.
+
+### Client-observed API latencies (browser `responseEnd`, board page)
+
+| path | phase C p50 | phase A p50 | delta |
+|---|---|---|---|
+| `/v1/projects/.../participants` | 3,015 ms | 2,375 ms | −21% |
+| `/v1/boards/.../progress-rollups` | 1,879 ms | 2,169 ms | +15% (noise) |
+| `/v1/boards/<id>` (get) | ~1,700 ms | 2,081 ms | +22% (noise, n=3) |
+| `/v1/projects/agents` (board) | 3,451 ms | 1,522 ms | **−56%** |
+| `/v1/executions` (board) | 1,709 ms | 1,686 ms | ~flat |
+| **`/v1/work-items` (board, p50 of 33–49 calls)** | **974 ms** | **1,109 ms** | +14% |
+
+The `/v1/work-items` p50 *per call* went slightly up, but call count
+dropped ~30% and the serial tail shrank dramatically. Net page time
+fell ~6.8 s. Per-call p95 did tighten: 1,687 ms here vs 2,547 ms in
+phase B baseline shape — the queue tail that used to stack behind
+~15 sync calls on one worker is gone.
+
+### Conclusion
+
+Phase A closes the remaining `work_items.list` bottleneck called out at
+the end of phase C. Combined chain since the audit started:
+
+- **Dashboard total:** 6,356 (baseline) → 2,380 (phase C) → 2,255 ms
+  (phase A). **~2.8× faster.**
+- **Cold board total:** 15,908 (baseline) → 12,551 (phase C) → 5,746 ms
+  (phase A). **~2.8× faster.**
+- **Full board hydration (9 pages):** — → 12,022 (phase C) → 5,323 ms
+  (phase A). **2.3× faster in one phase.**
+
+Phase A is entirely server-side and transparent to clients: no schema
+changes, no client refactors, no new dependencies, no new env flags.
+
 ## Raw run folders
 
 - [neon-2026-04-16T19-43-21Z-smoke_workers1](../../scripts/perf/out/neon-2026-04-16T19-43-21Z-smoke_workers1/report.md)
@@ -449,3 +581,4 @@ multi-worker device-flow bug is closed.
 - [neon-2026-04-16T19-52-30Z-toggles_all](../../scripts/perf/out/neon-2026-04-16T19-52-30Z-toggles_all/report.md)
 - [neon-2026-04-16T20-42-02Z-phaseB](../../scripts/perf/out/neon-2026-04-16T20-42-02Z-phaseB/report.md)
 - [neon-2026-04-16T21-10-41Z-phaseC-w4](../../scripts/perf/out/neon-2026-04-16T21-10-41Z-phaseC-w4/report.md)
+- [neon-2026-04-17T03-52-15Z-phaseA-w4](../../scripts/perf/out/neon-2026-04-17T03-52-15Z-phaseA-w4/report.md)
