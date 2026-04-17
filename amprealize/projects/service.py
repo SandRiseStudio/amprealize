@@ -30,6 +30,24 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Module-level cache: `auth.project_collaborators` is an optional enterprise
+# table. Probing `to_regclass` on every `list_project_participants` call was
+# the same pattern Phase A fixed for `information_schema.columns` — cheap per
+# call but a wasted Neon round-trip we only need once. Keyed by DSN so the
+# cache can't bleed across unrelated databases in tests.
+_collaborators_table_probe_cache: Dict[str, bool] = {}
+
+
+def _has_collaborators_table(cur, dsn: str) -> bool:
+    cached = _collaborators_table_probe_cache.get(dsn)
+    if cached is not None:
+        return cached
+    cur.execute("SELECT to_regclass('auth.project_collaborators')")
+    found = cur.fetchone()[0] is not None
+    _collaborators_table_probe_cache[dsn] = found
+    return found
+
+
 class OSSProjectService:
     """Minimal project service for OSS (personal projects, no org features).
 
@@ -167,11 +185,52 @@ class OSSProjectService:
         finally:
             conn.close()
 
+    def get_projects(self, project_ids: List[str]) -> List[Project]:
+        """Batch-load multiple projects by id in one round-trip.
+
+        Callers that authorise N project ids before a batched workload
+        (e.g. /v1/projects/agents/presence?project_ids=...) previously paid
+        N Neon round-trips walking `get_project` per id. This collapses that
+        to a single `WHERE project_id = ANY(%s)` SELECT. Missing ids are
+        silently omitted; the caller is responsible for comparing input vs
+        output length / membership to detect access violations.
+        """
+        if not project_ids:
+            return []
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                with perf_span("projects.get_projects_batch") as span:
+                    span["id_count"] = len(project_ids)
+                    cur.execute(
+                        """
+                        SELECT project_id, org_id, owner_id, name, slug,
+                               description, visibility, settings,
+                               created_at, updated_at
+                        FROM auth.projects
+                        WHERE project_id = ANY(%s)
+                        """,
+                        (list(project_ids),),
+                    )
+                    rows = cur.fetchall()
+                    span["row_count"] = len(rows)
+                    return [self._row_to_project(r) for r in rows]
+        finally:
+            conn.close()
+
     def list_project_participants(
         self,
         project_id: str,
     ) -> List[Dict[str, Any]]:
         """List all project-scoped participants.
+
+        Previously ran up to four sequential queries — project+owner,
+        project_memberships, a `to_regclass` probe, (conditional)
+        project_collaborators, and project_agent_assignments — which added
+        up to the slowest projects endpoint (~2.4s p50 on Neon cloud-dev).
+        Now runs the existence probe once per process (module-level cache)
+        and the data load as a single UNION ALL with a `kind` discriminator
+        so PostgreSQL returns every participant row in one round-trip.
 
         Includes:
         - project owner
@@ -182,35 +241,145 @@ class OSSProjectService:
         conn = self._get_conn()
         try:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT p.project_id,
-                           p.owner_id,
-                           p.org_id,
-                           owner.display_name,
-                           owner.email
-                    FROM auth.projects p
-                    LEFT JOIN auth.users owner ON owner.id = p.owner_id
-                    WHERE p.project_id = %s
-                    """,
-                    (project_id,),
-                )
-                project_row = cur.fetchone()
-                if project_row is None:
-                    return []
+                with perf_span("projects.list_participants_query") as span:
+                    has_collab = _has_collaborators_table(cur, self._dsn)
+                    span["has_collab_table"] = has_collab
 
-                _, owner_id, _org_id, owner_display_name, owner_email = project_row
+                    # Each UNION branch emits the same 14 columns. `sort_priority`
+                    # pins owner→members→collaborators→agents; `sort_ts` preserves
+                    # the original per-branch ORDER BYs (created_at / invited_at /
+                    # assigned_at ASC) while NULLS FIRST keeps owner (ts=NULL) at
+                    # the head of its group.
+                    branches: List[str] = []
+                    params: List[Any] = []
+
+                    branches.append(
+                        """
+                        SELECT 'owner'::text       AS kind,
+                               p.owner_id          AS id,
+                               p.owner_id          AS user_id,
+                               NULL::text          AS agent_id,
+                               owner.display_name  AS display_name,
+                               owner.email         AS email,
+                               'owner'::text       AS role,
+                               'owner'::text       AS membership_source,
+                               NULL::text          AS agent_slug,
+                               NULL::text          AS description,
+                               NULL::text          AS assignment_status,
+                               NULL::text          AS presence_status,
+                               0                   AS sort_priority,
+                               NULL::timestamptz   AS sort_ts
+                        FROM auth.projects p
+                        LEFT JOIN auth.users owner ON owner.id = p.owner_id
+                        WHERE p.project_id = %s
+                        """
+                    )
+                    params.append(project_id)
+
+                    branches.append(
+                        """
+                        SELECT 'member'::text             AS kind,
+                               pm.user_id                 AS id,
+                               pm.user_id                 AS user_id,
+                               NULL::text                 AS agent_id,
+                               u.display_name             AS display_name,
+                               u.email                    AS email,
+                               COALESCE(pm.role, 'contributor') AS role,
+                               'project_membership'::text AS membership_source,
+                               NULL::text                 AS agent_slug,
+                               NULL::text                 AS description,
+                               NULL::text                 AS assignment_status,
+                               NULL::text                 AS presence_status,
+                               1                          AS sort_priority,
+                               pm.created_at              AS sort_ts
+                        FROM auth.project_memberships pm
+                        LEFT JOIN auth.users u ON u.id = pm.user_id
+                        WHERE pm.project_id = %s
+                        """
+                    )
+                    params.append(project_id)
+
+                    if has_collab:
+                        branches.append(
+                            """
+                            SELECT 'collaborator'::text          AS kind,
+                                   pc.user_id                    AS id,
+                                   pc.user_id                    AS user_id,
+                                   NULL::text                    AS agent_id,
+                                   u.display_name                AS display_name,
+                                   u.email                       AS email,
+                                   COALESCE(pc.role, 'contributor') AS role,
+                                   'project_collaborator'::text  AS membership_source,
+                                   NULL::text                    AS agent_slug,
+                                   NULL::text                    AS description,
+                                   NULL::text                    AS assignment_status,
+                                   NULL::text                    AS presence_status,
+                                   2                             AS sort_priority,
+                                   pc.invited_at                 AS sort_ts
+                            FROM auth.project_collaborators pc
+                            LEFT JOIN auth.users u ON u.id = pc.user_id
+                            WHERE pc.project_id = %s
+                            """
+                        )
+                        params.append(project_id)
+
+                    branches.append(
+                        """
+                        SELECT 'agent'::text          AS kind,
+                               pa.agent_id            AS id,
+                               NULL::text             AS user_id,
+                               pa.agent_id            AS agent_id,
+                               a.name                 AS display_name,
+                               NULL::text             AS email,
+                               COALESCE(pa.role, 'primary') AS role,
+                               NULL::text             AS membership_source,
+                               a.slug                 AS agent_slug,
+                               a.description          AS description,
+                               COALESCE(pa.status, 'active') AS assignment_status,
+                               COALESCE(ap.presence_status,
+                                   CASE
+                                       WHEN pa.status = 'active'   THEN 'available'
+                                       WHEN pa.status = 'inactive' THEN 'paused'
+                                       ELSE 'offline'
+                                   END
+                               )                      AS presence_status,
+                               3                      AS sort_priority,
+                               pa.assigned_at         AS sort_ts
+                        FROM execution.project_agent_assignments pa
+                        LEFT JOIN execution.agents a ON a.agent_id = pa.agent_id
+                        LEFT JOIN execution.agent_presence ap
+                            ON ap.agent_id = pa.agent_id AND ap.project_id = pa.project_id
+                        WHERE pa.project_id = %s
+                          AND pa.status <> 'removed'
+                        """
+                    )
+                    params.append(project_id)
+
+                    sql = (
+                        "\nUNION ALL\n".join(branches)
+                        + "\nORDER BY sort_priority ASC, sort_ts ASC NULLS FIRST"
+                    )
+                    cur.execute(sql, tuple(params))
+                    rows = cur.fetchall()
+                    span["row_count"] = len(rows)
+
+                # If the owner branch returned no rows, the project either
+                # doesn't exist or has no owner. Preserve the pre-B3 behaviour
+                # of returning `[]` in that case so the API does not leak
+                # orphaned membership/agent rows for deleted projects.
+                has_owner_row = any(r[0] == "owner" for r in rows)
+                if not has_owner_row:
+                    return []
 
                 participants: List[Dict[str, Any]] = []
                 seen_humans: set[str] = set()
 
-                def add_human(
-                    *,
+                def _add_human(
                     user_id: Optional[str],
                     role: str,
                     membership_source: str,
-                    display_name: Optional[str] = None,
-                    email: Optional[str] = None,
+                    display_name: Optional[str],
+                    email: Optional[str],
                 ) -> None:
                     if not user_id or user_id in seen_humans:
                         return
@@ -225,98 +394,33 @@ class OSSProjectService:
                         "membership_source": membership_source,
                     })
 
-                add_human(
-                    user_id=owner_id,
-                    role="owner",
-                    membership_source="owner",
-                    display_name=owner_display_name,
-                    email=owner_email,
-                )
-
-                cur.execute(
-                    """
-                    SELECT pm.user_id,
-                           pm.role,
-                           u.display_name,
-                           u.email
-                    FROM auth.project_memberships pm
-                    LEFT JOIN auth.users u ON u.id = pm.user_id
-                    WHERE pm.project_id = %s
-                    ORDER BY pm.created_at ASC
-                    """,
-                    (project_id,),
-                )
-                for user_id, role, display_name, email in cur.fetchall():
-                    add_human(
-                        user_id=user_id,
-                        role=role or "contributor",
-                        membership_source="project_membership",
-                        display_name=display_name,
-                        email=email,
-                    )
-
-                cur.execute("SELECT to_regclass('auth.project_collaborators')")
-                has_collaborators_table = cur.fetchone()[0] is not None
-                if has_collaborators_table:
-                    cur.execute(
-                        """
-                        SELECT pc.user_id,
-                               pc.role,
-                               u.display_name,
-                               u.email
-                        FROM auth.project_collaborators pc
-                        LEFT JOIN auth.users u ON u.id = pc.user_id
-                        WHERE pc.project_id = %s
-                        ORDER BY pc.invited_at ASC
-                        """,
-                        (project_id,),
-                    )
-                    for user_id, role, display_name, email in cur.fetchall():
-                        add_human(
-                            user_id=user_id,
-                            role=role or "contributor",
-                            membership_source="project_collaborator",
-                            display_name=display_name,
-                            email=email,
+                for row in rows:
+                    (
+                        kind, row_id, user_id, agent_id,
+                        display_name, email, role, membership_source,
+                        agent_slug, description, assignment_status,
+                        presence_status, _sort_priority, _sort_ts,
+                    ) = row
+                    if kind in ("owner", "member", "collaborator"):
+                        _add_human(
+                            user_id,
+                            role or "contributor",
+                            membership_source or kind,
+                            display_name,
+                            email,
                         )
-
-                cur.execute(
-                    """
-                    SELECT pa.agent_id,
-                           pa.role,
-                           pa.status,
-                           a.name,
-                           a.slug,
-                           a.description,
-                           COALESCE(ap.presence_status,
-                               CASE
-                                   WHEN pa.status = 'active' THEN 'available'
-                                   WHEN pa.status = 'inactive' THEN 'paused'
-                                   ELSE 'offline'
-                               END
-                           ) AS presence_status
-                    FROM execution.project_agent_assignments pa
-                    LEFT JOIN execution.agents a ON a.agent_id = pa.agent_id
-                    LEFT JOIN execution.agent_presence ap
-                        ON ap.agent_id = pa.agent_id AND ap.project_id = pa.project_id
-                    WHERE pa.project_id = %s
-                      AND pa.status <> 'removed'
-                    ORDER BY pa.assigned_at ASC
-                    """,
-                    (project_id,),
-                )
-                for agent_id, role, status, name, slug, description, presence_status in cur.fetchall():
-                    participants.append({
-                        "id": agent_id,
-                        "kind": "agent",
-                        "agent_id": agent_id,
-                        "display_name": name,
-                        "agent_slug": slug,
-                        "description": description,
-                        "role": role or "primary",
-                        "assignment_status": status or "active",
-                        "presence": presence_status or "offline",
-                    })
+                    elif kind == "agent":
+                        participants.append({
+                            "id": agent_id,
+                            "kind": "agent",
+                            "agent_id": agent_id,
+                            "display_name": display_name,
+                            "agent_slug": agent_slug,
+                            "description": description,
+                            "role": role or "primary",
+                            "assignment_status": assignment_status or "active",
+                            "presence": presence_status or "offline",
+                        })
 
                 return participants
         finally:
@@ -413,7 +517,16 @@ class OSSProjectService:
         config_overrides: Optional[Dict[str, Any]] = None,
         role: ProjectAgentRole = ProjectAgentRole.PRIMARY,
     ) -> ProjectAgentAssignmentResponse:
-        """Assign a registry agent to a project."""
+        """Assign a registry agent to a project.
+
+        Inserts the assignment and, in the same round-trip, joins to
+        `execution.agents` so the returned response carries the full
+        (name, slug, description) shape the REST layer exposes. Previously
+        this returned a bare assignment with `name=""` and the handler had
+        to issue a second `list_project_agent_assignments` SELECT just to
+        pick the freshly-inserted row back out — two Neon round-trips per
+        create. CTE collapses that to one.
+        """
         import json
 
         assignment_id = f"pa-{uuid.uuid4().hex[:12]}"
@@ -425,19 +538,37 @@ class OSSProjectService:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO execution.project_agent_assignments
-                        (id, project_id, agent_id, assigned_by, assigned_at,
-                         config_overrides, role, status)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id
+                    WITH inserted AS (
+                        INSERT INTO execution.project_agent_assignments
+                            (id, project_id, agent_id, assigned_by, assigned_at,
+                             config_overrides, role, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id, project_id, agent_id, assigned_by,
+                                  assigned_at, config_overrides, role, status
+                    )
+                    SELECT ins.id, ins.project_id, ins.agent_id,
+                           ins.assigned_by, ins.assigned_at,
+                           ins.config_overrides, ins.role, ins.status,
+                           a.name AS agent_name, a.slug AS agent_slug,
+                           a.description AS agent_description
+                    FROM inserted ins
+                    LEFT JOIN execution.agents a ON a.agent_id = ins.agent_id
                     """,
                     (assignment_id, project_id, agent_id, assigned_by, now,
                      json.dumps(config), role.value, ProjectAgentStatus.ACTIVE.value),
                 )
+                row = cur.fetchone()
                 conn.commit()
         finally:
             conn.close()
 
+        if row is not None:
+            return self._row_to_agent_assignment(row)
+
+        # Defensive fallback — should not trigger because the CTE RETURNING
+        # guarantees at least one row, but keep the original response shape
+        # so a schema mismatch surfaces as a degraded (blank name) response
+        # rather than an exception.
         return ProjectAgentAssignmentResponse(
             id=assignment_id,
             project_id=project_id,

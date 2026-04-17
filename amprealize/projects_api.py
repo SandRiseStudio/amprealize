@@ -249,7 +249,16 @@ def create_project_routes(
                     config_overrides=body.config,
                     role=ProjectAgentRole.PRIMARY,
                 )
-
+                # Service-side CTE now returns the fully-joined shape
+                # (name/slug/description) in the same round-trip as the
+                # INSERT, so we no longer need to re-list the project's
+                # assignments just to hydrate the freshly-inserted row.
+                # Enterprise OrganizationService still returns a bare
+                # assignment — detect the missing `name` and fall back to
+                # the legacy re-list path in that case so the contract
+                # stays identical.
+                if getattr(assignment, "name", "") or getattr(assignment, "agent_name", ""):
+                    return assignment
                 assignments = await run_in_threadpool(
                     org_service.list_project_agent_assignments, body.project_id
                 )
@@ -368,8 +377,19 @@ def create_project_routes(
                 span["project_count"] = len(ids)
                 if not ids:
                     return ProjectAgentPresenceListResponse(agents=[], total=0)
-                for pid in ids:
-                    await _require_project_access(user_id, pid)
+                if hasattr(org_service, "get_projects"):
+                    projects = await run_in_threadpool(org_service.get_projects, ids)
+                    projects_by_id = {p.id: p for p in projects}
+                    for pid in ids:
+                        proj = projects_by_id.get(pid)
+                        if proj is None or proj.owner_id != user_id:
+                            raise HTTPException(
+                                status_code=status.HTTP_404_NOT_FOUND,
+                                detail=f"Project {pid} not found",
+                            )
+                else:
+                    for pid in ids:
+                        await _require_project_access(user_id, pid)
                 if hasattr(org_service, "list_agent_presence_batch"):
                     grouped = await run_in_threadpool(
                         org_service.list_agent_presence_batch, ids
