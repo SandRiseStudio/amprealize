@@ -867,7 +867,15 @@ export function useWorkItems(
   }, [boardId, itemsKey, itemsMetaKey, normalizedQuery, pageSize, queryClient]);
 
   React.useEffect(() => {
-    if (!progressive || !boardId || !query.data || query.isFetching) return;
+    if (!progressive || !boardId) return;
+    // Read fetch-in-flight and data presence straight from the cache so
+    // we don't have to put `query.data` / `query.isFetching` in the dep
+    // array. If they were deps, every wave's `setQueryData` would retrigger
+    // this effect and spawn a second concurrent hydration loop.
+    const itemsState = queryClient.getQueryState<WorkItem[]>(itemsKey);
+    const hasData = (itemsState?.data?.length ?? 0) > 0;
+    const isFetching = itemsState?.fetchStatus === 'fetching';
+    if (!hasData || isFetching) return;
     if (!hydrationAllowed) return;
     if (!(itemsMetaQuery.data?.isPartial ?? false)) {
       setIsBackgroundHydrating(false);
@@ -880,24 +888,88 @@ export function useWorkItems(
     setIsBackgroundHydrating(true);
 
     void (async () => {
+      // Background hydration: after the first page lands, fan out the
+      // remaining pages in waves so we overlap handler time across API
+      // workers instead of walking one-page-at-a-time. With workers=4 and
+      // ~500-700ms per handler on Neon, a serial walk of 9 pages took
+      // ~5-7s of pure request time; four in parallel collapses that to
+      // ceil(9/4)=3 waves.
+      const PARALLELISM = 4;
+      // Read per-wave backoff from localStorage (kept for the perf harness
+      // A/B). Default is 0 now that the sleep's only purpose — letting
+      // a single worker drain before the next page — is obsolete under
+      // workers>=2.
+      const readHydrateSleepMs = (): number => {
+        try {
+          const raw = window.localStorage?.getItem('amprealize.hydrateSleepMs');
+          if (raw === null || raw === undefined) return 0;
+          const n = Number(raw);
+          return Number.isFinite(n) && n >= 0 ? n : 0;
+        } catch {
+          return 0;
+        }
+      };
+
       try {
         while (!cancelled) {
           const currentMeta = queryClient.getQueryData<WorkItemsMeta>(itemsMetaKey) ?? EMPTY_WORK_ITEMS_META;
           if (!currentMeta.isPartial) break;
-          await appendNextPage();
-          // Hydration backoff between pages. Runtime-tunable via
-          // localStorage['amprealize.hydrateSleepMs'] so the perf harness can
-          // flip the progressive-sleep A/B without rebuilding.
-          const hydrateSleepMs = (() => {
-            try {
-              const raw = window.localStorage?.getItem('amprealize.hydrateSleepMs');
-              if (raw === null || raw === undefined) return 400;
-              const n = Number(raw);
-              return Number.isFinite(n) && n >= 0 ? n : 400;
-            } catch {
-              return 400;
+
+          // Precompute up to PARALLELISM offsets for this wave. We rely on
+          // `total` being populated by the first page (includeTotal:true);
+          // if something went wrong and total is 0, fall back to a single
+          // serial append so we can't spin on an unknown page count.
+          const offsets: number[] = [];
+          if (currentMeta.total > 0) {
+            let cursor = currentMeta.loadedCount;
+            for (let i = 0; i < PARALLELISM && cursor < currentMeta.total; i += 1) {
+              offsets.push(cursor);
+              cursor += pageSize;
             }
-          })();
+          }
+
+          // Tight cancellation gate right before any network work: if the
+          // effect was cancelled during the last wave's state merge we want
+          // to bail out HERE, not after firing another wave of fetches.
+          if (cancelled) break;
+
+          if (offsets.length <= 1) {
+            await appendNextPage();
+          } else {
+            const currentItems = queryClient.getQueryData<WorkItem[]>(itemsKey) ?? EMPTY_ITEMS;
+            const currentServerItems = hasActiveBoardFilters(normalizedQuery)
+              ? currentItems.filter((item) => matchesBoardWorkItemQuery(item, normalizedQuery))
+              : currentItems;
+
+            const pages = await Promise.all(
+              offsets.map((off) =>
+                fetchWorkItemsPage(boardId, pageSize, off, false, normalizedQuery),
+              ),
+            );
+            if (cancelled) break;
+
+            const newServerItems = pages.flatMap((p) => p.items);
+            const mergedServerItems = mergeUniqueWorkItems([
+              ...currentServerItems,
+              ...newServerItems,
+            ]);
+            const visibleItems = await buildVisibleWorkItems(mergedServerItems, normalizedQuery);
+            if (cancelled) break;
+
+            const resolvedTotal = currentMeta.total > 0
+              ? currentMeta.total
+              : (pages[pages.length - 1]?.total ?? 0);
+            const anyPageHasMore = pages.some((p) => p.hasMore);
+
+            queryClient.setQueryData<WorkItem[]>(itemsKey, visibleItems);
+            queryClient.setQueryData<WorkItemsMeta>(itemsMetaKey, {
+              total: resolvedTotal,
+              loadedCount: mergedServerItems.length,
+              isPartial: anyPageHasMore && mergedServerItems.length < resolvedTotal,
+            });
+          }
+
+          const hydrateSleepMs = readHydrateSleepMs();
           if (hydrateSleepMs > 0) await sleep(hydrateSleepMs);
         }
       } finally {
@@ -914,14 +986,29 @@ export function useWorkItems(
       }
     };
   }, [
+    // Intentionally EXCLUDE `query.data` from deps. Every hydration wave
+    // calls `queryClient.setQueryData(itemsKey, ...)`, which updates
+    // `query.data` to a new reference. If `query.data` were a dep, every
+    // wave would retrigger this effect, spawning a second async hydration
+    // loop that reads the same `loadedCount` and re-fires the SAME page
+    // offsets in parallel with the first loop — we observed this in the
+    // gateway logs (each of offsets 500-1000 issued twice). The effect
+    // still triggers correctly on the first page landing because
+    // `itemsMetaQuery.data?.isPartial` transitions false→true in the same
+    // commit that `query.data` first appears. Similarly drop
+    // `query.isFetching`: manual refetch resets itemsMeta to
+    // EMPTY_WORK_ITEMS_META (isPartial=false), and first-page completion
+    // flips isPartial back to true — the isPartial toggle is the real
+    // trigger we care about, not fetch-boundary churn.
     appendNextPage,
     boardId,
+    itemsKey,
     itemsMetaKey,
     itemsMetaQuery.data?.isPartial,
     hydrationAllowed,
+    normalizedQuery,
+    pageSize,
     progressive,
-    query.data,
-    query.isFetching,
     queryClient,
   ]);
 
