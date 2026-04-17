@@ -14,7 +14,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from amprealize.boards.contracts import (
     AcceptanceCriterion,
@@ -1804,7 +1804,8 @@ class BoardService:
         org_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[WorkItem]:
+        include_total: bool = False,
+    ) -> Union[List[WorkItem], Tuple[List[WorkItem], int]]:
         """
         List work items with filters.
 
@@ -1822,6 +1823,11 @@ class BoardService:
             sort_by: Sort column — one of position, priority, created_at, updated_at,
                      due_date, title, points (or story_points).
             order: Sort direction — asc or desc (default asc).
+            include_total: When True, compute the total count of matching rows via
+                          `COUNT(*) OVER()` in the same query and return
+                          `(items, total)`. Saves a full round-trip vs. a separate
+                          `count_work_items` call; the window count reuses the
+                          outer query's scan so Neon only pays ~1-2ms extra.
         """
         # Allow-list for sort columns to prevent SQL injection
         SORT_COLUMNS = {
@@ -1908,6 +1914,12 @@ class BoardService:
                     WHERE children.parent_id = w.id
                 ) ca ON TRUE"""
 
+            # When the caller asked for the total, compute it inline via a
+            # window function over the filtered rowset. Postgres reuses the
+            # outer scan so the extra cost is ~1-2ms; we save one full
+            # connection checkout + SET LOCAL + Neon RTT chain.
+            _total_col = ", COUNT(*) OVER()::bigint AS _total" if include_total else ""
+
             with conn.cursor() as cur:
                 # Always join boards→projects to get the slug for display_id
                 # in a single round-trip (eliminates _enrich_display_ids query).
@@ -1916,6 +1928,7 @@ class BoardService:
                         f"""SELECT w.*, p.slug AS _project_slug,
                                    ca.child_count AS _child_count,
                                    ca.completed_child_count AS _completed_child_count
+                                   {_total_col}
                             FROM work_items w
                             JOIN boards b ON w.board_id = b.id
                             LEFT JOIN auth.projects p ON b.project_id = p.project_id AND p.archived_at IS NULL
@@ -1928,6 +1941,7 @@ class BoardService:
                         f"""SELECT w.*, p.slug AS _project_slug,
                                    ca.child_count AS _child_count,
                                    ca.completed_child_count AS _completed_child_count
+                                   {_total_col}
                             FROM work_items w
                             LEFT JOIN boards b ON w.board_id = b.id
                             LEFT JOIN auth.projects p ON b.project_id = p.project_id AND p.archived_at IS NULL
@@ -1953,6 +1967,12 @@ class BoardService:
             item.child_count = total
             item.completed_child_count = completed
             item.progress_percent = round((completed / total) * 100, 1) if total > 0 else 0.0
+
+        if include_total:
+            # _total is on every row (same value via COUNT(*) OVER()); an
+            # empty result set means zero matches.
+            total_count = int(results[0]["_total"]) if results else 0
+            return items, total_count
 
         return items
 

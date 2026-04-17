@@ -59,6 +59,7 @@ from typing import Any, Dict, List, Optional, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from amprealize.perf_log import perf_log, perf_span
 from amprealize.boards.contracts import (
@@ -595,27 +596,12 @@ def create_board_routes(
         _t0 = time.perf_counter()
 
         if include_total:
-            _t_count_start = time.perf_counter()
-            total = board_service.count_work_items(
-                project_id=project_id,
-                board_id=board_id,
-                item_types=item_type,
-                parent_id=parent_id,
-                status=status_filter,
-                priorities=priority,
-                assignee_id=assignee_id,
-                assignee_type=assignee_type,
-                labels=labels,
-                sprint_id=sprint_id,
-                title_search=title_search,
-                due_before=due_before,
-                due_after=due_after,
-                org_id=org_id,
-            )
-            _t_count_ms = round((time.perf_counter() - _t_count_start) * 1000, 1)
-
-            _t_list_start = time.perf_counter()
-            items = board_service.list_work_items(
+            # Single query path: `list_work_items(include_total=True)` returns
+            # `(items, total)` using `COUNT(*) OVER()` so we avoid a separate
+            # `count_work_items` round-trip (~200-400ms on cold Neon).
+            _t_query_start = time.perf_counter()
+            items, total = await run_in_threadpool(
+                board_service.list_work_items,
                 project_id=project_id,
                 board_id=board_id,
                 item_types=item_type,
@@ -634,16 +620,16 @@ def create_board_routes(
                 org_id=org_id,
                 limit=limit,
                 offset=offset,
+                include_total=True,
             )
-            _t_list_ms = round((time.perf_counter() - _t_list_start) * 1000, 1)
-
+            _t_query_ms = round((time.perf_counter() - _t_query_start) * 1000, 1)
             has_more = offset + len(items) < total
         else:
-            _t_count_ms = 0.0
             # Over-fetch by one row so has_more can be derived without a COUNT(*)
             # query on every subsequent page.
-            _t_list_start = time.perf_counter()
-            items_plus_one = board_service.list_work_items(
+            _t_query_start = time.perf_counter()
+            items_plus_one = await run_in_threadpool(
+                board_service.list_work_items,
                 project_id=project_id,
                 board_id=board_id,
                 item_types=item_type,
@@ -663,7 +649,7 @@ def create_board_routes(
                 limit=limit + 1,
                 offset=offset,
             )
-            _t_list_ms = round((time.perf_counter() - _t_list_start) * 1000, 1)
+            _t_query_ms = round((time.perf_counter() - _t_query_start) * 1000, 1)
             has_more = len(items_plus_one) > limit
             items = items_plus_one[:limit]
             # Preserve response shape; this is a lower-bound estimate when total
@@ -684,8 +670,7 @@ def create_board_routes(
         perf_log(
             "work_items.list",
             _t_total_ms,
-            t_count_ms=_t_count_ms,
-            t_list_ms=_t_list_ms,
+            t_query_ms=_t_query_ms,
             t_shape_ms=_t_shape_ms,
             item_count=len(items),
             payload_est_kb=round(len(items) * 1.45, 1),
