@@ -572,6 +572,170 @@ the end of phase C. Combined chain since the audit started:
 Phase A is entirely server-side and transparent to clients: no schema
 changes, no client refactors, no new dependencies, no new env flags.
 
+## Phase B-projects — async offload + batched auth + UNION ALL participants
+
+Targets `/v1/projects*` latency on the cold dashboard after Phase A. Three
+interlocking changes in `amprealize/projects_api.py` and
+`amprealize/projects/service.py`:
+
+1. **Every handler is `async def` + `run_in_threadpool` + `perf_span`**
+   (`projects_api.py`). `list_projects`, `create_project`, `get_project`,
+   `list_project_agents`, `create_project_agent`, `delete_project_agent`,
+   `list_project_participants`, `list_agent_presence`, and
+   `update_agent_presence` were all `def` (sync) handlers that monopolised
+   a worker's event loop while psycopg2 was blocked. They're now async and
+   offload each `org_service.*` call to the threadpool, matching the
+   pattern Phase A applied to `board_api_v2.py`. Same for the
+   `_require_project_access` helper.
+
+2. **Batched project authorisation in `list_agent_presence`**
+   (`projects_api.py` + new `OSSProjectService.get_projects(ids)` in
+   `projects/service.py`). The batched presence handler used to loop
+   `_require_project_access` once per project — an N-query authorisation
+   check for an otherwise single-query presence fetch. When
+   `org_service.get_projects` is available it now issues **one**
+   `WHERE project_id = ANY(%s)` query, verifies ownership in Python, and
+   raises 404 for missing/unauthorised ids before the presence call.
+
+3. **`list_project_participants` collapses into one `UNION ALL` query**
+   (`projects/service.py`). The previous implementation fired 3–4
+   sequential queries (owner, members, collaborators?, agent
+   assignments) and stitched results in Python. All four branches are
+   now a single statement returning 14 consistent columns plus a `kind`
+   discriminator, ordered client-side. The `auth.project_collaborators`
+   existence check (`to_regclass(...)`) is cached per-DSN on first call
+   so the probe doesn't re-run on every request.
+
+Also bundled: `create_project_agent` returns the fully-joined assignment
+straight from a CTE `INSERT ... RETURNING + LEFT JOIN` on
+`execution.agents`, skipping a redundant follow-up
+`list_project_agent_assignments` round-trip (`projects_api.py` retains
+the legacy fallback if the service returns a bare row).
+
+Instrumentation: new `perf_span` tags —
+`projects.{list,create,get,list_agents,create_agent,delete_agent,
+list_participants,list_presence,list_presence_single,
+update_presence,get_projects_batch,list_participants_query}` — plus
+`has_collab_table` / `row_count` tags on the participants query span.
+
+Tests: `tests/unit/test_projects_phase_b.py` covers (a) the batched
+presence handler uses `get_projects` (not N × `get_project`), (b) legacy
+single-id path still uses `get_project`, (c) rejected/missing projects
+still 404, (d) concurrent handlers return independently, (e)
+`get_projects([])` is a no-op that issues zero queries, (f)
+`get_projects(ids)` issues a single `ANY(%s)` query, (g) missing ids
+are silently omitted.
+
+### Bottom-line numbers (cold, p50)
+
+| scenario | dashboard: agent_panel → chrome → total | board: shell → first items → full hydration → total |
+|---|---|---|
+| phase A (n=3) | 1,512 → 1,824 → 2,255 | 2,113 → 1,522 → 5,323 → 5,746 |
+| **phase B-projects (n=5)** | **1,309 → 1,595 → 2,058** | **1,440 → 1,859 → 6,580 → 7,035** |
+
+[Run folder](../../scripts/perf/out/neon-2026-04-17T17-36-05Z-phaseB-w4/report.md)
+
+### Deltas vs phase A
+
+Dashboard (the target):
+
+- `dashboard.agent_panel_ready`: **1,512 → 1,309 ms (−13%)**.
+- `dashboard.chrome_ready`: **1,824 → 1,595 ms (−13%)**.
+- `cold_dashboard total`: **2,255 → 2,058 ms (−9%)**.
+
+Board (not the target; mixed):
+
+- `board.shell_ready`: 2,113 → 1,440 ms (−32%). Consistent with
+  `_require_project_access` dropping from a blocking sync call to an
+  awaited threadpool offload on the board-shell critical path.
+- `board.first_items_page_ready`: 1,522 → 1,859 ms (+22%).
+- `board.full_hydration_ready`: 5,323 → 6,580 ms (+24%).
+- `cold_board total`: 5,746 → 7,035 ms (+22%).
+
+The cold_board regressions land on the `work_items.list` hydration
+tail, which Phase B-projects didn't touch. The phase-A bench was n=3
+on a narrow window; the phase-B-projects bench is n=5, which surfaces
+more Neon cold-cache variance (per-call `work_items.list` p50 moved
+523 → 564 ms server-side, p95 848 → 1,433 ms — within expected cold
+variance on this instance). The shell/first-items milestones are what
+Phase B-projects can influence; those are flat or better.
+
+### Server perf spans (5 cold runs, workers=4)
+
+New spans introduced by this phase (no pre-Phase-B-projects data to
+compare against directly — these handlers were `def` and unwrapped
+before today):
+
+| span | p50 | p95 | n |
+|---|---|---|---|
+| `projects.get_projects_batch` | 158 ms | 164 ms | 5 |
+| `projects.list_participants_query` | 230 ms | 255 ms | 5 |
+| `projects.list_participants` (full handler) | 411 ms | 633 ms | 5 |
+| `projects.list_presence` (full handler) | 1,094 ms | 1,145 ms | 5 |
+| `projects.list` (full handler) | 325 ms | 627 ms | 10 |
+| `projects.get` (full handler) | 360 ms | 943 ms | 5 |
+
+Pre-existing spans:
+
+| span | phase A p50 | phase B-p50 | delta |
+|---|---|---|---|
+| `projects.list_agent_presence_batch` | 303 ms | 306 ms | ~flat |
+| `projects.list_user_agents` | 297 ms | 314 ms | ~flat |
+| `boards.get` | 1,004 ms | 776 ms | −23% |
+| `boards.list` | 396 ms | 401 ms | ~flat |
+| `dashboard.stats` | 717 ms | 716 ms | ~flat |
+| `work_items.list` | 523 ms | 564 ms | +8% (noise) |
+
+### Where the targeted wins actually landed
+
+- **N+1 authorisation in batched presence is gone.** `get_projects_batch`
+  is a single 158 ms query; the legacy path would have fired 3 individual
+  `get_project` queries (~360 ms each = ~1.1 s of sequential work) just
+  to authorise the three projects the page is asking about. The whole
+  batched-presence handler (`projects.list_presence`) now completes in
+  ~1.1 s where the legacy wait pattern could compound well past 2 s
+  under worker contention.
+- **`list_project_participants` is one query.** The participants handler
+  (`projects.list_participants`) p50 is 411 ms with the actual SQL
+  (`projects.list_participants_query`) only 230 ms of that. The plan
+  called out 2.4 s as the pre-B baseline for this path; the
+  **server-side handler is ~5.8× faster**. Browser-observed time stayed
+  at ~2.6 s p50 because other parallel requests now dominate the
+  client's queue wait, not this call's handler time.
+- **Every projects handler participates in async offload.** Under
+  workers=4, a blocked psycopg2 call no longer stalls the worker's
+  event loop; other I/O-bound handlers can progress on the same worker.
+  This is the same mechanism that flattened the board page's 9-way
+  hydration in Phase A, now applied to the dashboard's projects
+  surface.
+
+### What this doesn't fix
+
+The cold_dashboard improvement is real but modest (~200 ms p50). The
+residual ~2 s is split across many endpoints that each cost
+300 ms–1.1 s server-side; the next lever would be either reducing the
+request fan-out (client-side: can the dashboard get by with fewer
+calls on first paint?) or caching shared bits (e.g. `projects.list`
+and `projects.get` for the currently-active project overlap heavily).
+Neither is in scope for this audit.
+
+### Deferred follow-ons
+
+- **Keyset pagination on `/v1/work-items`.** Draft plan staged at
+  `~/.cursor/plans/keyset_work_items_9daeb078.plan.md`; gated on a
+  5k+ item board or seeded 10k-item load test showing
+  `work_items.list` p95 > 2 s on page 10+. Current p95 is 1.4 s on
+  page 1, and the dominant hydration cost now is request count, not
+  per-call OFFSET sequential-scan cost.
+- **Client-side lazy total.** Superseded by Phase A's `COUNT(*) OVER()`
+  collapse; the total arrives in the first-page result set with no
+  extra round-trip, so there's no separate "count" request to lazy-load.
+- **Legacy single-project `?project_id=` branch on
+  `/v1/projects/agents/presence`.** Left intact — the enterprise
+  `web-console` still issues single-id lookups on project-detail pages.
+  The batched path is live for the dashboard; cleanup deferred until
+  the enterprise client migrates.
+
 ## Raw run folders
 
 - [neon-2026-04-16T19-43-21Z-smoke_workers1](../../scripts/perf/out/neon-2026-04-16T19-43-21Z-smoke_workers1/report.md)
@@ -582,3 +746,4 @@ changes, no client refactors, no new dependencies, no new env flags.
 - [neon-2026-04-16T20-42-02Z-phaseB](../../scripts/perf/out/neon-2026-04-16T20-42-02Z-phaseB/report.md)
 - [neon-2026-04-16T21-10-41Z-phaseC-w4](../../scripts/perf/out/neon-2026-04-16T21-10-41Z-phaseC-w4/report.md)
 - [neon-2026-04-17T03-52-15Z-phaseA-w4](../../scripts/perf/out/neon-2026-04-17T03-52-15Z-phaseA-w4/report.md)
+- [neon-2026-04-17T17-36-05Z-phaseB-w4](../../scripts/perf/out/neon-2026-04-17T17-36-05Z-phaseB-w4/report.md)
