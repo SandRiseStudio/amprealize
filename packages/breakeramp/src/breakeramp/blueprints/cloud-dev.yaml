@@ -191,7 +191,12 @@ services:
     command:
       - "sh"
       - "-c"
-      - "pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue && uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers ${AMPREALIZE_API_WORKERS:-1} --log-level info"
+      # Default workers=4 for cloud-dev: DB round-trips go over the public
+      # internet to Neon (~40-75ms RTT each), so a single worker serializes
+      # every request and makes the web console feel molasses-slow. Four
+      # workers is enough to overlap request handling with Neon latency on a
+      # dev laptop without thrashing. Overridable via AMPREALIZE_API_WORKERS.
+      - "pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue && uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers ${AMPREALIZE_API_WORKERS:-4} --log-level info"
     environment:
       # Podman API for workspace provisioning (when using queue mode)
       PODMAN_HOST: "${PODMAN_HOST:-tcp://host.containers.internal:8888}"
