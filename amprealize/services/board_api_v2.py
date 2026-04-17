@@ -368,7 +368,13 @@ def create_board_routes(
 
         try:
             with perf_span("boards.list", project_id=project_id) as span:
-                boards = board_service.list_boards(project_id=project_id, org_id=org_id, limit=limit, offset=offset)
+                boards = await run_in_threadpool(
+                    board_service.list_boards,
+                    project_id=project_id,
+                    org_id=org_id,
+                    limit=limit,
+                    offset=offset,
+                )
                 span["item_count"] = len(boards)
             return BoardListResponse(boards=boards, total=len(boards))
         except Exception as e:
@@ -392,7 +398,9 @@ def create_board_routes(
 
         try:
             with perf_span("boards.get", board_id=board_id) as span:
-                board = board_service.get_board_with_columns(board_id, org_id=org_id)
+                board = await run_in_threadpool(
+                    board_service.get_board_with_columns, board_id, org_id=org_id
+                )
                 span["column_count"] = len(board.columns) if getattr(board, "columns", None) else 0
             return BoardWithColumnsResponse(board=board)
         except BoardNotFoundError as e:
@@ -695,7 +703,9 @@ def create_board_routes(
         org_id = _get_org_id(request)
 
         with perf_span("work_items.batch", requested=len(body.item_ids)) as span:
-            items = board_service.get_work_items_batch(body.item_ids, org_id=org_id)
+            items = await run_in_threadpool(
+                board_service.get_work_items_batch, body.item_ids, org_id=org_id
+            )
             span["item_count"] = len(items)
         found_ids = {item.item_id for item in items}
         missing_ids = [item_id for item_id in body.item_ids if item_id not in found_ids]
@@ -742,9 +752,10 @@ def create_board_routes(
 
         try:
             # Verify parent exists
-            board_service.get_work_item(item_id, org_id=org_id)
+            await run_in_threadpool(board_service.get_work_item, item_id, org_id=org_id)
 
-            items = board_service.list_work_items(
+            items = await run_in_threadpool(
+                board_service.list_work_items,
                 parent_id=item_id,
                 org_id=org_id,
                 limit=limit,

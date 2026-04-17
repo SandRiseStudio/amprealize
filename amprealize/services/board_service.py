@@ -63,6 +63,7 @@ from amprealize.boards.contracts import (
     normalize_item_type,
 )
 from amprealize.agents.work_item_planner.prompts import validate_title as _gws_validate_title
+from amprealize.perf_log import perf_span
 from amprealize.storage.postgres_pool import PostgresPool
 from amprealize.telemetry import TelemetryClient
 from amprealize.utils.dsn import resolve_postgres_dsn
@@ -1373,8 +1374,9 @@ class BoardService:
             telemetry=self._telemetry,
         )
         items = [self._row_to_work_item(r) for r in results]
-        self._enrich_child_aggregation(items, org_id=org_id)
-        self._enrich_display_ids(items, org_id=org_id)
+        with perf_span("work_items.batch.enrich", item_count=len(items)):
+            self._enrich_child_aggregation(items, org_id=org_id)
+            self._enrich_display_ids(items, org_id=org_id)
         return items
 
     def _row_to_work_item(self, row: Dict) -> WorkItem:
