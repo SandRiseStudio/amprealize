@@ -72,6 +72,14 @@ logger = logging.getLogger(__name__)
 _BOARD_PG_DSN_ENV = "AMPREALIZE_BOARD_PG_DSN"
 _DEFAULT_PG_DSN = "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize"
 
+# Process-wide cache for the `board.work_items.parent_id` information_schema
+# probe. Keyed by the id() of the PostgresPool so different pools (e.g. in
+# tests) don't share state. The probe is cheap but costs a full Neon RTT
+# on cold start, and the schema has been stable for months — caching the
+# answer across BoardService instances saves one RTT per worker process on
+# the first ancestor-hydration batch call.
+_parent_id_probe_cache: Dict[int, bool] = {}
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -1461,27 +1469,36 @@ class BoardService:
         if not items:
             return items
 
-        # Fast path: if we already checked and parent_id doesn't exist, skip
-        # the DB round-trip entirely (~150ms saved on neon).
-        if getattr(self, "_parent_id_checked", False) and not self._parent_id_exists:
+        # Fast path: check process-wide probe cache first so we skip the
+        # information_schema round-trip on every batch call after the first
+        # one per worker process.
+        _pool_key = id(self._pool)
+        _cached_exists = _parent_id_probe_cache.get(_pool_key)
+        if _cached_exists is False:
+            # Column genuinely missing — nothing to aggregate.
+            self._parent_id_exists = False
             return items
+        if _cached_exists is True:
+            # Prime instance attr so downstream callers that read
+            # `self._parent_id_exists` stay consistent with the cache.
+            self._parent_id_exists = True
 
         parent_ids = [i.item_id for i in items]
 
         def _query(conn: Any) -> List[Dict]:
             self._pool.set_tenant_context(conn, org_id, None)
             with conn.cursor() as cur:
-                # Use a sentinel to distinguish "not checked" from "checked and False".
-                _checked = getattr(self, "_parent_id_checked", False)
-                if not _checked:
+                # Probe information_schema at most once per worker process.
+                if _pool_key not in _parent_id_probe_cache:
                     cur.execute(
                         """SELECT column_name FROM information_schema.columns
                            WHERE table_schema = 'board' AND table_name = 'work_items' AND column_name = 'parent_id'"""
                     )
-                    self._parent_id_exists = bool(cur.fetchone())
-                    self._parent_id_checked = True
-                if not self._parent_id_exists:
-                    return []
+                    exists = bool(cur.fetchone())
+                    _parent_id_probe_cache[_pool_key] = exists
+                    self._parent_id_exists = exists
+                    if not exists:
+                        return []
 
                 cur.execute(
                     """SELECT parent_id,
