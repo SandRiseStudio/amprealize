@@ -17,7 +17,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useProject } from '../../api/dashboard';
 import { apiClient } from '../../api/client';
 import { razeLog } from '../../telemetry/raze';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../auth';
 import {
   useProjectCredentials,
   useAddProjectCredential,
@@ -120,27 +120,25 @@ export function ProjectSettingsContent({ projectId }: { projectId: string }): Re
   const deleteCredential = useDeleteProjectCredential(projectId ?? '', actor?.id);
   const reEnableCredential = useReEnableProjectCredential(projectId ?? '', actor?.id);
 
-  // Load existing settings
-  useEffect(() => {
-    if (project?.settings) {
-      const settings = project.settings as ProjectSettings;
-      setLocalPath(settings.local_project_path ?? '');
-      setGithubUrl(settings.github_repo_url ?? '');
-      setSelectedBranch(settings.github_default_branch ?? '');
+  // Load GitHub branches
+  const loadBranches = useCallback(async () => {
+    if (!projectId) return;
 
-      // Agent presence settings
-      if (settings.agent_presence) {
-        setPresenceEnabled(settings.agent_presence.enabled ?? true);
-        setPresencePollInterval(settings.agent_presence.poll_interval_s ?? 30);
-        setPresenceShowOnBoard(settings.agent_presence.show_on_board ?? true);
-      }
+    setIsLoadingBranches(true);
 
-      // If GitHub URL is already set, validate it to load branches
-      if (settings.github_repo_url) {
-        void validateGithubRepo(settings.github_repo_url);
-      }
+    try {
+      const response = await apiClient.get<GitHubBranchListResponse>(
+        `/v1/projects/${projectId}/settings/repository/branches`
+      );
+      setBranches(response.branches);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load branches';
+      await razeLog('WARN', 'Failed to load GitHub branches', { project_id: projectId, error: message });
+      // Don't show error to user, branches are optional
+    } finally {
+      setIsLoadingBranches(false);
     }
-  }, [project]);
+  }, [projectId]);
 
   // Validate GitHub repository
   const validateGithubRepo = useCallback(async (url: string) => {
@@ -169,8 +167,8 @@ export function ProjectSettingsContent({ projectId }: { projectId: string }): Re
         });
 
         // If valid, auto-select default branch and load branch list
-        if (response.default_branch && !selectedBranch) {
-          setSelectedBranch(response.default_branch);
+        if (response.default_branch) {
+          setSelectedBranch((prev) => prev || response.default_branch!);
         }
         await loadBranches();
       } else {
@@ -183,27 +181,29 @@ export function ProjectSettingsContent({ projectId }: { projectId: string }): Re
     } finally {
       setIsValidatingGithub(false);
     }
-  }, [projectId, selectedBranch]);
+  }, [projectId, loadBranches]);
 
-  // Load GitHub branches
-  const loadBranches = useCallback(async () => {
-    if (!projectId) return;
+  // Load existing settings
+  useEffect(() => {
+    if (project?.settings) {
+      const settings = project.settings as ProjectSettings;
+      setLocalPath(settings.local_project_path ?? '');
+      setGithubUrl(settings.github_repo_url ?? '');
+      setSelectedBranch(settings.github_default_branch ?? '');
 
-    setIsLoadingBranches(true);
+      // Agent presence settings
+      if (settings.agent_presence) {
+        setPresenceEnabled(settings.agent_presence.enabled ?? true);
+        setPresencePollInterval(settings.agent_presence.poll_interval_s ?? 30);
+        setPresenceShowOnBoard(settings.agent_presence.show_on_board ?? true);
+      }
 
-    try {
-      const response = await apiClient.get<GitHubBranchListResponse>(
-        `/v1/projects/${projectId}/settings/repository/branches`
-      );
-      setBranches(response.branches);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load branches';
-      await razeLog('WARN', 'Failed to load GitHub branches', { project_id: projectId, error: message });
-      // Don't show error to user, branches are optional
-    } finally {
-      setIsLoadingBranches(false);
+      // If GitHub URL is already set, validate it to load branches
+      if (settings.github_repo_url) {
+        void validateGithubRepo(settings.github_repo_url);
+      }
     }
-  }, [projectId]);
+  }, [project, validateGithubRepo]);
 
   // Save settings
   const handleSave = useCallback(async () => {

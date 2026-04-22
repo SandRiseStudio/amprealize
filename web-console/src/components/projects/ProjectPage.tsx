@@ -119,7 +119,7 @@ export function ProjectPage(): React.JSX.Element {
       return;
     }
 
-    openCreate();
+    queueMicrotask(() => openCreate());
 
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('newBoard');

@@ -367,7 +367,7 @@ class TestDefaultCatalogue:
         assert svc.get_flag("feature.quality_gates") is not None
 
     def test_default_count(self):
-        assert len(DEFAULT_FLAGS) == 7
+        assert len(DEFAULT_FLAGS) == 9
 
     def test_legacy_env_metadata(self):
         svc = FeatureFlagService()
@@ -418,3 +418,38 @@ class TestIntegrationScenario:
             if svc.is_enabled("feature.embedding_v2_rollout", {"user_id": f"u-{i}"})
         )
         assert on < 200, f"Expected ~100 at 10%, got {on}"
+
+
+# ---------------------------------------------------------------------------
+# Runtime Postgres-backed overrides (feature_flag_runtime)
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeBooleanOverride:
+    def setup_method(self) -> None:
+        from amprealize.feature_flag_runtime import replace_overrides
+
+        replace_overrides({})
+
+    def teardown_method(self) -> None:
+        from amprealize.feature_flag_runtime import replace_overrides
+
+        replace_overrides({})
+
+    def test_override_false_beats_registry_true(self) -> None:
+        from amprealize.feature_flag_runtime import set_override
+
+        svc = FeatureFlagService(
+            flags=[FeatureFlag(name="feature.auto_reflection", enabled=True)],
+        )
+        set_override("feature.auto_reflection", False)
+        assert svc.is_enabled("feature.auto_reflection") is False
+
+    def test_override_true_beats_registry_false(self) -> None:
+        from amprealize.feature_flag_runtime import set_override
+
+        svc = FeatureFlagService(
+            flags=[FeatureFlag(name="feature.auto_reflection", enabled=False)],
+        )
+        set_override("feature.auto_reflection", True)
+        assert svc.is_enabled("feature.auto_reflection") is True

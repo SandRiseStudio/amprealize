@@ -220,6 +220,11 @@ class FeatureFlagService:
         ctx = context or {}
 
         if flag.flag_type == FlagType.BOOLEAN:
+            from amprealize.feature_flag_runtime import get_boolean_override
+
+            ov = get_boolean_override(flag_name)
+            if ov is not None:
+                return ov
             return flag.enabled
 
         if flag.flag_type == FlagType.PERCENTAGE:

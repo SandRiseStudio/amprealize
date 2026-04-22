@@ -248,7 +248,6 @@ export const InlineAssigneePopover = memo(function InlineAssigneePopover({
   const isAssigned = Boolean(currentAssignee);
 
   return (
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
     <div
       ref={popoverRef}
       className={`iap-popover ${isClosing ? 'iap-popover-closing' : 'iap-popover-entering'}`}

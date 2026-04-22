@@ -101,7 +101,7 @@ export function NewProjectPage(): React.JSX.Element {
     await mutation.mutateAsync({ orgId: currentOrgId ?? undefined, payload });
     const nextPath = currentOrgId ? `/projects?org=${encodeURIComponent(currentOrgId)}` : '/projects';
     navigate(nextPath, { replace: true });
-  }, [currentOrgId, description, mutation, name, nameError, navigate, suggestedSlug, visibility]);
+  }, [currentOrgId, description, githubRepo, localPath, mutation, name, nameError, navigate, suggestedSlug, visibility]);
 
   useShellTitle('New Project');
 

@@ -282,7 +282,7 @@ export function useExecutionStream(params: {
       if (client) {
         client.disconnect('stream_disabled');
       }
-      setConnectionState(ConnectionState.Disconnected);
+      queueMicrotask(() => setConnectionState(ConnectionState.Disconnected));
       return;
     }
     let isDisposed = false;

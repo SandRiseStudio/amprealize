@@ -1,0 +1,63 @@
+import {
+  ActorType as _ActorType,
+  ConnectionState,
+  createCollabApi,
+  CollabApi,
+  CollabApiError,
+  ConversationScope,
+  ConversationStreamClient,
+  createConversationStreamClient,
+  ExecutionStreamClient,
+  MessageType as _MessageType,
+} from '../vendor/collab-client-dist/core.js';
+
+export const ActorType = _ActorType;
+export const MessageType = _MessageType;
+
+export {
+  ConnectionState,
+  ConversationScope,
+  ConversationStreamClient,
+  createCollabApi,
+  createConversationStreamClient,
+  CollabApi,
+  CollabApiError,
+  ExecutionStreamClient,
+};
+
+export type {
+  CollabClientConfig,
+  Conversation,
+  ConversationListResponse,
+  ConversationMessage,
+  ConversationMessageEventPayload,
+  ConversationParticipant,
+  ConversationParticipantEventPayload,
+  ConversationReaction,
+  ConversationReactionEventPayload,
+  ConversationReadReceiptPayload,
+  ConversationStreamConfig,
+  ConversationTypingPayload,
+  Document,
+  DocumentId,
+  EditOperation,
+  EditOperationType,
+  ExecutionListItem,
+  ExecutionListResponse,
+  ExecutionSnapshotEventPayload,
+  ExecutionState,
+  ExecutionStatus,
+  ExecutionStatusEventPayload,
+  ExecutionStatusSnapshotPayload,
+  ExecutionStep,
+  ExecutionStepEventPayload,
+  ExecutionStepSnapshotPayload,
+  ExecutionStepsResponse,
+  MessageListResponse,
+  SearchResult,
+  SearchResultsResponse,
+  UserId,
+  UserPresence,
+  Workspace,
+  WorkspaceId,
+} from '../vendor/collab-client-dist/index.js';

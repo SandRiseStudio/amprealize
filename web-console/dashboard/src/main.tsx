@@ -5,7 +5,6 @@ import { registerTelemetrySink } from './telemetry';
 
 if (import.meta.env.DEV) {
 	registerTelemetrySink((event) => {
-		// eslint-disable-next-line no-console
 		console.debug('[amprealize][telemetry]', event);
 	});
 }

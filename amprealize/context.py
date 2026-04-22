@@ -615,6 +615,8 @@ _SERVICE_DSN_MAP: Dict[str, Optional[str]] = {
     "AMPREALIZE_AGENT_REGISTRY_PG_DSN": None,
     "AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN": None,
     "AMPREALIZE_WHITEBOARD_PG_DSN": None,
+    # Platform feature-flag admin UI / runtime overrides (public.feature_flags)
+    "AMPREALIZE_FEATURE_FLAGS_PG_DSN": None,
 }
 
 

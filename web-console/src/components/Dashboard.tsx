@@ -774,7 +774,7 @@ export function Dashboard() {
   const { currentOrgId } = useOrgContext();
   const [projectSortMode, setProjectSortMode] = useState<ProjectSortMode>(() => loadProjectSortPreference());
   const [agentPanelEnabled, setAgentPanelEnabled] = useState(false);
-  const dashboardPerfStartedAtRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const dashboardPerfStartedAtRef = useRef<number | null>(null);
   const dashboardPerfFlagsRef = useRef<{ chrome?: string; agentPanel?: string }>({});
   const scopePerfKey = currentOrgId ?? 'personal';
 
@@ -919,7 +919,7 @@ export function Dashboard() {
       org_id: currentOrgId ?? null,
       project_count: projects.length,
       visible_project_count: visibleProjectIds.length,
-      elapsed_ms: Math.round(now - dashboardPerfStartedAtRef.current),
+      elapsed_ms: Math.round(now - (dashboardPerfStartedAtRef.current ?? now)),
     };
     perfMark('dashboard.chrome_ready', payload);
     void razeLog('INFO', 'dashboard.chrome_ready', payload);
@@ -935,7 +935,7 @@ export function Dashboard() {
       org_id: currentOrgId ?? null,
       total_agents: scopedAgents.length,
       displayed_agents: displayedAgents.length,
-      elapsed_ms: Math.round(now - dashboardPerfStartedAtRef.current),
+      elapsed_ms: Math.round(now - (dashboardPerfStartedAtRef.current ?? now)),
     };
     perfMark('dashboard.agent_panel_ready', payload);
     void razeLog('INFO', 'dashboard.agent_panel_ready', payload);

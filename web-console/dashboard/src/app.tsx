@@ -8,8 +8,6 @@ import {
   parseOnboardingSnapshot,
   parseStreamingMetrics,
   ProgressItem,
-  TimelineEntry,
-  AlignmentEntry,
 } from './data';
 import ProgressTrackerMarkdown from '#docs/docs/PROGRESS_TRACKER.md?raw';
 import BuildTimelineMarkdown from '#docs/BUILD_TIMELINE.md?raw';

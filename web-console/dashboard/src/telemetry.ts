@@ -19,8 +19,6 @@ export type TelemetrySink = (event: TelemetryEvent) => void;
 
 declare global {
   interface Window {
-    /** @deprecated use __AMPREALIZE_TELEMETRY__ */
-    __AMPREALIZE_TELEMETRY__?: TelemetryEvent[];
     __AMPREALIZE_TELEMETRY__?: TelemetryEvent[];
   }
 }
@@ -31,9 +29,8 @@ let sessionInitialized = false;
 const ensureStore = (): void => {
   if (typeof window === 'undefined') return;
   if (!window.__AMPREALIZE_TELEMETRY__) {
-    window.__AMPREALIZE_TELEMETRY__ = window.__AMPREALIZE_TELEMETRY__?.slice() ?? [];
+    window.__AMPREALIZE_TELEMETRY__ = [];
   }
-  window.__AMPREALIZE_TELEMETRY__ = window.__AMPREALIZE_TELEMETRY__;
 };
 
 const randomId = (): string => {
@@ -94,8 +91,6 @@ export const emitTelemetry = (eventType: string, payload: TelemetryPayload = {})
 
   ensureStore();
   window.__AMPREALIZE_TELEMETRY__?.push(event);
-  window.__AMPREALIZE_TELEMETRY__ = window.__AMPREALIZE_TELEMETRY__;
   sinks.forEach((sink) => sink(event));
-  window.dispatchEvent(new CustomEvent('amprealize-telemetry', { detail: event }));
   window.dispatchEvent(new CustomEvent('amprealize-telemetry', { detail: event }));
 };

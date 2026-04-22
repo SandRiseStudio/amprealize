@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { OAuthCallback } from '../components/OAuthCallback';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../auth';
 
 const mockNavigate = vi.fn();
 
@@ -15,7 +15,7 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-vi.mock('../contexts/AuthContext', () => ({
+vi.mock('../auth', () => ({
   useAuth: vi.fn(),
 }));
 

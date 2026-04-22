@@ -20,13 +20,12 @@
  */
 
 import {
-  createContext,
-  useContext,
   useEffect,
   useCallback,
   useRef,
   type ReactNode,
 } from 'react';
+import { AuthContext, type AuthContextValue } from './auth-context';
 import { OAUTH_WEB_CLIENT_ID } from '../config/branding';
 import { authStore, useAuthStore, AUTH_STORE_INSTANCE_ID } from '../stores/authStore';
 import { apiClient, ApiError } from '../api/client';
@@ -35,53 +34,12 @@ import type {
   AuthSession,
   AuthTokens,
   DeviceCodeResponse,
-  ConsentRequest,
   ConsentDecision,
   ConsentResponse,
   ActorIdentity,
   AuthTelemetryEvent,
   AuthTelemetryPayload,
 } from '../types/auth';
-
-// ---------------------------------------------------------------------------
-// Context Types
-// ---------------------------------------------------------------------------
-
-interface AuthContextValue {
-  // State (from store)
-  isAuthenticated: boolean;
-  isInitialized: boolean;
-  isLoading: boolean;
-  actor: ActorIdentity | null;
-  error: string | null;
-
-  // Device Flow
-  deviceFlowStatus: ReturnType<typeof useAuthStore>['deviceFlow']['status'];
-  deviceCode: DeviceCodeResponse | null;
-  startLogin: () => Promise<void>;
-  cancelLogin: () => void;
-
-  // Client Credentials Flow (for agents/services)
-  loginWithClientCredentials: (clientId: string, clientSecret: string) => Promise<void>;
-
-  // OAuth Social Login Flow
-  completeOAuthLogin: (code: string, state?: string) => Promise<void>;
-
-  // Session
-  logout: () => Promise<void>;
-  refreshToken: () => Promise<boolean>;
-
-  // Consent
-  hasPendingConsent: boolean;
-  nextConsentRequest: ConsentRequest | null;
-  respondToConsent: (requestId: string, decision: ConsentDecision, note?: string) => Promise<void>;
-
-  // Token access (for API clients)
-  getAccessToken: () => string | null;
-  getValidAccessToken: () => Promise<string | null>;
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null);
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -750,50 +708,4 @@ export function AuthProvider({ children }: AuthProviderProps): React.JSX.Element
       {children}
     </AuthContext.Provider>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
-/**
- * Hook to access authentication context.
- * Must be used within an AuthProvider.
- */
-export function useAuth(): AuthContextValue {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-}
-
-// ---------------------------------------------------------------------------
-// Utility Hooks
-// ---------------------------------------------------------------------------
-
-/**
- * Hook that returns true if the current user is authenticated.
- * Simpler alternative to useAuth() when you only need auth status.
- */
-export function useIsLoggedIn(): boolean {
-  const { isAuthenticated, isInitialized } = useAuth();
-  return isInitialized && isAuthenticated;
-}
-
-/**
- * Hook that returns the current actor's identity.
- * Returns null if not authenticated.
- */
-export function useCurrentActor(): ActorIdentity | null {
-  const { actor, isAuthenticated } = useAuth();
-  return isAuthenticated ? actor : null;
-}
-
-/**
- * Hook to check if user has a specific role.
- */
-export function useHasRole(role: ActorIdentity['role']): boolean {
-  const actor = useCurrentActor();
-  return actor?.role === role;
 }

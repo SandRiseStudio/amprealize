@@ -27,7 +27,9 @@
  */
 
 // Context and hooks
-export { AuthProvider, useAuth } from './contexts/AuthContext';
+export { AuthProvider } from './contexts/AuthProvider';
+export { useAuth, useIsLoggedIn, useCurrentActor, useHasRole } from './contexts/useAuth';
+export type { AuthContextValue } from './contexts/auth-context';
 
 // Store (for advanced usage outside React)
 export { authStore } from './stores/authStore';

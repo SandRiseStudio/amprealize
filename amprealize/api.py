@@ -1310,6 +1310,9 @@ def create_app(
         },
         auth_required=auth_enabled,
     )
+    # Allow break-glass feature-flag admin via X-Amprealize-Feature-Flags-Admin when secret is set.
+    if (os.getenv("AMPREALIZE_FEATURE_FLAGS_ADMIN_SECRET") or "").strip():
+        auth_config.skip_paths.add("/api/v1/platform/feature-flags")
 
     # Mount TenantMiddleware for PostgreSQL RLS (added before AuthMiddleware
     # in code so Auth wraps Tenant in ASGI stack: Auth → Tenant → app).
@@ -1401,6 +1404,10 @@ def create_app(
         from amprealize.platform_runtime import build_platform_runtime_dict
 
         return PlatformRuntimeMetadataResponse(**build_platform_runtime_dict())
+
+    from amprealize.services.feature_flags_platform_api import register_feature_flags_platform_routes
+
+    register_feature_flags_platform_routes(app)
 
     @app.get("/api/v1/modules", tags=["platform"])
     def get_enabled_modules() -> Dict[str, Any]:
@@ -6642,6 +6649,8 @@ def create_app(
                 status_code=status.HTTP_501_NOT_IMPLEMENTED,
                 detail=f"OAuth provider '{provider}' does not support authorization code flow",
             )
+        except HTTPException:
+            raise
         except Exception as exc:
             logger.error("Error in oauth_authorize: %s", exc, exc_info=True)
             raise HTTPException(

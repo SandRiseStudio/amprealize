@@ -24,9 +24,7 @@ const TLDRAW_LICENSE_KEY = import.meta.env.VITE_TLDRAW_LICENSE_KEY as string | u
 const SYNC_URL = import.meta.env.VITE_WHITEBOARD_SYNC_URL as string | undefined;
 
 const noOpAssetStore: TLAssetStore = {
-  upload: async (_asset, _file) => {
-    return { src: '' };
-  },
+  upload: async () => ({ src: '' }),
   resolve: (asset) => {
     return asset.props.src ?? '';
   },

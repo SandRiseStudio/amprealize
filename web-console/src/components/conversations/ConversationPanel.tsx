@@ -87,7 +87,7 @@ export const ConversationPanel = memo(function ConversationPanel({
 
   // Close search when switching conversations
   useEffect(() => {
-    setSearchOpen(false);
+    queueMicrotask(() => setSearchOpen(false));
   }, [activeConversationId]);
 
   // ── Animate in ─────────────────────────────────────────────────────────────

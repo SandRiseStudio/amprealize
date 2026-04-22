@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../auth';
 import type { ConsentScope, ConsentDecision } from '../types/auth';
 import './ConsentModal.css';
 

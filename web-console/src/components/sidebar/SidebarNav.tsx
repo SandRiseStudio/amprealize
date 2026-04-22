@@ -289,7 +289,7 @@ const SidebarProjectNode = memo(function SidebarProjectNode({
 
   useEffect(() => {
     if (isActive || pickerOpen) {
-      setShouldLoadBoards(true);
+      queueMicrotask(() => setShouldLoadBoards(true));
     }
   }, [isActive, pickerOpen]);
 

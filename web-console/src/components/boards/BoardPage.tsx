@@ -9,14 +9,14 @@
  */
 
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useElementVirtualizer } from '../../hooks/useElementVirtualizer';
 import { ExecutionStatusBadge, type ExecutionListItem } from '../../lib/collab-client';
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useShellTitle, useShellMode } from '../workspace/useShell';
 import { useApiCapabilities } from '../../api/capabilities';
 import { type Agent, type AgentStatus, useProject } from '../../api/dashboard';
 import { useProjectAgents } from '../../api/agentRegistry';
-import { useProjectParticipants } from '../../api/projects';
+import { useProjectParticipants, type ProjectParticipant } from '../../api/projects';
 import {
   type BoardColumn,
   type WorkItemProgressRollup,
@@ -40,10 +40,10 @@ import {
   useExecutionList,
   useExecutionStream,
 } from '../../api/executions';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../auth';
 import { ActorAvatar } from '../actors/ActorAvatar';
 import { toActorViewModel } from '../../utils/actorViewModel';
-import { WorkItemDrawer, type AssigneeProfile, type WorkItemPresentationMode } from './WorkItemDrawer';
+import { WorkItemDrawer, type AssigneeProfile } from './WorkItemDrawer';
 import { copyTextToClipboard, formatWorkItemDisplayId } from './workItemId';
 import { filtersToQueryParams, useBoardFilters, useFilteredItems, sortItems } from './useBoardFilters';
 import { BoardFilterBar } from './BoardFilterBar';
@@ -290,6 +290,7 @@ const EMPTY_ITEMS: WorkItem[] = [];
 
 /** Stable empty arrays for assignee defaults — prevents memo-breaking re-renders */
 const EMPTY_AGENTS: Agent[] = [];
+const EMPTY_PARTICIPANTS: ProjectParticipant[] = [];
 
 interface ItemSnapshot {
   columnId?: string | null;
@@ -357,7 +358,7 @@ function useItemDiffState(items: WorkItem[]): ItemDiffMap {
 
     // Apply new diff states only if actual changes detected
     if (newDiffs.size > 0) {
-      setDiffMap(newDiffs);
+      queueMicrotask(() => setDiffMap(newDiffs));
 
       // Clear diff states after animation completes
       const timer = window.setTimeout(() => {
@@ -537,7 +538,7 @@ const WorkItemCard = memo(function WorkItemCard({
         presenceState: item.assignee_type === 'agent' ? 'working' : 'available',
       },
     );
-  }, [assignee?.actor, assigneeLabel, item.assignee_id, item.assignee_type]);
+  }, [assignee, assigneeLabel, item.assignee_id, item.assignee_type]);
 
   const executionState = useMemo(() => {
     if (!execution?.state) return null;
@@ -1123,7 +1124,7 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
     if (pendingDueDate) details.push(`due ${quickDueDateLabel(pendingDueDate).toLowerCase()}`);
     if (autoOpenAfterCreate) details.push('opening instantly');
     return `Shape a ${itemType} with ${joinNatural(details)}.`;
-  }, [autoOpenAfterCreate, itemType, pendingAssignment?.label, pendingDueDate, priorityDraft]);
+  }, [autoOpenAfterCreate, itemType, pendingAssignment, pendingDueDate, priorityDraft]);
 
   const hasMagicSummary = useMemo(
     () =>
@@ -1730,12 +1731,12 @@ const ColumnLane = memo(function ColumnLane({
     if (draggedItemId) return;
     dragDepthRef.current = 0;
     isOverRef.current = false;
-    setIsOver(false);
+    queueMicrotask(() => setIsOver(false));
     dropIndexRef.current = null;
     lastPointerYRef.current = 0;
     lastFrameTsRef.current = 0;
     clearShiftedCards();
-  }, [draggedItemId]);
+  }, [draggedItemId, clearShiftedCards]);
 
   const toggleCollapse = useCallback((itemId: string) => {
     setCollapsed((prev) => {
@@ -1789,12 +1790,14 @@ const ColumnLane = memo(function ColumnLane({
         if (!prevDoneRef.current!.has(id)) newlyDone.push(id);
       });
       if (newlyDone.length > 0) {
-        setCollapsed((prev) => {
-          const next = new Set(prev);
-          for (const id of newlyDone) next.add(id);
-          saveCollapsedSet(column.column_id, next);
-          return next;
-        });
+        queueMicrotask(() =>
+          setCollapsed((prev) => {
+            const next = new Set(prev);
+            for (const id of newlyDone) next.add(id);
+            saveCollapsedSet(column.column_id, next);
+            return next;
+          }),
+        );
       }
     }
     prevDoneRef.current = currentDone;
@@ -1990,7 +1993,7 @@ const ColumnLane = memo(function ColumnLane({
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
-  }, []);
+  }, [clearShiftedCards]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -2309,7 +2312,7 @@ const ColumnLane = memo(function ColumnLane({
   const useVirtualList =
     !deferColumnVirtualization && visibleRows.length > 80;
 
-  const rowVirtualizer = useVirtualizer({
+  const rowVirtualizer = useElementVirtualizer({
     count: useVirtualList ? visibleRows.length : 0,
     getScrollElement: () => columnItemsRef.current,
     estimateSize: (index) => {
@@ -2657,7 +2660,7 @@ const OutlineView = memo(function OutlineView({
     }
 
     return result;
-  }, [items, columns, itemsByColumnId, itemById]);
+  }, [columns, itemsByColumnId, itemById]);
 
   const columnNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -2806,7 +2809,6 @@ const OutlineView = memo(function OutlineView({
 });
 
 export function BoardPage(): React.JSX.Element {
-  const location = useLocation();
   const navigate = useNavigate();
   const { projectId, boardId, itemId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2819,7 +2821,7 @@ export function BoardPage(): React.JSX.Element {
   const copyToastTimerRef = React.useRef<number | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const boardColumnsRef = useRef<HTMLDivElement>(null);
-  const boardPerfStartedAtRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const boardPerfStartedAtRef = useRef<number | null>(null);
   const boardPerfFlagsRef = useRef<{ shell?: string; firstPage?: string; full?: string }>({});
   const [scrolled, setScrolled] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
@@ -2828,13 +2830,6 @@ export function BoardPage(): React.JSX.Element {
   const filterState = useBoardFilters();
   const { filters, sort, hasActiveFilters } = filterState;
   const workItemQuery = useMemo(() => filtersToQueryParams(filters, sort), [filters, sort]);
-
-  const presentationMode: WorkItemPresentationMode =
-    itemId && location.state && typeof location.state === 'object' && 'workItemPresentation' in location.state
-      ? ((location.state as { workItemPresentation?: WorkItemPresentationMode }).workItemPresentation === 'peek'
-        ? 'peek'
-        : 'studio')
-      : 'studio';
 
   // Collapse header chrome after scrolling past threshold
   useEffect(() => {
@@ -2902,7 +2897,10 @@ export function BoardPage(): React.JSX.Element {
     enabled: Boolean(projectId) && assignmentDrawerOpen,
   });
   const executionAvailable = capabilitiesQuery.data?.routes.executions ?? false;
-  const participantRecords = participantsQuery.data?.items ?? [];
+  const participantRecords = useMemo(
+    () => participantsQuery.data?.items ?? EMPTY_PARTICIPANTS,
+    [participantsQuery.data],
+  );
   const projectAgents = projectAgentsQuery.data ?? EMPTY_AGENTS;
   const participantsError = participantsQuery.error;
   const projectAgentsError = assignmentDrawerOpen ? projectAgentsQuery.error : null;
@@ -2923,10 +2921,12 @@ export function BoardPage(): React.JSX.Element {
   const [hydrationNoticeDismissed, setHydrationNoticeDismissed] = useState(false);
 
   useEffect(() => {
-    setHydrationNoticeDismissed(false);
-    if (typeof sessionStorage !== 'undefined' && boardId) {
-      setHydrationNoticeDismissed(sessionStorage.getItem(`board-hydration-dismiss:${boardId}`) === '1');
-    }
+    queueMicrotask(() => {
+      setHydrationNoticeDismissed(false);
+      if (typeof sessionStorage !== 'undefined' && boardId) {
+        setHydrationNoticeDismissed(sessionStorage.getItem(`board-hydration-dismiss:${boardId}`) === '1');
+      }
+    });
   }, [boardId]);
 
   const dismissHydrationNotice = useCallback(() => {
@@ -2937,8 +2937,10 @@ export function BoardPage(): React.JSX.Element {
   }, [boardId]);
 
   useEffect(() => {
-    setMembersSheetOpen(false);
-    setUnifiedChat(null);
+    queueMicrotask(() => {
+      setMembersSheetOpen(false);
+      setUnifiedChat(null);
+    });
   }, [boardId, projectId]);
 
   useEffect(() => {
@@ -3130,7 +3132,7 @@ export function BoardPage(): React.JSX.Element {
     }));
 
     return [...humans, ...agents];
-  }, [actor?.id, actor?.type, assignableAgents, assignableHumans]);
+  }, [assignableAgents, assignableHumans]);
 
   const assigneeIndex = useMemo(() => {
     const index = new Map<string, AssigneeProfile>();
@@ -3251,7 +3253,6 @@ export function BoardPage(): React.JSX.Element {
     return positions;
   }, [columns, itemsByColumnId]);
 
-  const executionByItemIdRef = useRef(new Map<string, ExecutionListItem>());
   const executionByItemId = useMemo(() => {
     const map = new Map<string, ExecutionListItem>();
     const executions = executionListQuery.data?.executions ?? [];
@@ -3267,16 +3268,6 @@ export function BoardPage(): React.JSX.Element {
         map.set(execution.workItemId, execution);
       }
     });
-    // Structural stability: reuse previous reference when entries are identical
-    const prev = executionByItemIdRef.current;
-    if (prev.size === map.size) {
-      let same = true;
-      for (const [k, v] of map) {
-        if (prev.get(k) !== v) { same = false; break; }
-      }
-      if (same) return prev;
-    }
-    executionByItemIdRef.current = map;
     return map;
   }, [executionListQuery.data?.executions]);
 
@@ -3455,11 +3446,9 @@ export function BoardPage(): React.JSX.Element {
   );
 
   const onOpen = useCallback(
-    (openItemId: string, nextPresentationMode: WorkItemPresentationMode = 'peek') => {
+    (openItemId: string) => {
       if (!projectId || !boardId) return;
-      navigate(`/projects/${projectId}/boards/${boardId}/items/${openItemId}`, {
-        state: { workItemPresentation: nextPresentationMode },
-      });
+      navigate(`/projects/${projectId}/boards/${boardId}/items/${openItemId}`);
     },
     [boardId, navigate, projectId]
   );
@@ -3469,17 +3458,6 @@ export function BoardPage(): React.JSX.Element {
     pendingFocusItemIdRef.current = itemId ?? null;
     navigate(`/projects/${projectId}/boards/${boardId}`);
   }, [boardId, itemId, navigate, projectId]);
-
-  const onPresentationModeChange = useCallback(
-    (nextPresentationMode: WorkItemPresentationMode) => {
-      if (!projectId || !boardId || !itemId) return;
-      navigate(`/projects/${projectId}/boards/${boardId}/items/${itemId}`, {
-        replace: true,
-        state: { workItemPresentation: nextPresentationMode },
-      });
-    },
-    [boardId, itemId, navigate, projectId]
-  );
 
   const showCopyToast = useCallback((message: string, variant: 'success' | 'error' = 'success') => {
     if (copyToastTimerRef.current != null) {
@@ -3669,7 +3647,7 @@ export function BoardPage(): React.JSX.Element {
     if (boardPerfFlagsRef.current.shell === boardId) return;
     boardPerfFlagsRef.current.shell = boardId;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const elapsed_ms = Math.round(now - boardPerfStartedAtRef.current);
+    const elapsed_ms = Math.round(now - (boardPerfStartedAtRef.current ?? now));
     const payload = {
       board_id: boardId,
       project_id: projectId ?? null,
@@ -3685,7 +3663,7 @@ export function BoardPage(): React.JSX.Element {
     if (boardPerfFlagsRef.current.firstPage === boardId) return;
     boardPerfFlagsRef.current.firstPage = boardId;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const elapsed_ms = Math.round(now - boardPerfStartedAtRef.current);
+    const elapsed_ms = Math.round(now - (boardPerfStartedAtRef.current ?? now));
     const payload = {
       board_id: boardId,
       project_id: projectId ?? null,
@@ -3704,7 +3682,7 @@ export function BoardPage(): React.JSX.Element {
     if (boardPerfFlagsRef.current.full === boardId) return;
     boardPerfFlagsRef.current.full = boardId;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const elapsed_ms = Math.round(now - boardPerfStartedAtRef.current);
+    const elapsed_ms = Math.round(now - (boardPerfStartedAtRef.current ?? now));
     const payload = {
       board_id: boardId,
       project_id: projectId ?? null,
@@ -4043,7 +4021,6 @@ export function BoardPage(): React.JSX.Element {
             orgId={project?.org_id ?? null}
             boardId={boardId}
             itemId={itemId}
-            presentationMode={presentationMode}
             projectSlug={project?.slug}
             columns={columns}
             targetPositions={targetPositions}
@@ -4056,7 +4033,6 @@ export function BoardPage(): React.JSX.Element {
             onCopyWorkItemId={handleCopyWorkItemId}
             onNotify={showCopyToast}
             onRequestClose={onCloseDrawer}
-            onPresentationModeChange={onPresentationModeChange}
           />
         )}
 

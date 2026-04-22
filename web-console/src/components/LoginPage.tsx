@@ -23,7 +23,7 @@ import {
   Link2,
   Sparkles,
 } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../auth';
 import { authStore, AUTH_STORE_INSTANCE_ID } from '../stores/authStore';
 import { AuthStage } from './auth/AuthStage';
 import { createOAuthState } from './auth/oauthState';
@@ -278,7 +278,9 @@ export function LoginPage() {
     const redirectUri = `${window.location.origin}/auth/callback`;
     const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
     const apiBaseUrl = rawBaseUrl.endsWith('/api') ? rawBaseUrl : `${rawBaseUrl}/api`;
-    const usePopup = provider === 'google';
+    // Full-window OAuth for both providers: popup navigations to the API can hit
+    // flaky proxy/TLS paths (e.g. Cloudflare 520) while top-level redirects match GitHub.
+    const usePopup = false;
     const state = createOAuthState({
       provider,
       returnTo: from,

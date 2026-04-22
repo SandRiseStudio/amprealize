@@ -330,9 +330,10 @@ export const PlanComposer: FC<PlanComposerProps> = ({
   documentId,
   workspaceId: _workspaceId,
   initialContent,
-  onSave: _onSave,
   readOnly = false,
 }) => {
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error'>('synced');
+
   // Connect to document for real-time collaboration
   const {
     document: collabDoc,
@@ -340,7 +341,6 @@ export const PlanComposer: FC<PlanComposerProps> = ({
     isConnected,
     cursors,
     presence,
-    operations: _operations,
     replace: sendReplace,
     error: collabError,
   } = useCollaboration({
@@ -363,7 +363,6 @@ export const PlanComposer: FC<PlanComposerProps> = ({
     }
   );
   const [focusedStepId, setFocusedStepId] = useState<string | null>(null);
-  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error'>('synced');
   const [showConflictModal, setShowConflictModal] = useState(false);
 
   useEffect(() => {
@@ -410,13 +409,15 @@ export const PlanComposer: FC<PlanComposerProps> = ({
     if (collabDoc?.content) {
       try {
         const parsed = JSON.parse(collabDoc.content) as PlanContent;
-        setPlanContent(parsed);
+        queueMicrotask(() => setPlanContent(parsed));
       } catch {
         // Content might not be JSON, use as title
-        setPlanContent(prev => ({
-          ...prev,
-          title: collabDoc.content,
-        }));
+        queueMicrotask(() =>
+          setPlanContent((prev) => ({
+            ...prev,
+            title: collabDoc.content,
+          })),
+        );
       }
     }
   }, [collabDoc]);
@@ -424,9 +425,9 @@ export const PlanComposer: FC<PlanComposerProps> = ({
   // Update sync status based on connection and errors
   useEffect(() => {
     if (collabError) {
-      setSyncStatus('error');
+      queueMicrotask(() => setSyncStatus('error'));
     } else if (isConnected) {
-      setSyncStatus('synced');
+      queueMicrotask(() => setSyncStatus('synced'));
     }
   }, [isConnected, collabError]);
 
@@ -524,7 +525,7 @@ export const PlanComposer: FC<PlanComposerProps> = ({
     }
     setShowConflictModal(false);
     setSyncStatus('synced');
-  }, [collabDoc?.content]);
+  }, [collabDoc]);
 
   // Reset sync status after brief delay
   useEffect(() => {

@@ -7,8 +7,12 @@
  */
 
 import { TLSocketRoom } from "@tldraw/sync";
+import type { UnknownRecord } from "@tldraw/store";
+import type { TLSocketRoomOptions } from "@tldraw/sync-core";
 import type { WebSocket } from "ws";
 import { loadSnapshot, saveSnapshot } from "./persistence.js";
+
+type InitialSnapshot = TLSocketRoomOptions<UnknownRecord, void>["initialSnapshot"];
 
 export interface RoomManagerConfig {
   pythonApiBase: string;
@@ -19,7 +23,7 @@ export interface RoomManagerConfig {
 }
 
 interface ManagedRoom {
-  tlRoom: TLSocketRoom<unknown>;
+  tlRoom: TLSocketRoom<UnknownRecord>;
   connections: Set<string>;
   idleTimer: ReturnType<typeof setTimeout> | null;
   persistTimer: ReturnType<typeof setInterval> | null;
@@ -63,11 +67,10 @@ export class RoomManager {
     this.resetIdleTimer(roomId, managed);
 
     // Let the TLSocketRoom handle the WebSocket protocol
+    type SocketArg = Parameters<TLSocketRoom<UnknownRecord>["handleSocketConnect"]>[0]["socket"];
     managed.tlRoom.handleSocketConnect({
       sessionId: user.id,
-      socket: ws as unknown as Parameters<
-        TLSocketRoom<unknown>["handleSocketConnect"]
-      >[0]["socket"],
+      socket: ws as unknown as SocketArg,
     });
 
     ws.on("close", () => {
@@ -111,8 +114,8 @@ export class RoomManager {
     // Load existing snapshot from Python API (returns empty canvas if none)
     const snapshot = await loadSnapshot(roomId, this.config.pythonApiBase);
 
-    const tlRoom = new TLSocketRoom<unknown>({
-      initialSnapshot: snapshot ?? undefined,
+    const tlRoom = new TLSocketRoom<UnknownRecord>({
+      initialSnapshot: (snapshot as InitialSnapshot | null | undefined) ?? undefined,
     });
 
     const managed: ManagedRoom = {

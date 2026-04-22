@@ -35,6 +35,7 @@ const BCIResponsePanel = lazy(() => import('./components/BCIResponsePanel').then
 const ExtractionCandidates = lazy(() => import('./components/ExtractionCandidates').then((module) => ({ default: module.ExtractionCandidates })));
 const NotFoundPage = lazy(() => import('./components/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
 const SecuritySettings = lazy(() => import('./components/SecuritySettings').then((module) => ({ default: module.SecuritySettings })));
+const FeatureFlagsPage = lazy(() => import('./components/FeatureFlagsPage').then((module) => ({ default: module.FeatureFlagsPage })));
 const ProjectsPage = lazy(() => import('./components/projects/ProjectsPage').then((module) => ({ default: module.ProjectsPage })));
 const NewProjectPage = lazy(() => import('./components/projects/NewProjectPage').then((module) => ({ default: module.NewProjectPage })));
 const ProjectPage = lazy(() => import('./components/projects/ProjectPage').then((module) => ({ default: module.ProjectPage })));
@@ -142,6 +143,7 @@ function AnimatedRoutes() {
                   <Route path="/bci/*" element={<BCILayout />} />
                 )}
                 <Route path="/settings" element={<SecuritySettings />} />
+                <Route path="/settings/feature-flags" element={<FeatureFlagsPage />} />
                 <Route path="/orgs" element={<OrganizationsPage />} />
                 {isModuleEnabled('agents') && (
                   <Route path="/agents" element={<AgentsPage />}>

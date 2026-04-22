@@ -1,5 +1,5 @@
 /**
- * Work Item Drawer / Studio
+ * Work item detail panel (full layout)
  *
  * Following COLLAB_SAAS_REQUIREMENTS.md (Student):
  * - Fast, optimistic edits
@@ -12,6 +12,7 @@ import {
   ClarificationPanel,
   ExecutionStatusCard,
   type ExecutionStatus,
+  type ExecutionStep,
 } from '../../lib/collab-client';
 import {
   type BoardColumn,
@@ -39,7 +40,7 @@ import {
   useProvideClarification,
   useWorkItemExecutionStatus,
 } from '../../api/executions';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../auth';
 import { ActorAvatar } from '../actors/ActorAvatar';
 import type { ActorViewModel } from '../../types/actor';
 import { toActorViewModel } from '../../utils/actorViewModel';
@@ -47,9 +48,10 @@ import { copyTextToClipboard, formatWorkItemDisplayId } from './workItemId';
 import type { PresenceState } from '../../hooks/useAgentPresence';
 import './WorkItemDrawer.css';
 
+const EMPTY_EXECUTION_STEPS: readonly ExecutionStep[] = [];
+
 type DrawerPhase = 'entering' | 'open' | 'closing';
 type SaveState = 'idle' | 'saving' | 'saved' | 'copied' | 'error';
-export type WorkItemPresentationMode = 'peek' | 'studio';
 type WorkItemActivityFilter = 'all' | 'humans' | 'agents' | 'system';
 type NumberField = 'points' | 'estimated_hours' | 'actual_hours';
 type DateField = 'due_date' | 'start_date' | 'target_date';
@@ -104,22 +106,6 @@ function formatAbsoluteDate(dateString?: string | null): string {
     day: 'numeric',
     year: 'numeric',
   });
-}
-
-function formatCompactDate(dateString?: string | null): string {
-  if (!dateString) return 'No due date';
-  const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) return 'No due date';
-  const today = new Date();
-  const tomorrow = new Date();
-  tomorrow.setDate(today.getDate() + 1);
-  const sameDay = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate();
-  if (sameDay(date, today)) return 'Today';
-  if (sameDay(date, tomorrow)) return 'Tomorrow';
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function normalizeLabel(input: string): string {
@@ -203,12 +189,6 @@ function shouldHighlightPriority(priority?: WorkItemPriority | null): boolean {
   return priority === 'critical' || priority === 'high';
 }
 
-function summarizeDescription(description?: string | null): string {
-  if (!description?.trim()) return 'Add context, acceptance criteria, or links in the full studio.';
-  const normalized = description.trim().replace(/\s+/g, ' ');
-  return normalized.length > 220 ? `${normalized.slice(0, 217)}...` : normalized;
-}
-
 function summarizeStructure(
   parentItem: WorkItem | null,
   childItems: WorkItem[],
@@ -278,7 +258,6 @@ export interface WorkItemDrawerProps {
   orgId?: string | null;
   boardId: string;
   itemId: string;
-  presentationMode: WorkItemPresentationMode;
   columns: BoardColumn[];
   targetPositions: Record<string, number>;
   initialItem?: WorkItem;
@@ -290,7 +269,6 @@ export interface WorkItemDrawerProps {
   onCopyWorkItemId: (itemId: string, displayId?: string) => void;
   onNotify: (message: string, variant?: 'success' | 'error') => void;
   onRequestClose: () => void;
-  onPresentationModeChange: (mode: WorkItemPresentationMode) => void;
 }
 
 export function WorkItemDrawer({
@@ -299,7 +277,6 @@ export function WorkItemDrawer({
   orgId,
   boardId,
   itemId,
-  presentationMode,
   columns,
   targetPositions,
   initialItem,
@@ -311,12 +288,12 @@ export function WorkItemDrawer({
   onCopyWorkItemId,
   onNotify,
   onRequestClose,
-  onPresentationModeChange,
 }: WorkItemDrawerProps): React.JSX.Element {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
   const commentEndRef = useRef<HTMLDivElement | null>(null);
+  const lastHydratedItemIdRef = useRef<string | null>(null);
 
   const { actor } = useAuth();
 
@@ -371,7 +348,10 @@ export function WorkItemDrawer({
     enabled: Boolean(executionStatus?.runId && projectId),
     refetchInterval: executionStream.isConnected ? false : activeExecution ? 2000 : false,
   });
-  const executionSteps = executionStepsQuery.data?.steps ?? [];
+  const executionSteps = useMemo(
+    () => executionStepsQuery.data?.steps ?? EMPTY_EXECUTION_STEPS,
+    [executionStepsQuery.data],
+  );
 
   const isOpen = phase === 'open' || phase === 'entering';
   const typeLabel = useMemo(() => (item ? labelForType(item.item_type) : 'Work item'), [item]);
@@ -391,7 +371,7 @@ export function WorkItemDrawer({
   const parentItem = useMemo(() => {
     if (!item?.parent_id) return null;
     return boardItems.find((candidate) => candidate.item_id === item.parent_id) ?? null;
-  }, [boardItems, item?.parent_id]);
+  }, [boardItems, item]);
 
   const childItems = useMemo(() => {
     if (!item) return [];
@@ -417,7 +397,7 @@ export function WorkItemDrawer({
       titleRef.current?.select();
     });
     return () => window.cancelAnimationFrame(id);
-  }, [isOpen, presentationMode]);
+  }, [isOpen]);
 
   useEffect(() => {
     return () => {
@@ -427,25 +407,31 @@ export function WorkItemDrawer({
 
   useEffect(() => {
     if (!item) return;
-    setTitleDraft(item.title);
-    setDescriptionDraft(item.description ?? '');
-    setPriorityDraft(item.priority);
-    setLabels(item.labels ?? []);
-    setDueDateDraft(toDateInputValue(item.due_date));
-    setStartDateDraft(toDateInputValue(item.start_date));
-    setTargetDateDraft(toDateInputValue(item.target_date));
-    setPointsDraft(toNumberDraft(item.points ?? item.story_points ?? null));
-    setEstimatedHoursDraft(toNumberDraft(item.estimated_hours ?? null));
-    setActualHoursDraft(toNumberDraft(item.actual_hours ?? null));
-    setShowAssigneePicker(false);
-    setShowAdvancedDetails(false);
-    setSaveState('idle');
-  }, [item?.item_id]);
+    if (item.item_id === lastHydratedItemIdRef.current) return;
+    lastHydratedItemIdRef.current = item.item_id;
+    queueMicrotask(() => {
+      setTitleDraft(item.title);
+      setDescriptionDraft(item.description ?? '');
+      setPriorityDraft(item.priority);
+      setLabels(item.labels ?? []);
+      setDueDateDraft(toDateInputValue(item.due_date));
+      setStartDateDraft(toDateInputValue(item.start_date));
+      setTargetDateDraft(toDateInputValue(item.target_date));
+      setPointsDraft(toNumberDraft(item.points ?? item.story_points ?? null));
+      setEstimatedHoursDraft(toNumberDraft(item.estimated_hours ?? null));
+      setActualHoursDraft(toNumberDraft(item.actual_hours ?? null));
+      setShowAssigneePicker(false);
+      setShowAdvancedDetails(false);
+      setSaveState('idle');
+    });
+  }, [item]);
 
   useEffect(() => {
-    setAssigneeSearch('');
-    setCommentDraft('');
-    setActivityFilter('all');
+    queueMicrotask(() => {
+      setAssigneeSearch('');
+      setCommentDraft('');
+      setActivityFilter('all');
+    });
   }, [itemId]);
 
   const requestClose = useCallback(() => {
@@ -710,7 +696,7 @@ export function WorkItemDrawer({
         }
       ),
     } satisfies AssigneeProfile;
-  }, [currentAssignee, item?.assignee_id, item?.assignee_type]);
+  }, [currentAssignee, item]);
 
   const assignmentProfile = currentAssignee ?? fallbackAssignee;
   const assigneeSearchValue = assigneeSearch.trim().toLowerCase();
@@ -830,9 +816,9 @@ export function WorkItemDrawer({
   const commentAuthorType = useMemo<WorkItemCommentAuthorType | null>(() => {
     if (!actor?.type) return null;
     return actor.type === 'human' ? 'user' : 'agent';
-  }, [actor?.type]);
+  }, [actor]);
 
-  const comments = commentsQuery.data ?? [];
+  const comments = useMemo(() => commentsQuery.data ?? [], [commentsQuery.data]);
   const commentDraftValue = commentDraft.trim();
   const canPostComment =
     Boolean(commentDraftValue) && Boolean(actor?.id) && Boolean(commentAuthorType) && !postComment.isPending;
@@ -945,8 +931,6 @@ export function WorkItemDrawer({
     return activityEntries.filter((entry) => entry.actorType === 'system');
   }, [activityEntries, activityFilter]);
 
-  const previewActivityEntries = useMemo(() => activityEntries.slice(0, 3), [activityEntries]);
-
   const handleCommentSend = useCallback(() => {
     if (!itemId || !actor?.id || !commentAuthorType || !commentDraftValue) return;
     postComment.mutate(
@@ -965,7 +949,7 @@ export function WorkItemDrawer({
         },
       }
     );
-  }, [actor?.id, commentAuthorType, commentDraftValue, itemId, postComment]);
+  }, [actor, commentAuthorType, commentDraftValue, itemId, postComment]);
 
   const handleCommentKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1056,7 +1040,6 @@ export function WorkItemDrawer({
       progressRollup &&
       (completionPercent > 0 || progressRollup.incomplete_items.length > 0 || childItems.length > 0)
   );
-  const hasExecutionCard = Boolean(hasAgentAssignment || executionStatus?.hasExecution || clarificationRequests.length > 0);
   const structureSummary = item
     ? summarizeStructure(parentItem, childItems, progressRollup)
     : 'No rollup or linked work yet.';
@@ -1689,11 +1672,7 @@ export function WorkItemDrawer({
       handleLabelsRemove,
       handleNewLabelKeyDown,
       handleNumberBlur,
-      item?.behavior_id,
-      item?.created_at,
-      item?.metadata,
-      item?.run_id,
-      item?.updated_at,
+      item,
       labels,
       newLabelDraft,
       pointsDraft,
@@ -1701,46 +1680,6 @@ export function WorkItemDrawer({
       startDateDraft,
       targetDateDraft,
     ]
-  );
-
-  const renderActivityPreview = useCallback(
-    () => (
-      <div className="work-item-card-surface work-item-card-surface-compact">
-        <div className="work-item-card-header">
-          <div>
-            <div className="work-item-card-eyebrow">Recent activity</div>
-            <div className="work-item-card-title-small">
-              {activityEntries.length > 0 ? `${activityEntries.length} recent updates` : 'No recent updates'}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="drawer-inline-button pressable"
-            onClick={() => onPresentationModeChange('studio')}
-          >
-            Open studio
-          </button>
-        </div>
-        <div className="activity-feed-preview">
-          {previewActivityEntries.length === 0 && (
-            <div className="activity-empty">Comments and execution history will appear here.</div>
-          )}
-          {previewActivityEntries.map((entry) => (
-            <div key={entry.id} className="activity-entry activity-entry-preview">
-              <div className="activity-entry-topline">
-                <span className={`activity-badge activity-badge-${entry.actorType}`}>
-                  {entry.actorType === 'system' ? 'System' : entry.actorType === 'agent' ? 'Agent' : 'Human'}
-                </span>
-                <span className="activity-time">{formatRelativeTime(entry.timestamp)}</span>
-              </div>
-              <div className="activity-title">{entry.title}</div>
-              <div className="activity-body">{entry.body}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    ),
-    [activityEntries.length, onPresentationModeChange, previewActivityEntries]
   );
 
   const renderStudioActivity = useCallback(
@@ -1854,376 +1793,6 @@ export function WorkItemDrawer({
       postComment.isPending,
     ]
   );
-
-  const renderPeek = useCallback(() => (
-    <div className="work-item-peek-layout">
-      <section className="work-item-card-surface work-item-card-surface-main work-item-peek-hero-card">
-        <div className="work-item-hero">
-          <div className="work-item-hero-topline">
-            <span className={`work-item-type-pill work-item-type-pill-${item?.item_type ?? 'goal'}`}>{typeLabel}</span>
-            <span className="work-item-hero-id">{item ? shortId(item, projectSlug) : shortId(itemId, projectSlug)}</span>
-            {shouldHighlightPriority(priorityDraft) && (
-              <span className={`activity-badge activity-badge-priority-${priorityDraft}`}>{toTitleCase(priorityDraft)}</span>
-            )}
-          </div>
-          <label className="drawer-label" htmlFor="work-item-title">Title</label>
-          <input
-            id="work-item-title"
-            ref={titleRef}
-            className="drawer-input work-item-title-input work-item-title-input-peek"
-            value={titleDraft}
-            onChange={handleTitleChange}
-            onBlur={() => debouncedSave.schedule()}
-            placeholder="What needs to happen?"
-            autoComplete="off"
-          />
-          <div className="work-item-summary-chips">
-            <span className="summary-chip">Updated {formatRelativeTime(item?.updated_at)}</span>
-            <span className="summary-chip">{activityEntries.length} activities</span>
-            {progressRollup && <span className="summary-chip">{completionPercent}% complete</span>}
-          </div>
-        </div>
-      </section>
-
-      <section className="work-item-card-surface work-item-card-surface-compact">
-        <div className="work-item-card-header work-item-card-header-compact">
-          <div>
-            <div className="work-item-card-eyebrow">Quick controls</div>
-          </div>
-        </div>
-        <div className="work-item-peek-controls-grid">
-          <div className="work-item-field">
-            <label className="drawer-label" htmlFor="work-item-column">Status / Column</label>
-            <select
-              id="work-item-column"
-              className="drawer-select"
-              value={item?.column_id ?? '__none__'}
-              onChange={handleColumnChange}
-            >
-              <option value="__none__">Unsorted</option>
-              {columns.map((column) => (
-                <option key={column.column_id} value={column.column_id}>
-                  {column.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="work-item-field">
-            <label className="drawer-label" htmlFor="work-item-due-date">Due date</label>
-            <input
-              id="work-item-due-date"
-              type="date"
-              className="drawer-input"
-              value={dueDateDraft}
-              onChange={(event) => handleDateChange('due_date', event.target.value)}
-            />
-            <span className="field-support-text">{dueDateDraft ? formatCompactDate(item?.due_date) : 'Add a due date'}</span>
-          </div>
-
-          {shouldHighlightPriority(priorityDraft) && (
-            <div className="work-item-field">
-              <label className="drawer-label" htmlFor="work-item-priority">Priority</label>
-              <select
-                id="work-item-priority"
-                className="drawer-select"
-                value={priorityDraft}
-                onChange={handlePriorityChange}
-              >
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-          )}
-
-          <div className="work-item-field work-item-field-span-2">
-            <div className="drawer-label-row">
-              <label className="drawer-label">Assignee</label>
-              <button
-                type="button"
-                className="drawer-inline-button pressable"
-                onClick={() => setShowAssigneePicker((current) => !current)}
-                aria-expanded={showAssigneePicker}
-                data-haptic="light"
-              >
-                {showAssigneePicker ? 'Done' : assignmentProfile ? 'Change' : 'Assign'}
-              </button>
-            </div>
-            <div className="work-item-inline-summary">
-              {renderAssigneeIdentity()}
-              <span className="field-support-text">{assignmentHint ?? 'Project collaborators'}</span>
-            </div>
-          </div>
-        </div>
-
-        {showAssigneePicker && (
-          <div className="work-item-peek-picker-wrap">
-            <input
-              className="drawer-input assignee-search-input"
-              value={assigneeSearch}
-              onChange={(event) => setAssigneeSearch(event.target.value)}
-              placeholder="Search people or agents"
-              aria-label="Search assignees"
-              autoComplete="off"
-            />
-            <div className="assignee-grid">
-              <div className="assignee-group">
-                <div className="assignee-group-title">People</div>
-                <div className="assignee-options">
-                  {filteredHumans.map((profile) => {
-                    const isSelected = item?.assignee_id === profile.id && item?.assignee_type === profile.type;
-                    return (
-                      <button
-                        key={`user-${profile.id}`}
-                        type="button"
-                        className={`assignee-option pressable ${isSelected ? 'assignee-option-selected' : ''}`}
-                        onClick={() => handleAssign(profile)}
-                        disabled={assignmentBusy}
-                        aria-pressed={isSelected}
-                        aria-label={`Assign to ${profile.label}`}
-                        data-haptic="light"
-                      >
-                        <span className="assignee-option-meta">
-                          <span className="assignee-avatar">
-                            {profile.actor ? (
-                              <ActorAvatar actor={profile.actor} size="sm" surfaceType="chip" decorative />
-                            ) : (
-                              profile.avatar ?? getInitials(profile.label)
-                            )}
-                          </span>
-                          <span className="assignee-text">
-                            <span className="assignee-name">{profile.label}</span>
-                            <span className="assignee-subtitle">{profile.subtitle ?? 'Human'}</span>
-                          </span>
-                        </span>
-                        <span className="assignee-status">Human</span>
-                      </button>
-                    );
-                  })}
-                  {!filteredHumans.length && (
-                    <div className="assignee-empty">
-                      {assigneeSearchValue ? 'No people match this search.' : 'No people available yet.'}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {groupedAgents.available.length > 0 && (
-                <div className="assignee-group">
-                  <div className="assignee-group-title">Available now</div>
-                  <div className="assignee-options">
-                    {groupedAgents.available.map((profile) => {
-                      const isSelected = item?.assignee_id === profile.id && item?.assignee_type === profile.type;
-                      return (
-                        <button
-                          key={`agent-${profile.id}`}
-                          type="button"
-                          className={`assignee-option pressable ${isSelected ? 'assignee-option-selected' : ''}`}
-                          onClick={() => handleAssign(profile)}
-                          disabled={assignmentBusy}
-                          aria-pressed={isSelected}
-                          aria-label={`Assign to ${profile.label}`}
-                          data-haptic="light"
-                        >
-                          <span className="assignee-option-meta">
-                            <span className="assignee-avatar">
-                              {profile.actor ? (
-                                <ActorAvatar actor={profile.actor} size="sm" surfaceType="chip" decorative />
-                              ) : (
-                                profile.avatar ?? getInitials(profile.label)
-                              )}
-                            </span>
-                            <span className="assignee-text">
-                              <span className="assignee-name">{profile.label}</span>
-                              <span className="assignee-subtitle">{profile.subtitle ?? 'Agent'}</span>
-                            </span>
-                          </span>
-                          <span className="assignee-status assignee-status-available">
-                            {profile.presenceLabel ?? 'Available'}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {groupedAgents.working.length > 0 && (
-                <div className="assignee-group">
-                  <div className="assignee-group-title">Working</div>
-                  <div className="assignee-options">
-                    {groupedAgents.working.map((profile) => {
-                      const isSelected = item?.assignee_id === profile.id && item?.assignee_type === profile.type;
-                      const contextLabel = profile.activeItemCount
-                        ? `${profile.presenceLabel ?? 'Working'} • ${profile.activeItemCount} item${profile.activeItemCount > 1 ? 's' : ''}`
-                        : profile.presenceLabel ?? toStatusLabel(profile.status);
-                      return (
-                        <button
-                          key={`agent-${profile.id}`}
-                          type="button"
-                          className={`assignee-option pressable ${isSelected ? 'assignee-option-selected' : ''}`}
-                          onClick={() => handleAssign(profile)}
-                          disabled={assignmentBusy}
-                          aria-pressed={isSelected}
-                          aria-label={`Assign to ${profile.label}`}
-                          data-haptic="light"
-                        >
-                          <span className="assignee-option-meta">
-                            <span className="assignee-avatar">
-                              {profile.actor ? (
-                                <ActorAvatar actor={profile.actor} size="sm" surfaceType="chip" decorative />
-                              ) : (
-                                profile.avatar ?? getInitials(profile.label)
-                              )}
-                            </span>
-                            <span className="assignee-text">
-                              <span className="assignee-name">{profile.label}</span>
-                              <span className="assignee-subtitle">{profile.subtitle ?? 'Agent'}</span>
-                            </span>
-                          </span>
-                          <span className="assignee-status assignee-status-working">{contextLabel ?? 'Working'}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {groupedAgents.pausedOffline.length > 0 && (
-                <div className="assignee-group">
-                  <div className="assignee-group-title">Paused / Offline</div>
-                  <div className="assignee-options">
-                    {groupedAgents.pausedOffline.map((profile) => {
-                      const isSelected = item?.assignee_id === profile.id && item?.assignee_type === profile.type;
-                      return (
-                        <button
-                          key={`agent-${profile.id}`}
-                          type="button"
-                          className={`assignee-option pressable ${isSelected ? 'assignee-option-selected' : ''}`}
-                          onClick={() => handleAssign(profile)}
-                          disabled={assignmentBusy}
-                          aria-pressed={isSelected}
-                          aria-label={`Assign to ${profile.label}`}
-                          data-haptic="light"
-                        >
-                          <span className="assignee-option-meta">
-                            <span className="assignee-avatar">
-                              {profile.actor ? (
-                                <ActorAvatar actor={profile.actor} size="sm" surfaceType="chip" decorative />
-                              ) : (
-                                profile.avatar ?? getInitials(profile.label)
-                              )}
-                            </span>
-                            <span className="assignee-text">
-                              <span className="assignee-name">{profile.label}</span>
-                              <span className="assignee-subtitle">{profile.subtitle ?? 'Agent'}</span>
-                            </span>
-                          </span>
-                          <span className="assignee-status assignee-status-offline">
-                            {profile.presenceLabel ?? 'Offline'}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {!filteredAgents.length && (
-                <div className="assignee-group">
-                  <div className="assignee-group-title">Agents</div>
-                  <div className="assignee-options">
-                    <div className="assignee-empty">
-                      {assigneeSearchValue ? 'No agents match this search.' : 'No agents available yet.'}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </section>
-
-      {hasExecutionCard && renderExecutionCard(true)}
-
-      <section className="work-item-card-surface work-item-card-surface-compact">
-        <div className="work-item-card-header work-item-card-header-compact">
-          <div>
-            <div className="work-item-card-eyebrow">Context</div>
-            <div className="work-item-card-title-small">Description, structure, and momentum at a glance</div>
-          </div>
-          <button
-            type="button"
-            className="drawer-inline-button pressable"
-            onClick={() => onPresentationModeChange('studio')}
-          >
-            Edit in studio
-          </button>
-        </div>
-        <div className="work-item-peek-context-grid">
-          <div className="work-item-field">
-            <div className="drawer-label-row">
-              <label className="drawer-label">Description</label>
-              <span className="drawer-assignee-hint">{descriptionDraft.trim() ? 'Context ready' : 'Needs detail'}</span>
-            </div>
-            <div className="description-preview">{summarizeDescription(descriptionDraft)}</div>
-          </div>
-          {(showParentSection || showChildrenSection || showProgressSection) && (
-            <div className="work-item-field">
-              <div className="drawer-label-row">
-                <label className="drawer-label">Structure</label>
-                <span className="drawer-assignee-hint">
-                  {showChildrenSection ? `${childItems.length} linked` : showProgressSection && progressRollup ? `${completionPercent}% complete` : 'Linked work'}
-                </span>
-              </div>
-              <div className="work-item-structure-preview">
-                <span className="structure-preview-copy">{structureSummary}</span>
-                {showProgressSection && progressRollup && (
-                  <div className="drawer-progress-track work-item-peek-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={completionPercent}>
-                    <div
-                      className="drawer-progress-fill"
-                      style={{ width: `${Math.min(100, Math.max(0, completionPercent))}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {renderActivityPreview()}
-    </div>
-  ), [
-    activityEntries.length,
-    columns,
-    completionPercent,
-    debouncedSave,
-    descriptionDraft,
-    dueDateDraft,
-    handleColumnChange,
-    handleDateChange,
-    handlePriorityChange,
-    handleTitleChange,
-    hasExecutionCard,
-    item,
-    itemId,
-    onPresentationModeChange,
-    presentationMode,
-    priorityDraft,
-    progressRollup,
-    projectSlug,
-    renderActivityPreview,
-    renderExecutionCard,
-    shouldHighlightPriority(priorityDraft),
-    showChildrenSection,
-    showParentSection,
-    showProgressSection,
-    titleDraft,
-    typeLabel,
-  ]);
 
   const renderStudio = useCallback(() => (
     <div className="work-item-studio-layout">
@@ -2364,19 +1933,20 @@ export function WorkItemDrawer({
     showProgressSection,
     titleDraft,
     typeLabel,
+    projectSlug,
   ]);
 
   return (
     <div
       ref={overlayRef}
-      className={`work-item-drawer-overlay ${phase === 'open' ? 'open' : ''} ${phase === 'closing' ? 'closing' : ''} presentation-${presentationMode}`}
+      className={`work-item-drawer-overlay ${phase === 'open' ? 'open' : ''} ${phase === 'closing' ? 'closing' : ''} presentation-studio`}
       onMouseDown={handleOverlayMouseDown}
       role="dialog"
       aria-modal="true"
       aria-labelledby="work-item-title"
     >
       <aside
-        className={`work-item-drawer work-item-drawer-${presentationMode}`}
+        className="work-item-drawer work-item-drawer-studio"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="work-item-drawer-header">
@@ -2401,13 +1971,6 @@ export function WorkItemDrawer({
             </div>
           </div>
           <div className="work-item-drawer-header-right">
-            <button
-              type="button"
-              className="work-item-drawer-action work-item-drawer-action-label pressable"
-              onClick={() => onPresentationModeChange(presentationMode === 'peek' ? 'studio' : 'peek')}
-            >
-              {presentationMode === 'peek' ? 'Open studio' : 'Back to peek'}
-            </button>
             <button
               type="button"
               className="work-item-drawer-action work-item-drawer-action-label pressable"
@@ -2445,8 +2008,8 @@ export function WorkItemDrawer({
           )}
 
           {!isLoading && item && (
-            <div className={`work-item-surface work-item-surface-${presentationMode}`}>
-              {presentationMode === 'peek' ? renderPeek() : renderStudio()}
+            <div className="work-item-surface work-item-surface-studio">
+              {renderStudio()}
             </div>
           )}
         </div>

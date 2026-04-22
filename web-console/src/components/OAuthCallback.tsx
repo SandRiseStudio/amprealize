@@ -17,7 +17,7 @@ import {
   CheckCircle2,
   LoaderCircle,
 } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../auth';
 import { AuthStage } from './auth/AuthStage';
 import { parseOAuthState } from './auth/oauthState';
 import { OAUTH_COMPLETE_MESSAGE_TYPE, PRODUCT_DISPLAY_NAME } from '../config/branding';

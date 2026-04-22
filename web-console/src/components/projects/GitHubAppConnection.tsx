@@ -14,7 +14,7 @@
 import { useCallback, useState } from 'react';
 import { PRODUCT_DISPLAY_NAME } from '../../config/branding';
 import { razeLog } from '../../telemetry/raze';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../auth';
 import {
   useGitHubAppStatus,
   useProjectGitHubAppInstallation,

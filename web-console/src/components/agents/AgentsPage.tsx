@@ -10,7 +10,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useShellTitle } from '../workspace/useShell';
 import { useOrganizations, useProjects } from '../../api/dashboard';
 import { useOrgContext } from '../../store/orgContextStore';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../auth';
 import {
   useAgentRegistry,
   useAgentRegistryDetail,
@@ -35,6 +35,15 @@ import './AgentsPage.css';
 
 type PanelMode = 'detail' | 'create';
 type ProjectFilter = 'all' | 'assigned' | 'unassigned';
+
+/** Loose row shape from project-agents API (field names vary by backend version). */
+type ProjectAgentAssignmentRow = {
+  agent_id?: unknown;
+  agent_slug?: unknown;
+  name?: unknown;
+  agent_name?: unknown;
+  id?: unknown;
+};
 
 interface AgentFormState {
   name: string;
@@ -303,7 +312,7 @@ export function AgentsPage(): React.JSX.Element {
   const assignmentIndex = useMemo(() => {
     const map = new Map<string, { projects: number }>();
     assignmentAgents.forEach((agent) => {
-      const rawAgent = agent as { agent_id?: unknown; agent_slug?: unknown; name?: unknown };
+      const rawAgent = agent as ProjectAgentAssignmentRow;
       const { registryId, registrySlug } = getAssignmentRegistryIdentity(agent);
       const keys = getIdentityCandidates([
         registryId,
@@ -311,8 +320,8 @@ export function AgentsPage(): React.JSX.Element {
         typeof rawAgent.agent_id === 'string' ? rawAgent.agent_id : null,
         typeof rawAgent.agent_slug === 'string' ? rawAgent.agent_slug : null,
         typeof rawAgent.name === 'string' ? rawAgent.name : null,
-        typeof (rawAgent as any).agent_name === 'string' ? (rawAgent as any).agent_name : null,
-        typeof (rawAgent as any).id === 'string' ? (rawAgent as any).id : null,
+        typeof rawAgent.agent_name === 'string' ? rawAgent.agent_name : null,
+        typeof rawAgent.id === 'string' ? rawAgent.id : null,
       ]);
       if (keys.size === 0) return;
       const projectKey = agent.project_id ?? (agent as { projectId?: string }).projectId;
@@ -340,16 +349,17 @@ export function AgentsPage(): React.JSX.Element {
 
   const assignmentMatches = useMemo(() => {
     if (!selectedAgent) return [];
+    const selectedWithOptionalId = selectedAgent as AgentRegistryEntry & { id?: unknown };
     const selectedAgentCandidates = getIdentityCandidates([
       selectedAgent.agent_id,
       selectedAgent.slug,
       selectedAgent.name,
-      (selectedAgent as any).id,
+      typeof selectedWithOptionalId.id === 'string' ? selectedWithOptionalId.id : null,
     ]);
     if (selectedAgentCandidates.size === 0) return [];
 
     return assignmentAgents.filter((agent) => {
-      const rawAgent = agent as { agent_id?: unknown; agent_slug?: unknown; name?: unknown };
+      const rawAgent = agent as ProjectAgentAssignmentRow;
       const { registryId, registrySlug } = getAssignmentRegistryIdentity(agent);
       const assignmentCandidates = getIdentityCandidates([
         registryId,
@@ -357,8 +367,8 @@ export function AgentsPage(): React.JSX.Element {
         typeof rawAgent.agent_id === 'string' ? rawAgent.agent_id : null,
         typeof rawAgent.agent_slug === 'string' ? rawAgent.agent_slug : null,
         typeof rawAgent.name === 'string' ? rawAgent.name : null,
-        typeof (rawAgent as any).agent_name === 'string' ? (rawAgent as any).agent_name : null,
-        typeof (rawAgent as any).id === 'string' ? (rawAgent as any).id : null,
+        typeof rawAgent.agent_name === 'string' ? rawAgent.agent_name : null,
+        typeof rawAgent.id === 'string' ? rawAgent.id : null,
       ]);
       return hasIntersection(assignmentCandidates, selectedAgentCandidates);
     });
