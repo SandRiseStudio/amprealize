@@ -25,12 +25,34 @@ def upgrade() -> None:
         """
     )
 
-    # Speeds parent-child hierarchy lookups and aggregation queries.
+    # Ensure hierarchy support exists in fresh databases before indexing it.
     op.execute(
         """
-        CREATE INDEX IF NOT EXISTS idx_board_work_items_parent_id
-        ON board.work_items (parent_id)
-        WHERE parent_id IS NOT NULL
+        ALTER TABLE board.work_items
+        ADD COLUMN IF NOT EXISTS parent_id UUID
+        REFERENCES board.work_items(id) ON DELETE SET NULL
+        """
+    )
+
+    # Speeds parent-child hierarchy lookups and aggregation queries.
+    # Older runtime code created this index as idx_work_items_parent_id, so
+    # reuse/rename that index instead of creating a duplicate with a new name.
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF to_regclass('board.idx_board_work_items_parent_id') IS NULL THEN
+                IF to_regclass('board.idx_work_items_parent_id') IS NOT NULL THEN
+                    ALTER INDEX board.idx_work_items_parent_id
+                    RENAME TO idx_board_work_items_parent_id;
+                ELSE
+                    CREATE INDEX idx_board_work_items_parent_id
+                    ON board.work_items (parent_id)
+                    WHERE parent_id IS NOT NULL;
+                END IF;
+            END IF;
+        END
+        $$;
         """
     )
 
@@ -46,4 +68,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS board.idx_board_work_items_labels_gin")
     op.execute("DROP INDEX IF EXISTS board.idx_board_work_items_parent_id")
+    op.execute("DROP INDEX IF EXISTS board.idx_work_items_parent_id")
+    op.execute("ALTER TABLE board.work_items DROP COLUMN IF EXISTS parent_id")
     op.execute("DROP INDEX IF EXISTS board.idx_board_work_items_board_position_created_at")

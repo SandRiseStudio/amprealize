@@ -29,6 +29,9 @@ modules:
   console:
     description: "Amprealize API + web console (local dev)"
     enabled: true
+  whiteboard:
+    description: "Whiteboard real-time sync sidecar for brainstorm sessions"
+    enabled: true
   agents:
     description: "Agent workspace management (requires Podman API service)"
     enabled: true  # Required for queue-based execution (EXECUTION_MODE=queue)
@@ -297,6 +300,9 @@ services:
       AMPREALIZE_MODULES_AGENTS: "true"
       AMPREALIZE_MODULES_BEHAVIORS: "true"
       AMPREALIZE_MODULES_COLLABORATION: "true"
+      AMPREALIZE_MODULES_WHITEBOARD: "true"
+      AMPREALIZE_ENABLE_WHITEBOARD: "true"
+      AMPREALIZE_CONSOLE_URL: "http://localhost:5173"
       AMPREALIZE_CORS_ORIGINS: "http://localhost:${AMPREALIZE_WEB_CONSOLE_PORT:-5173},http://localhost:5173,http://localhost:3000"
       AMPREALIZE_DEVICE_VERIFICATION_URI: "http://localhost:${AMPREALIZE_API_PORT:-8000}/v1/device/authorize"
       REDIS_URL: "redis://redis:6379/0"
@@ -353,6 +359,9 @@ services:
       MCP_IDLE_TIMEOUT: "${MCP_IDLE_TIMEOUT:-3600}"
       MCP_SHUTDOWN_TIMEOUT: "${MCP_SHUTDOWN_TIMEOUT:-30}"
       REDIS_URL: "redis://redis:6379/0"
+      AMPREALIZE_MODULES_WHITEBOARD: "true"
+      AMPREALIZE_ENABLE_WHITEBOARD: "true"
+      AMPREALIZE_CONSOLE_URL: "http://localhost:5173"
 
       # Consolidated DB DSNs for MCP-backed services
       AMPREALIZE_BEHAVIOR_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dbehavior,auth,execution,board,workflow,consent,audit,public"
@@ -384,6 +393,7 @@ services:
       - "amprealize-web-console-node-modules:/app/node_modules"
     environment:
       VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:8080}"
+      VITE_WHITEBOARD_SYNC_URL: "${VITE_WHITEBOARD_SYNC_URL:-http://localhost:8080}"
       AMPREALIZE_REPO_ROOT: "/app"
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "200"
@@ -391,6 +401,46 @@ services:
       - "sh"
       - "-lc"
       - "cd /app && npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173"
+    healthcheck_timeout_s: 180
+
+  whiteboard-sync:
+    image: docker.io/library/node:20-alpine
+    module: whiteboard
+    build:
+      context: "${AMPREALIZE_REPO_ROOT:-.}/packages/whiteboard-sync"
+      dockerfile: "Dockerfile"
+    ports:
+      - "3040:3040"
+    depends_on:
+      - amprealize-api
+    extra_hosts:
+      - "host.containers.internal:host-gateway"
+    environment:
+      SYNC_PORT: "3040"
+      PYTHON_API_BASE: "http://host.containers.internal:${AMPREALIZE_API_PORT:-8000}/api/v1"
+      ROOM_IDLE_TIMEOUT_MS: "60000"
+      PERSIST_INTERVAL_MS: "10000"
+      WHITEBOARD_MAX_CANVAS_SIZE_BYTES: "5242880"
+      # Storage backend for the Python whiteboard service (memory | sqlite | postgres)
+      WHITEBOARD_STORAGE_BACKEND: "${WHITEBOARD_STORAGE_BACKEND:-memory}"
+      # SQLite path (used when WHITEBOARD_STORAGE_BACKEND=sqlite)
+      WHITEBOARD_SQLITE_PATH: "${WHITEBOARD_SQLITE_PATH:-/data/whiteboard.db}"
+      # Postgres DSN (used when WHITEBOARD_STORAGE_BACKEND=postgres)
+      WHITEBOARD_PG_DSN: "${WHITEBOARD_PG_DSN:-}"
+      # Service token for sidecar → Python API auth
+      WHITEBOARD_SERVICE_TOKEN: "${WHITEBOARD_SERVICE_TOKEN:-}"
+    command:
+      - "sh"
+      - "-lc"
+      - "cd /app/packages/whiteboard-sync && npm ci --no-audit --no-fund && npm run build && node dist/server.js"
+    volumes:
+      - "${AMPREALIZE_REPO_ROOT:-.}:/app"
+      - "amprealize-whiteboard-sync-node-modules:/app/packages/whiteboard-sync/node_modules"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3040/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     healthcheck_timeout_s: 180
 
   # ---------------------------------------------------------------------------
@@ -472,3 +522,5 @@ volumes:
     name: amprealize-local-mcp-pip-cache
   execution-worker-pip-cache:
     name: amprealize-local-execution-worker-pip-cache
+  amprealize-whiteboard-sync-node-modules:
+    name: amprealize-local-whiteboard-sync-node-modules

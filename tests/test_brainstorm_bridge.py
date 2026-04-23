@@ -34,6 +34,7 @@ def bridge() -> BrainstormBridge:
         whiteboard_service=whiteboard_service,
         base_url="http://localhost:3000",
         sync_base_url="ws://localhost:8787/ws/whiteboard",
+        console_base_url="http://localhost:5173",
     )
 
 
@@ -53,7 +54,7 @@ class TestBrainstormBridge:
         assert first["room_id"] == second["room_id"]
         assert first["reused"] is False
         assert second["reused"] is True
-        assert second["room_url"] == f"http://localhost:3000/whiteboard/{first['room_id']}"
+        assert second["room_url"] == f"http://localhost:5173/whiteboard/{first['room_id']}"
         assert second["sync_url"] == f"ws://localhost:8787/ws/whiteboard/{first['room_id']}"
 
     def test_add_idea_and_theme_are_reflected_in_summary(self, bridge: BrainstormBridge) -> None:
@@ -126,7 +127,7 @@ class TestBrainstormHandlers:
         service = MagicMock()
         service.open_whiteboard.return_value = {
             "room_id": "room-123",
-            "room_url": "http://localhost:3000/whiteboard/room-123",
+            "room_url": "http://localhost:5173/whiteboard/room-123",
             "title": "Brainstorm: Launch",
             "session_id": "session-ctx",
             "status": "active",

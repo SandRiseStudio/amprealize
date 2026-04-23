@@ -23,6 +23,13 @@ export interface WhiteboardRoom {
   closed_at?: string | null;
 }
 
+export interface ExpiredWhiteboardRoom {
+  id: string;
+  title: string;
+  status: 'expired';
+  expired: true;
+}
+
 export interface CreateRoomRequest {
   title: string;
   session_id?: string;
@@ -105,12 +112,20 @@ export function useWhiteboardRooms(
 export function useWhiteboardRoom(roomId?: string) {
   return useQuery({
     queryKey: whiteboardKeys.room(roomId),
-    queryFn: async (): Promise<WhiteboardRoom | null> => {
+    queryFn: async (): Promise<WhiteboardRoom | ExpiredWhiteboardRoom | null> => {
       if (!roomId) return null;
       try {
         return await apiClient.get<WhiteboardRoom>(`/v1/whiteboard/rooms/${roomId}`);
       } catch (error) {
         if (error instanceof ApiError && error.status === 404) return null;
+        if (error instanceof ApiError && error.status === 410) {
+          return {
+            id: roomId,
+            title: 'Expired whiteboard session',
+            status: 'expired',
+            expired: true,
+          };
+        }
         throw error;
       }
     },

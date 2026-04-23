@@ -1096,6 +1096,25 @@ apply_podman_compose_provider_for_podman_socket() {
     export PODMAN_COMPOSE_PROVIDER="$pc"
 }
 
+run_podman_compose_up_detached() {
+    local compose_file="$1"
+    local stack_label="${2:-services}"
+    local output=""
+
+    if output=$("${PODMAN_COMPOSE_CMD[@]}" -f "$compose_file" up -d 2>&1); then
+        return 0
+    fi
+
+    if printf '%s' "$output" | grep -qi 'proxy already running'; then
+        print_warning "Podman reported a stale proxy while starting ${stack_label}; verifying readiness before failing..."
+        return 0
+    fi
+
+    print_error "Failed to start ${stack_label}"
+    printf '%s\n' "$output" >&2
+    return 1
+}
+
 ensure_test_infrastructure() {
     if [ "$AMPREALIZE_TEST_INFRA_MODE" = "breakeramp" ]; then
         ensure_breakeramp_infrastructure
@@ -1131,9 +1150,7 @@ ensure_test_infrastructure() {
         exit 1
     }
     apply_podman_compose_provider_for_podman_socket
-    local -a compose_cmd=("${PODMAN_COMPOSE_CMD[@]}")
-
-    "${compose_cmd[@]}" -f "$COMPOSE_FILE" up -d >/dev/null
+    run_podman_compose_up_detached "$COMPOSE_FILE" "test services" || exit 1
 
     local attempt=0 max_attempts=30
     while [ $attempt -lt $max_attempts ]; do
@@ -1171,7 +1188,6 @@ ensure_staging_stack() {
         exit 1
     }
     apply_podman_compose_provider_for_podman_socket
-    local -a compose_cmd=("${PODMAN_COMPOSE_CMD[@]}")
 
     export AMPREALIZE_STAGING_UPSTREAM_HOST="${AMPREALIZE_STAGING_UPSTREAM_HOST:-amprealize-api-staging}"
     export AMPREALIZE_STAGING_UPSTREAM_PORT="${AMPREALIZE_STAGING_UPSTREAM_PORT:-8000}"
@@ -1184,7 +1200,7 @@ ensure_staging_stack() {
 
     if [ "$staging_ready" = false ]; then
         print_info "Starting staging containers..."
-        "${compose_cmd[@]}" -f "$STAGING_COMPOSE_FILE" up -d >/dev/null
+        run_podman_compose_up_detached "$STAGING_COMPOSE_FILE" "staging containers" || exit 1
 
         local attempt=0 max_attempts=60
         while [ $attempt -lt $max_attempts ]; do

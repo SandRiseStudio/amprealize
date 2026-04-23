@@ -1,5 +1,5 @@
 interface BrandLogoProps {
-  variant?: 'icon' | 'wordmark';
+  variant?: 'icon' | 'wordmark' | 'lockup';
   alt?: string;
   className?: string;
   decorative?: boolean;
@@ -8,6 +8,7 @@ interface BrandLogoProps {
 const BRAND_ASSET_PATHS = {
   icon: '/branding/logo-icon.png',
   wordmark: '/branding/logo-wordmark.png',
+  lockup: '/branding/logo-lockup.png',
 } as const;
 
 export function BrandLogo({

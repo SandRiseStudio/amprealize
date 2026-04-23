@@ -22,7 +22,7 @@ from whiteboard.canvas_ops import (
 )
 from whiteboard.hooks import WhiteboardHooks
 from whiteboard.service import WhiteboardService
-from whiteboard.storage import StorageBackend, InMemoryStorage
+from whiteboard.storage import StorageBackend, InMemoryStorage, SqliteStorageBackend, PostgresStorageBackend, create_storage_from_env
 
 __version__ = "0.1.0"
 __all__ = [
@@ -38,6 +38,9 @@ __all__ = [
     "SnapshotFormat",
     "StorageBackend",
     "InMemoryStorage",
+    "SqliteStorageBackend",
+    "PostgresStorageBackend",
+    "create_storage_from_env",
     "add_shape",
     "add_sticky_note",
     "add_text_annotation",

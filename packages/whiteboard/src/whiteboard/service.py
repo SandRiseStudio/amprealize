@@ -25,7 +25,7 @@ from whiteboard.models import (
     WhiteboardRoom,
     WhiteboardSnapshot,
 )
-from whiteboard.storage import InMemoryStorage, StorageBackend
+from whiteboard.storage import InMemoryStorage, StorageBackend, create_storage_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class WhiteboardService:
         storage: Optional[StorageBackend] = None,
         hooks: Optional[WhiteboardHooks] = None,
     ) -> None:
-        self._storage = storage or InMemoryStorage()
+        self._storage = storage if storage is not None else create_storage_from_env()
         self._hooks = hooks or WhiteboardHooks()
 
     # -- Room lifecycle ------------------------------------------------------

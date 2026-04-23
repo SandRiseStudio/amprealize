@@ -8,7 +8,7 @@
 
 ## Summary
 
-Real-time collaborative whiteboard for brainstorm sessions. Human + AI agent draw on the same live canvas using tldraw SDK with `@tldraw/sync` for multiplayer. Text chat stays primary; the whiteboard is a supplemental scratchpad. Agent interacts via 5 MCP tools; human opens a URL in a browser or the web console. Canvas state persists and flows to downstream agents.
+Real-time collaborative whiteboard for brainstorm sessions. Human + AI agent draw on the same live canvas using tldraw SDK with `@tldraw/sync` for multiplayer. Text chat stays primary; the whiteboard is a supplemental scratchpad. Agents open and manage rooms through brainstorm MCP tools, with lower-level whiteboard MCP tools available for canvas operations. Humans open a URL in a browser or the web console. Canvas state persists and flows to downstream agents.
 
 ---
 
@@ -28,8 +28,8 @@ Real-time collaborative whiteboard for brainstorm sessions. Human + AI agent dra
 
 | Surface | Day One | Follow-up | Notes |
 |---------|---------|-----------|-------|
-| MCP Tools | ✅ | — | 5 tools: `whiteboard.open`, `whiteboard.draw`, `whiteboard.read`, `whiteboard.snapshot`, `whiteboard.close` |
-| REST API | ✅ | — | Room CRUD + snapshot export endpoints. Strict parity with MCP. |
+| MCP Tools | ✅ | — | Brainstorm orchestration via `brainstorm.openWhiteboard`, `brainstorm.addIdea`, `brainstorm.summarizeBoard`, `brainstorm.closeSession`; lower-level canvas ops via `whiteboard.createRoom`, `whiteboard.addShape`, `whiteboard.readCanvas`, `whiteboard.annotate` |
+| REST API | ✅ | — | Whiteboard room + canvas + snapshot endpoints. Room creation is brainstorm-owned: direct REST creation requires brainstorm metadata or an internal caller. |
 | CLI | ❌ | ✅ | Visual feature — CLI has limited utility. Follow-up: basic `whiteboard open/close/status` commands. |
 | Web Console | ✅ | — | Embedded tldraw canvas on separate tab/route. |
 | VS Code Extension | ❌ | ✅ | Follow-up: command to open whiteboard URL in browser, then webview panel. |
@@ -146,11 +146,11 @@ Embedded — tldraw sync server runs inside WhiteboardService process.
 
 ### Acceptance Criteria
 
-1. Agent can open a whiteboard room via MCP `whiteboard.open` and receive a shareable URL
+1. Agent can open a whiteboard room via MCP `brainstorm.openWhiteboard` and receive a unique per-session URL
 2. Human opens URL in browser and sees a live tldraw canvas with sketchy/hand-drawn aesthetic
-3. Agent draws shapes via MCP `whiteboard.draw`; human sees them appear in real-time with 🧠 agent attribution
-4. Human draws shapes on canvas; agent reads current canvas state via MCP `whiteboard.read`
-5. `whiteboard.snapshot` exports canvas as PNG
+3. Agent adds ideas/themes via MCP `brainstorm.addIdea` or draws shapes via `whiteboard.addShape`; human sees them appear in real-time with 🧠 agent attribution
+4. Human draws shapes on canvas; agent reads current canvas state via MCP `brainstorm.summarizeBoard` or `whiteboard.readCanvas`
+5. `brainstorm.closeSession` persists a snapshot and closes the room; the live room URL becomes ephemeral and returns Gone/expired behavior after the brainstorm session ends
 6. Canvas state persists in `whiteboard_rooms` table and is embedded in brainstorm summary for downstream agents
 7. Feature is gated behind `ENABLE_WHITEBOARD` boolean flag; text-only brainstorm is completely unchanged when disabled
 8. Canvas becomes read-only on WebSocket disconnect; reconnection resumes editing

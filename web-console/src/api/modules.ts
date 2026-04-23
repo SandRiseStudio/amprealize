@@ -13,9 +13,9 @@ export interface ApiModulesResponse {
  * for users on a pre-modular backend.
  */
 const LEGACY_FALLBACK: ApiModulesResponse = {
-  enabled_modules: ['goals', 'agents', 'behaviors', 'self_improving'],
-  capability_flags: ['goals', 'agents', 'behaviors', 'self_improving'],
-  all_modules: ['goals', 'agents', 'behaviors', 'self_improving'],
+  enabled_modules: ['goals', 'agents', 'behaviors', 'self_improving', 'whiteboard'],
+  capability_flags: ['goals', 'agents', 'behaviors', 'self_improving', 'whiteboard'],
+  all_modules: ['goals', 'agents', 'behaviors', 'self_improving', 'whiteboard'],
 };
 
 const MODULES_QUERY_KEY = ['api', 'modules'] as const;
@@ -53,7 +53,11 @@ export function useModules(options?: UseModulesOptions) {
     enabled: options?.enabled ?? true,
   });
 
-  const enabledSet = new Set(query.data?.enabled_modules ?? LEGACY_FALLBACK.enabled_modules);
+  // While the query is loading use LEGACY_FALLBACK so conditional routes are
+  // registered immediately — prevents direct URL navigation hitting the catch-all.
+  const enabledSet = new Set(
+    query.isPending ? LEGACY_FALLBACK.enabled_modules : (query.data?.enabled_modules ?? LEGACY_FALLBACK.enabled_modules),
+  );
 
   return {
     ...query,

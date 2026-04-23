@@ -57,6 +57,24 @@ function SessionEnded({ title }: { title?: string }) {
   );
 }
 
+function SessionExpired({ title }: { title?: string }) {
+  return (
+    <div className="whiteboard-canvas-wrapper">
+      <div className="whiteboard-canvas-topbar">
+        <Link to="/whiteboard" className="whiteboard-canvas-back">&larr; Back</Link>
+        <span className="whiteboard-canvas-title">{title || 'Whiteboard'}</span>
+      </div>
+      <div className="whiteboard-canvas-editor whiteboard-canvas-loading">
+        <p className="whiteboard-canvas-loading-title">Session link expired</p>
+        <p className="whiteboard-canvas-loading-copy">
+          This live whiteboard URL was unique to its brainstorm session and no longer works now that the session is over.
+          The saved snapshot is available in the <Link to="/whiteboard">session archive</Link>.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function SyncedCanvas({ roomId }: { roomId: string }) {
   const uri = useMemo(() => {
     const token = getAuthToken();
@@ -110,16 +128,25 @@ export function WhiteboardCanvas({ roomId }: WhiteboardCanvasProps) {
   const { data: room, isLoading } = useWhiteboardRoom(roomId);
   const joinRoom = useJoinWhiteboardRoom();
 
+  const isExpired = room?.status === 'expired';
   const isClosed = room?.status === 'closed' || room?.status === 'archived';
 
   useEffect(() => {
-    if (isClosed) return;
+    if (isClosed || isExpired || !room) return;
     joinRoom.mutate(roomId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, isClosed]);
+  }, [roomId, isClosed, isExpired, room]);
+
+  if (!isLoading && isExpired) {
+    return <SessionExpired title={room?.title} />;
+  }
 
   if (!isLoading && isClosed) {
     return <SessionEnded title={room?.title} />;
+  }
+
+  if (!isLoading && !room) {
+    return <SessionExpired title="Whiteboard" />;
   }
 
   return (

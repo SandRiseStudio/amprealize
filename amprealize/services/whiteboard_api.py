@@ -27,6 +27,23 @@ from whiteboard.models import (
 logger = logging.getLogger(__name__)
 
 
+def _is_ephemeral_brainstorm_room(room: Any) -> bool:
+    metadata = getattr(room, "metadata", {}) or {}
+    return metadata.get("source") == "brainstorm_bridge" or metadata.get("room_kind") == "brainstorm"
+
+
+def _raise_if_room_url_expired(room: Any, room_id: str) -> None:
+    status_value = room.status.value if hasattr(room.status, "value") else str(room.status)
+    if _is_ephemeral_brainstorm_room(room) and status_value in {"closed", "archived"}:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=(
+                "This brainstorm whiteboard session has ended. "
+                "Its live room URL is ephemeral and is no longer available."
+            ),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Request / Response models
 # ---------------------------------------------------------------------------
@@ -244,6 +261,7 @@ def create_whiteboard_routes(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Whiteboard room {room_id} not found",
             )
+        _raise_if_room_url_expired(room, room_id)
         return RoomResponse(
             id=room.id,
             title=room.title,
@@ -267,6 +285,9 @@ def create_whiteboard_routes(
         room_id: str,
     ) -> RoomResponse:
         user_id = _get_user_id(request)
+        existing_room = service.get_room(room_id)
+        if existing_room is not None:
+            _raise_if_room_url_expired(existing_room, room_id)
         room = service.join_room(room_id, user_id)
         if room is None:
             raise HTTPException(
@@ -319,14 +340,17 @@ def create_whiteboard_routes(
         body: CanvasSaveRequest,
     ) -> MessageResponse:
         user_id = _get_user_id(request)
+        room = service.get_room(room_id)
+        if room is not None:
+            _raise_if_room_url_expired(room, room_id)
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > MAX_CANVAS_SIZE_BYTES:
             raise HTTPException(
                 status_code=413,
                 detail=f"Canvas state exceeds {MAX_CANVAS_SIZE_BYTES} byte limit",
             )
-        room = service.save_canvas_state(room_id, body.canvas_state)
-        if room is None:
+        updated_room = service.save_canvas_state(room_id, body.canvas_state)
+        if updated_room is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Whiteboard room {room_id} not found",
@@ -349,6 +373,7 @@ def create_whiteboard_routes(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Whiteboard room {room_id} not found",
             )
+        _raise_if_room_url_expired(room, room_id)
         return {
             "room_id": room.id,
             "canvas_state": room.canvas_state,
@@ -369,6 +394,9 @@ def create_whiteboard_routes(
         body: SnapshotExportRequest,
     ) -> SnapshotResponse:
         _get_user_id(request)  # auth check
+        room = service.get_room(room_id)
+        if room is not None:
+            _raise_if_room_url_expired(room, room_id)
         snap_req = ServiceSnapshotRequest(
             room_id=room_id,
             format=SnapshotFormat(body.format),

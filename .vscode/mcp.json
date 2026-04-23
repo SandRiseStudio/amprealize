@@ -3,10 +3,14 @@
     "amprealize": {
       "type": "stdio",
       "command": "python3",
-      "args": ["scripts/start_amprealize_mcp.py"],
-      "cwd": "/Users/nick/amprealize",
+      "args": ["/Users/nick/Main/amprealize/scripts/start_amprealize_mcp.py"],
+      "cwd": "/Users/nick/Main/amprealize",
       "env": {
-        "PYTHONUNBUFFERED": "1"
+        "PYTHONUNBUFFERED": "1",
+        "MCP_REQUIRE_AUTH": "false",
+        "AMPREALIZE_ENABLE_WHITEBOARD": "true",
+        "AMPREALIZE_MODULES_WHITEBOARD": "true",
+        "AMPREALIZE_MODULES_COLLABORATION": "true"
       }
     }
   }

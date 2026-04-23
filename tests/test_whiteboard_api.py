@@ -62,6 +62,33 @@ def _make_client(
     return TestClient(app, raise_server_exceptions=False), svc
 
 
+def _brainstorm_room_payload(
+    *,
+    title: str | None = None,
+    session_id: str | None = None,
+) -> dict[str, object]:
+    """Build a room-creation payload that matches brainstorm-owned creation."""
+    payload: dict[str, object] = {"metadata": {"source": "brainstorm_bridge"}}
+    if title is not None:
+        payload["title"] = title
+    if session_id is not None:
+        payload["session_id"] = session_id
+    return payload
+
+
+def _create_brainstorm_room(
+    client: TestClient,
+    *,
+    title: str | None = None,
+    session_id: str | None = None,
+):
+    """Create a room via the REST API using brainstorm bridge metadata."""
+    return client.post(
+        "/v1/whiteboard/rooms",
+        json=_brainstorm_room_payload(title=title, session_id=session_id),
+    )
+
+
 # ---------------------------------------------------------------------------
 # POST /v1/whiteboard/rooms — Create room
 # ---------------------------------------------------------------------------
@@ -70,7 +97,7 @@ def _make_client(
 class TestCreateRoom:
     def test_create_room_defaults(self):
         client, _ = _make_client()
-        resp = client.post("/v1/whiteboard/rooms", json={})
+        resp = _create_brainstorm_room(client, title=None)
         assert resp.status_code == 201
         data = resp.json()
         assert data["title"] == "Untitled"
@@ -81,14 +108,31 @@ class TestCreateRoom:
 
     def test_create_room_with_title(self):
         client, _ = _make_client()
-        resp = client.post(
-            "/v1/whiteboard/rooms",
-            json={"title": "Sprint Retro Board", "session_id": "sess-42"},
+        resp = _create_brainstorm_room(
+            client,
+            title="Sprint Retro Board",
+            session_id="sess-42",
         )
         assert resp.status_code == 201
         data = resp.json()
         assert data["title"] == "Sprint Retro Board"
         assert data["session_id"] == "sess-42"
+
+    def test_create_room_rejects_ad_hoc_creation(self):
+        client, _ = _make_client()
+        resp = client.post("/v1/whiteboard/rooms", json={})
+        assert resp.status_code == 403
+        assert "brainstorm" in resp.json()["detail"].lower()
+
+    def test_create_room_allows_internal_creation(self):
+        client, _ = _make_client()
+        resp = client.post(
+            "/v1/whiteboard/rooms",
+            json={"title": "Internal Room"},
+            headers={"x-amprealize-internal": "1"},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["title"] == "Internal Room"
 
     def test_create_room_unauthenticated(self):
         client, _ = _make_client(authenticated=False)
@@ -112,8 +156,8 @@ class TestListRooms:
 
     def test_list_rooms_returns_created(self):
         client, _ = _make_client()
-        client.post("/v1/whiteboard/rooms", json={"title": "Room A"})
-        client.post("/v1/whiteboard/rooms", json={"title": "Room B"})
+        _create_brainstorm_room(client, title="Room A")
+        _create_brainstorm_room(client, title="Room B")
 
         resp = client.get("/v1/whiteboard/rooms")
         assert resp.status_code == 200
@@ -124,8 +168,8 @@ class TestListRooms:
 
     def test_list_rooms_filter_by_status(self):
         client, svc = _make_client()
-        r1 = client.post("/v1/whiteboard/rooms", json={"title": "Active"})
-        r2 = client.post("/v1/whiteboard/rooms", json={"title": "ToBeClosed"})
+        r1 = _create_brainstorm_room(client, title="Active")
+        r2 = _create_brainstorm_room(client, title="ToBeClosed")
         room_id = r2.json()["id"]
         svc.close_room(room_id)
 
@@ -137,8 +181,8 @@ class TestListRooms:
 
     def test_list_rooms_filter_by_session(self):
         client, _ = _make_client()
-        client.post("/v1/whiteboard/rooms", json={"title": "A", "session_id": "s1"})
-        client.post("/v1/whiteboard/rooms", json={"title": "B", "session_id": "s2"})
+        _create_brainstorm_room(client, title="A", session_id="s1")
+        _create_brainstorm_room(client, title="B", session_id="s2")
 
         resp = client.get("/v1/whiteboard/rooms", params={"session_id": "s1"})
         assert resp.status_code == 200
@@ -154,7 +198,7 @@ class TestListRooms:
     def test_list_rooms_pagination(self):
         client, _ = _make_client()
         for i in range(5):
-            client.post("/v1/whiteboard/rooms", json={"title": f"Room {i}"})
+            _create_brainstorm_room(client, title=f"Room {i}")
 
         resp = client.get("/v1/whiteboard/rooms", params={"limit": 2, "offset": 0})
         data = resp.json()
@@ -179,9 +223,7 @@ class TestListRooms:
 class TestGetRoom:
     def test_get_room_exists(self):
         client, _ = _make_client()
-        create_resp = client.post(
-            "/v1/whiteboard/rooms", json={"title": "My Room"}
-        )
+        create_resp = _create_brainstorm_room(client, title="My Room")
         room_id = create_resp.json()["id"]
 
         resp = client.get(f"/v1/whiteboard/rooms/{room_id}")
@@ -195,6 +237,18 @@ class TestGetRoom:
         resp = client.get("/v1/whiteboard/rooms/nonexistent-id")
         assert resp.status_code == 404
 
+    def test_get_room_returns_gone_after_brainstorm_session_closes(self):
+        client, _ = _make_client()
+        create_resp = _create_brainstorm_room(client, title="Ephemeral Room")
+        room_id = create_resp.json()["id"]
+
+        close_resp = client.post(f"/v1/whiteboard/rooms/{room_id}/close")
+        assert close_resp.status_code == 200
+
+        resp = client.get(f"/v1/whiteboard/rooms/{room_id}")
+        assert resp.status_code == 410
+        assert "ephemeral" in resp.json()["detail"].lower()
+
 
 # ---------------------------------------------------------------------------
 # POST /v1/whiteboard/rooms/{room_id}/join — Join room
@@ -204,9 +258,7 @@ class TestGetRoom:
 class TestJoinRoom:
     def test_join_room_success(self):
         client, _ = _make_client()
-        create_resp = client.post(
-            "/v1/whiteboard/rooms", json={"title": "Collab Board"}
-        )
+        create_resp = _create_brainstorm_room(client, title="Collab Board")
         room_id = create_resp.json()["id"]
 
         resp = client.post(f"/v1/whiteboard/rooms/{room_id}/join")
@@ -221,9 +273,7 @@ class TestJoinRoom:
 
     def test_join_room_idempotent(self):
         client, _ = _make_client()
-        create_resp = client.post(
-            "/v1/whiteboard/rooms", json={"title": "Board"}
-        )
+        create_resp = _create_brainstorm_room(client, title="Board")
         room_id = create_resp.json()["id"]
 
         client.post(f"/v1/whiteboard/rooms/{room_id}/join")
@@ -231,6 +281,15 @@ class TestJoinRoom:
         assert resp.status_code == 200
         # User should appear only once
         assert resp.json()["participant_ids"].count(TEST_USER) == 1
+
+    def test_join_room_returns_gone_after_brainstorm_session_closes(self):
+        client, _ = _make_client()
+        create_resp = _create_brainstorm_room(client, title="Closed Board")
+        room_id = create_resp.json()["id"]
+        client.post(f"/v1/whiteboard/rooms/{room_id}/close")
+
+        resp = client.post(f"/v1/whiteboard/rooms/{room_id}/join")
+        assert resp.status_code == 410
 
 
 # ---------------------------------------------------------------------------
@@ -241,9 +300,7 @@ class TestJoinRoom:
 class TestCloseRoom:
     def test_close_room_success(self):
         client, _ = _make_client()
-        create_resp = client.post(
-            "/v1/whiteboard/rooms", json={"title": "Board"}
-        )
+        create_resp = _create_brainstorm_room(client, title="Board")
         room_id = create_resp.json()["id"]
 
         resp = client.post(f"/v1/whiteboard/rooms/{room_id}/close")
@@ -252,9 +309,9 @@ class TestCloseRoom:
         assert data["success"] is True
         assert room_id in data["message"]
 
-        # Verify room is now closed
+        # Verify the live room URL has expired
         get_resp = client.get(f"/v1/whiteboard/rooms/{room_id}")
-        assert get_resp.json()["status"] == "closed"
+        assert get_resp.status_code == 410
 
     def test_close_room_not_found(self):
         client, _ = _make_client()
@@ -270,9 +327,7 @@ class TestCloseRoom:
 class TestSaveCanvas:
     def test_save_canvas_success(self):
         client, _ = _make_client()
-        create_resp = client.post(
-            "/v1/whiteboard/rooms", json={"title": "Board"}
-        )
+        create_resp = _create_brainstorm_room(client, title="Board")
         room_id = create_resp.json()["id"]
 
         canvas = {"shapes": [{"type": "rect", "x": 10, "y": 20}]}
@@ -292,6 +347,18 @@ class TestSaveCanvas:
         )
         assert resp.status_code == 404
 
+    def test_save_canvas_returns_gone_after_brainstorm_session_closes(self):
+        client, _ = _make_client()
+        create_resp = _create_brainstorm_room(client, title="Closed Canvas")
+        room_id = create_resp.json()["id"]
+        client.post(f"/v1/whiteboard/rooms/{room_id}/close")
+
+        resp = client.put(
+            f"/v1/whiteboard/rooms/{room_id}/canvas",
+            json={"canvas_state": {}},
+        )
+        assert resp.status_code == 410
+
 
 # ---------------------------------------------------------------------------
 # GET /v1/whiteboard/rooms/{room_id}/canvas — Get canvas
@@ -301,9 +368,7 @@ class TestSaveCanvas:
 class TestGetCanvas:
     def test_get_canvas_empty(self):
         client, _ = _make_client()
-        create_resp = client.post(
-            "/v1/whiteboard/rooms", json={"title": "Board"}
-        )
+        create_resp = _create_brainstorm_room(client, title="Board")
         room_id = create_resp.json()["id"]
 
         resp = client.get(f"/v1/whiteboard/rooms/{room_id}/canvas")
@@ -314,9 +379,7 @@ class TestGetCanvas:
 
     def test_get_canvas_after_save(self):
         client, _ = _make_client()
-        create_resp = client.post(
-            "/v1/whiteboard/rooms", json={"title": "Board"}
-        )
+        create_resp = _create_brainstorm_room(client, title="Board")
         room_id = create_resp.json()["id"]
 
         canvas = {"shapes": [{"id": "s1"}], "bindings": []}
@@ -336,6 +399,15 @@ class TestGetCanvas:
         resp = client.get("/v1/whiteboard/rooms/bad/canvas")
         assert resp.status_code == 404
 
+    def test_get_canvas_returns_gone_after_brainstorm_session_closes(self):
+        client, _ = _make_client()
+        create_resp = _create_brainstorm_room(client, title="Closed Canvas")
+        room_id = create_resp.json()["id"]
+        client.post(f"/v1/whiteboard/rooms/{room_id}/close")
+
+        resp = client.get(f"/v1/whiteboard/rooms/{room_id}/canvas")
+        assert resp.status_code == 410
+
 
 # ---------------------------------------------------------------------------
 # POST /v1/whiteboard/rooms/{room_id}/export — Export snapshot
@@ -345,9 +417,7 @@ class TestGetCanvas:
 class TestExportSnapshot:
     def test_export_json_snapshot(self):
         client, _ = _make_client()
-        create_resp = client.post(
-            "/v1/whiteboard/rooms", json={"title": "Board"}
-        )
+        create_resp = _create_brainstorm_room(client, title="Board")
         room_id = create_resp.json()["id"]
 
         canvas = {"shapes": [{"id": "rect-1"}]}
@@ -377,9 +447,7 @@ class TestExportSnapshot:
     def test_export_png_stub(self):
         """PNG export is stubbed — still returns a response."""
         client, _ = _make_client()
-        create_resp = client.post(
-            "/v1/whiteboard/rooms", json={"title": "Board"}
-        )
+        create_resp = _create_brainstorm_room(client, title="Board")
         room_id = create_resp.json()["id"]
 
         resp = client.post(

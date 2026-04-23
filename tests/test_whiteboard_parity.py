@@ -57,6 +57,21 @@ def _make_bridge(svc: WhiteboardService) -> BrainstormBridge:
     )
 
 
+def _create_rest_brainstorm_room(
+    client: TestClient,
+    *,
+    title: str,
+    session_id: str | None = None,
+) -> TestClient:
+    payload: dict[str, object] = {
+        "title": title,
+        "metadata": {"source": "brainstorm_bridge"},
+    }
+    if session_id is not None:
+        payload["session_id"] = session_id
+    return client.post("/v1/whiteboard/rooms", json=payload)
+
+
 class TestCreateRoomParity:
     """Rooms created via REST and MCP bridge yield consistent structures."""
 
@@ -65,9 +80,10 @@ class TestCreateRoomParity:
         client = _make_rest_client(svc)
         bridge = _make_bridge(svc)
 
-        rest_resp = client.post(
-            "/v1/whiteboard/rooms",
-            json={"title": "Parity Board", "session_id": "sess-parity"},
+        rest_resp = _create_rest_brainstorm_room(
+            client,
+            title="Parity Board",
+            session_id="sess-parity",
         )
         assert rest_resp.status_code == 201
         rest_room = rest_resp.json()
@@ -88,7 +104,8 @@ class TestCreateRoomParity:
         client = _make_rest_client(svc)
         bridge = _make_bridge(svc)
 
-        client.post("/v1/whiteboard/rooms", json={"title": "REST Room"})
+        rest_create = _create_rest_brainstorm_room(client, title="REST Room")
+        assert rest_create.status_code == 201
         bridge.open_whiteboard(
             session_id="sess-mcp",
             topic="MCP Room",
@@ -110,7 +127,7 @@ class TestCloseSessionParity:
         svc = _make_shared_service()
         client = _make_rest_client(svc)
 
-        create = client.post("/v1/whiteboard/rooms", json={"title": "REST Close"})
+        create = _create_rest_brainstorm_room(client, title="REST Close")
         room_id = create.json()["id"]
         close = client.post(f"/v1/whiteboard/rooms/{room_id}/close")
         assert close.status_code == 200
@@ -205,7 +222,7 @@ class TestCanvasSizeLimit:
         svc = _make_shared_service()
         client = _make_rest_client(svc)
 
-        create = client.post("/v1/whiteboard/rooms", json={"title": "Small"})
+        create = _create_rest_brainstorm_room(client, title="Small")
         room_id = create.json()["id"]
 
         resp = client.put(

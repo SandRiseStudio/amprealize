@@ -8351,35 +8351,48 @@ def create_app(
     # ------------------------------------------------------------------
     if os.getenv("AMPREALIZE_ENABLE_WHITEBOARD", "").lower() in ("true", "1", "yes"):
         try:
-            from whiteboard import WhiteboardService, InMemoryStorage
+            from whiteboard import WhiteboardService, InMemoryStorage, create_storage_from_env
             from amprealize.services.whiteboard_api import create_whiteboard_routes
 
-            # Use context system to resolve whiteboard DB — falls back to
-            # InMemoryStorage when no Postgres DSN is available.
-            whiteboard_dsn = resolve_optional_postgres_dsn(
-                service="WHITEBOARD",
-                explicit_dsn=os.getenv("AMPREALIZE_WHITEBOARD_PG_DSN"),
-                env_var="AMPREALIZE_WHITEBOARD_PG_DSN",
-            )
-            if whiteboard_dsn:
-                from amprealize.storage.postgres_pool import PostgresPool
-                from amprealize.storage.whiteboard_postgres import PostgresWhiteboardStorage
+            # Prefer create_storage_from_env (reads WHITEBOARD_STORAGE_BACKEND,
+            # WHITEBOARD_SQLITE_PATH, WHITEBOARD_PG_DSN) but fall back to the
+            # legacy context-system Postgres DSN for backwards compatibility.
+            try:
+                whiteboard_storage = create_storage_from_env()
+                logger.info(
+                    "Whiteboard storage initialized via WHITEBOARD_STORAGE_BACKEND=%s",
+                    os.getenv("WHITEBOARD_STORAGE_BACKEND", "memory"),
+                )
+            except Exception as env_exc:
+                logger.warning(
+                    "create_storage_from_env failed (%s); falling back to context-system DSN resolution",
+                    env_exc,
+                )
+                # Legacy path: resolve from Amprealize context system
+                whiteboard_dsn = resolve_optional_postgres_dsn(
+                    service="WHITEBOARD",
+                    explicit_dsn=os.getenv("AMPREALIZE_WHITEBOARD_PG_DSN"),
+                    env_var="AMPREALIZE_WHITEBOARD_PG_DSN",
+                )
+                if whiteboard_dsn:
+                    from amprealize.storage.postgres_pool import PostgresPool
+                    from amprealize.storage.whiteboard_postgres import PostgresWhiteboardStorage
 
-                whiteboard_pool = PostgresPool(whiteboard_dsn, service_name="whiteboard")
-                postgres_whiteboard_storage = PostgresWhiteboardStorage(pool=whiteboard_pool)
-                try:
-                    postgres_whiteboard_storage.ensure_schema_ready()
-                    whiteboard_storage = postgres_whiteboard_storage
-                    logger.info("Whiteboard using PostgreSQL storage (context system)")
-                except Exception as exc:
+                    whiteboard_pool = PostgresPool(whiteboard_dsn, service_name="whiteboard")
+                    postgres_whiteboard_storage = PostgresWhiteboardStorage(pool=whiteboard_pool)
+                    try:
+                        postgres_whiteboard_storage.ensure_schema_ready()
+                        whiteboard_storage = postgres_whiteboard_storage
+                        logger.info("Whiteboard using PostgreSQL storage (context system)")
+                    except Exception as exc:
+                        whiteboard_storage = InMemoryStorage()
+                        logger.warning(
+                            "Whiteboard PostgreSQL storage unavailable (%s); falling back to InMemoryStorage",
+                            exc,
+                        )
+                else:
                     whiteboard_storage = InMemoryStorage()
-                    logger.warning(
-                        "Whiteboard PostgreSQL storage unavailable (%s); falling back to InMemoryStorage",
-                        exc,
-                    )
-            else:
-                whiteboard_storage = InMemoryStorage()
-                logger.info("Whiteboard using InMemoryStorage (no DB configured)")
+                    logger.info("Whiteboard using InMemoryStorage (no DB configured)")
 
             # Wire telemetry hooks (Raze) for whiteboard events
             whiteboard_hooks = None

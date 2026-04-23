@@ -44,6 +44,9 @@ modules:
   console:
     description: "Amprealize API + web console (local dev)"
     enabled: true
+  whiteboard:
+    description: "Whiteboard real-time sync sidecar for brainstorm sessions"
+    enabled: true
   agents:
     description: "Agent workspace management (requires Podman API service)"
     enabled: true  # Required for queue-based execution (EXECUTION_MODE=queue)
@@ -227,7 +230,11 @@ services:
       AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_AGENT_REGISTRY_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_MESSAGING_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_WHITEBOARD_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_METRICS_PG_DSN: "${TELEMETRY_DATABASE_URL:-${DATABASE_URL}}"
+      # Whiteboard storage backend — use Postgres in cloud-dev
+      WHITEBOARD_STORAGE_BACKEND: "postgres"
+      WHITEBOARD_PG_DSN: "${DATABASE_URL}"
       # Telemetry disabled — no separate telemetry DB in cloud-dev
       AMPREALIZE_TELEMETRY_ENABLED: "false"
 
@@ -260,6 +267,9 @@ services:
       AMPREALIZE_MODULES_AGENTS: "true"
       AMPREALIZE_MODULES_BEHAVIORS: "true"
       AMPREALIZE_MODULES_COLLABORATION: "true"
+      AMPREALIZE_MODULES_WHITEBOARD: "true"
+      AMPREALIZE_ENABLE_WHITEBOARD: "true"
+      AMPREALIZE_CONSOLE_URL: "http://localhost:5173"
       AMPREALIZE_CORS_ORIGINS: "http://localhost:${AMPREALIZE_WEB_CONSOLE_PORT:-5173},http://localhost:5173,http://localhost:3000"
       AMPREALIZE_DEVICE_VERIFICATION_URI: "http://localhost:${AMPREALIZE_API_PORT:-8000}/v1/device/authorize"
       REDIS_URL: "redis://redis:6379/0"
@@ -311,11 +321,15 @@ services:
       DATABASE_URL: "${DATABASE_URL}"
       # Telemetry disabled in cloud-dev (no telemetry DB available)
       AMPREALIZE_TELEMETRY_ENABLED: "false"
+      AMPREALIZE_MODULES_WHITEBOARD: "true"
+      AMPREALIZE_ENABLE_WHITEBOARD: "true"
+      AMPREALIZE_CONSOLE_URL: "http://localhost:5173"
       AMPREALIZE_BEHAVIOR_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_WORKFLOW_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_ACTION_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_RUN_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_COMPLIANCE_PG_DSN: "${DATABASE_URL}"
+      AMPREALIZE_WHITEBOARD_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_METRICS_PG_DSN: "${TELEMETRY_DATABASE_URL:-${DATABASE_URL}}"
 
       # LLM provider keys
@@ -340,6 +354,7 @@ services:
       - "amprealize-web-console-node-modules:/app/node_modules"
     environment:
       VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:8080}"
+      VITE_WHITEBOARD_SYNC_URL: "${VITE_WHITEBOARD_SYNC_URL:-http://localhost:8080}"
       AMPREALIZE_REPO_ROOT: "/app"
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "200"
@@ -348,6 +363,36 @@ services:
       - "-lc"
       - "cd /app && npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173"
     healthcheck_timeout_s: 180
+
+  whiteboard-sync:
+    image: docker.io/library/node:20-alpine
+    module: whiteboard
+    ports:
+      - "3040:3040"
+    depends_on:
+      - amprealize-api
+    volumes:
+      - "${AMPREALIZE_REPO_ROOT:-.}:/app"
+      - "amprealize-cloud-whiteboard-sync-node-modules:/app/packages/whiteboard-sync/node_modules"
+    workdir: /app
+    command:
+      - "sh"
+      - "-lc"
+      - "cd /app/packages/whiteboard-sync && npm ci --no-audit --no-fund && npm run build && node dist/server.js"
+    environment:
+      SYNC_PORT: "3040"
+      PYTHON_API_BASE: "http://amprealize-api:8000/api/v1"
+      ROOM_IDLE_TIMEOUT_MS: "900000"
+      PERSIST_INTERVAL_MS: "15000"
+      WHITEBOARD_MAX_CANVAS_SIZE_BYTES: "5242880"
+      WHITEBOARD_STORAGE_BACKEND: "postgres"
+      WHITEBOARD_PG_DSN: "${DATABASE_URL}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3040/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    healthcheck_timeout_s: 120
 
   # ---------------------------------------------------------------------------
   # MODULE: STREAMING (Optional)
@@ -422,3 +467,5 @@ volumes:
     name: amprealize-cloud-mcp-pip-cache
   execution-worker-pip-cache:
     name: amprealize-cloud-execution-worker-pip-cache
+  amprealize-cloud-whiteboard-sync-node-modules:
+    name: amprealize-cloud-whiteboard-sync-node-modules

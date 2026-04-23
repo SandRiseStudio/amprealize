@@ -35,6 +35,58 @@ _GRID_GAP_Y = 260
 _GRID_ORIGIN_X = 100
 _GRID_ORIGIN_Y = 100
 
+# tldraw store snapshot schema — extracted from @tldraw/tlschema@4.5.9
+TLDRAW_SCHEMA: Dict[str, Any] = {
+    "schemaVersion": 2,
+    "sequences": {
+        "com.tldraw.store": 5,
+        "com.tldraw.asset": 1,
+        "com.tldraw.camera": 1,
+        "com.tldraw.document": 2,
+        "com.tldraw.instance": 26,
+        "com.tldraw.instance_page_state": 5,
+        "com.tldraw.page": 1,
+        "com.tldraw.instance_presence": 6,
+        "com.tldraw.pointer": 1,
+        "com.tldraw.shape": 4,
+        "com.tldraw.asset.bookmark": 2,
+        "com.tldraw.asset.image": 6,
+        "com.tldraw.asset.video": 5,
+        "com.tldraw.shape.arrow": 8,
+        "com.tldraw.shape.bookmark": 2,
+        "com.tldraw.shape.draw": 4,
+        "com.tldraw.shape.embed": 4,
+        "com.tldraw.shape.frame": 1,
+        "com.tldraw.shape.geo": 11,
+        "com.tldraw.shape.group": 0,
+        "com.tldraw.shape.highlight": 3,
+        "com.tldraw.shape.image": 5,
+        "com.tldraw.shape.line": 5,
+        "com.tldraw.shape.note": 10,
+        "com.tldraw.shape.text": 4,
+        "com.tldraw.shape.video": 4,
+        "com.tldraw.binding.arrow": 1,
+    },
+}
+
+# Minimal base records required in every tldraw store
+_BASELINE_STORE: Dict[str, Any] = {
+    "document:document": {
+        "id": "document:document",
+        "typeName": "document",
+        "name": "",
+        "gridSize": 10,
+        "meta": {},
+    },
+    "page:page": {
+        "id": "page:page",
+        "typeName": "page",
+        "name": "Page 1",
+        "index": "a1",
+        "meta": {},
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,11 +97,43 @@ def _new_id() -> str:
     return f"shape:{uuid.uuid4().hex[:16]}"
 
 
+def _is_tldraw_snapshot(canvas: Dict[str, Any]) -> bool:
+    """Return True when *canvas* is already a tldraw ``StoreSnapshot``.
+
+    A tldraw snapshot has the shape ``{"store": {...}, "schema": {...}}``.  A
+    plain Python canvas is a flat dict keyed by record IDs.
+    """
+    return isinstance(canvas.get("store"), dict)
+
+
+def _ensure_tldraw_snapshot(canvas: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize *canvas* to tldraw ``StoreSnapshot`` format.
+
+    * If already a snapshot — return unchanged.
+    * If empty or a flat Python shape dict — wrap in ``{store, schema}`` and
+      migrate any existing top-level shape records into ``store``.
+    """
+    if _is_tldraw_snapshot(canvas):
+        return canvas
+
+    store: Dict[str, Any] = {k: dict(v) for k, v in _BASELINE_STORE.items()}
+    for key, value in canvas.items():
+        if isinstance(value, dict) and value.get("typeName") == "shape":
+            store[key] = value
+    return {"store": store, "schema": dict(TLDRAW_SCHEMA)}
+
+
+def _get_store(canvas: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the mutable shape-store dict from a tldraw snapshot canvas."""
+    return canvas["store"]
+
+
 def _shape_count(canvas: Dict[str, Any]) -> int:
-    """Count shapes currently on the canvas."""
+    """Count shapes currently on the canvas (handles both formats)."""
+    source = _get_store(canvas) if _is_tldraw_snapshot(canvas) else canvas
     return sum(
         1
-        for v in canvas.values()
+        for v in source.values()
         if isinstance(v, dict) and v.get("typeName") == "shape"
     )
 
@@ -93,6 +177,10 @@ def add_shape(
     (canvas, shape_id):
         The mutated canvas dict and the ID of the inserted shape.
     """
+    # Ensure canvas is a valid tldraw snapshot before mutating.
+    canvas = _ensure_tldraw_snapshot(canvas)
+    store = _get_store(canvas)
+
     shape_id = shape_data.get("id") or _new_id()
     x = shape_data.get("x")
     y = shape_data.get("y")
@@ -115,13 +203,15 @@ def add_shape(
         "y": y,
         "rotation": shape_data.get("rotation", 0),
         "isLocked": shape_data.get("isLocked", False),
+        "opacity": shape_data.get("opacity", 1),
         "parentId": shape_data.get("parentId", "page:page"),
         "index": shape_data.get("index", f"a{_shape_count(canvas) + 1}"),
         "props": shape_data.get("props", {}),
         "meta": merged_meta,
     }
 
-    canvas[shape_id] = record
+    # Write into store (not the top-level canvas dict).
+    store[shape_id] = record
     return canvas, shape_id
 
 
@@ -148,7 +238,9 @@ def add_sticky_note(
             "font": "draw",
             "align": "middle",
             "verticalAlign": "middle",
+            "growY": 0,
             "url": "",
+            "fontSizeAdjustment": 0,
         },
     }
     if x is not None:
@@ -219,7 +311,8 @@ def read_canvas_summary(canvas: Dict[str, Any]) -> Dict[str, Any]:
     text_elements: List[str] = []
     connections: List[Dict[str, Any]] = []
 
-    for key, record in canvas.items():
+    source = _get_store(canvas) if _is_tldraw_snapshot(canvas) else canvas
+    for key, record in source.items():
         if not isinstance(record, dict):
             continue
         if record.get("typeName") != "shape":
