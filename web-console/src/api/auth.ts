@@ -5,6 +5,31 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from './client';
 
+/** Response from ``GET /v1/auth/oauth/{provider}/url`` (JSON authorize URL). */
+export interface OAuthAuthorizationUrlResponse {
+  url: string;
+}
+
+/**
+ * Fetch the provider authorization URL over CORS (no redirect).
+ * Used for the Google popup flow so the popup never navigates to the API origin.
+ */
+export async function getOAuthUrl(
+  provider: 'github' | 'google',
+  redirectUri: string,
+  state: string,
+): Promise<string> {
+  const qs = new URLSearchParams({
+    redirect_uri: redirectUri,
+    state,
+  });
+  const data = await apiClient.get<OAuthAuthorizationUrlResponse>(
+    `/v1/auth/oauth/${provider}/url?${qs.toString()}`,
+    { skipAuth: true, skipRetry: true },
+  );
+  return data.url;
+}
+
 export interface DeviceCodeResponse {
   device_code: string;
   user_code: string;

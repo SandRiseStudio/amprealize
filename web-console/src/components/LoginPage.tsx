@@ -33,6 +33,7 @@ import {
   OAUTH_GOOGLE_POPUP_NAME,
   PRODUCT_DISPLAY_NAME,
 } from '../config/branding';
+import { getOAuthUrl } from '../api/auth';
 import './LoginPage.css';
 
 type LoginMode = 'human' | 'device-flow' | 'agent-credentials';
@@ -235,7 +236,24 @@ export function LoginPage() {
     }
   }, [clientId, clientSecret, loginWithClientCredentials, navigate, from]);
 
-  const openGooglePopup = useCallback((url: string): boolean => {
+  const handleSocialLogin = useCallback((provider: 'github' | 'google') => {
+    const redirectUri = `${window.location.origin}/auth/callback`;
+    const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
+    const apiBaseUrl = rawBaseUrl.endsWith('/api') ? rawBaseUrl : `${rawBaseUrl}/api`;
+    // Google: popup. GitHub: full-window redirect.
+    const usePopup = provider === 'google';
+    const state = createOAuthState({
+      provider,
+      returnTo: from,
+      popup: usePopup,
+    });
+    const authorizeUrl = `${apiBaseUrl}/v1/auth/oauth/${provider}/authorize?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
+
+    if (!usePopup) {
+      window.location.href = authorizeUrl;
+      return;
+    }
+
     const width = 520;
     const height = 720;
     const left = window.screenX + Math.max((window.outerWidth - width) / 2, 0);
@@ -249,9 +267,10 @@ export function LoginPage() {
       'scrollbars=yes',
     ].join(',');
 
-    const popup = window.open(url, OAUTH_GOOGLE_POPUP_NAME, features);
+    const popup = window.open('about:blank', OAUTH_GOOGLE_POPUP_NAME, features);
     if (!popup) {
-      return false;
+      window.location.href = authorizeUrl;
+      return;
     }
 
     googlePopupRef.current = popup;
@@ -262,41 +281,41 @@ export function LoginPage() {
       clearTimeout(googlePopupTimeoutRef.current);
     }
 
-    // Avoid polling `popup.closed` while the popup is on a cross-origin provider page.
-    // Browsers increasingly warn on that access under COOP/COEP. We clear pending
-    // state on our own postMessage callback and fall back to a timeout for cancelled flows.
     googlePopupTimeoutRef.current = setTimeout(() => {
       setGooglePopupPending(false);
       googlePopupRef.current = null;
       googlePopupTimeoutRef.current = null;
     }, 120_000);
 
-    return true;
-  }, []);
-
-  const handleSocialLogin = useCallback((provider: 'github' | 'google') => {
-    const redirectUri = `${window.location.origin}/auth/callback`;
-    const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(/\/+$/, '');
-    const apiBaseUrl = rawBaseUrl.endsWith('/api') ? rawBaseUrl : `${rawBaseUrl}/api`;
-    // Full-window OAuth for both providers: popup navigations to the API can hit
-    // flaky proxy/TLS paths (e.g. Cloudflare 520) while top-level redirects match GitHub.
-    const usePopup = false;
-    const state = createOAuthState({
-      provider,
-      returnTo: from,
-      popup: usePopup,
-    });
-    const authUrl = `${apiBaseUrl}/v1/auth/oauth/${provider}/authorize?redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
-
-    if (usePopup) {
-      const opened = openGooglePopup(authUrl);
-      if (opened) {
-        return;
+    void (async () => {
+      try {
+        const providerUrl = await getOAuthUrl(provider, redirectUri, state);
+        if (popup.closed) {
+          setGooglePopupPending(false);
+          googlePopupRef.current = null;
+          if (googlePopupTimeoutRef.current) {
+            clearTimeout(googlePopupTimeoutRef.current);
+            googlePopupTimeoutRef.current = null;
+          }
+          return;
+        }
+        popup.location.href = providerUrl;
+      } catch {
+        try {
+          popup.close();
+        } catch {
+          /* ignore */
+        }
+        setGooglePopupPending(false);
+        googlePopupRef.current = null;
+        if (googlePopupTimeoutRef.current) {
+          clearTimeout(googlePopupTimeoutRef.current);
+          googlePopupTimeoutRef.current = null;
+        }
+        window.location.href = authorizeUrl;
       }
-    }
-
-    window.location.href = authUrl;
-  }, [from, openGooglePopup]);
+    })();
+  }, [from]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

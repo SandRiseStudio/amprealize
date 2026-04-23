@@ -35,16 +35,22 @@ async function fetchModules(): Promise<ApiModulesResponse> {
   }
 }
 
+export type UseModulesOptions = {
+  /** When false, skips the API call (e.g. on /login where there is no bearer token). */
+  enabled?: boolean;
+};
+
 /**
  * React Query hook for module availability.
  * Provides `isModuleEnabled(name)` helper for conditional rendering.
  */
-export function useModules() {
+export function useModules(options?: UseModulesOptions) {
   const query = useQuery({
     queryKey: MODULES_QUERY_KEY,
     queryFn: fetchModules,
     staleTime: 60_000,
     retry: 1,
+    enabled: options?.enabled ?? true,
   });
 
   const enabledSet = new Set(query.data?.enabled_modules ?? LEGACY_FALLBACK.enabled_modules);

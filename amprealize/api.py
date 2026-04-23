@@ -6658,6 +6658,65 @@ def create_app(
                 detail=f"Failed to generate authorization URL: {exc}",
             ) from exc
 
+    @app.get("/api/v1/auth/oauth/{provider}/url")
+    async def oauth_authorization_url(
+        provider: str,
+        redirect_uri: str = Query(..., description="Client callback URL"),
+        state: Optional[str] = Query(None, description="CSRF state parameter"),
+    ) -> Dict[str, str]:
+        """
+        Return the OAuth provider authorization URL as JSON (no redirect).
+
+        Used by the web console Google popup flow so the popup never performs a
+        cross-origin document navigation to this API (avoids intermittent
+        Cloudflare 520s). The client opens ``about:blank`` synchronously, then
+        assigns ``popup.location.href`` to the returned URL (Google/GitHub).
+        """
+        try:
+            if provider == "github":
+                oauth_provider = container.github_provider
+            elif provider == "google":
+                oauth_provider = container.google_provider
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unsupported OAuth provider: {provider}. Supported: github, google",
+                )
+
+            if oauth_provider is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=f"OAuth provider '{provider}' is not configured",
+                )
+
+            logger.info(
+                "JSON auth URL for provider=%s, redirect_uri=%s, state=%s",
+                provider,
+                redirect_uri,
+                state,
+            )
+
+            auth_url = oauth_provider.get_authorization_url(
+                redirect_uri=redirect_uri,
+                state=state,
+            )
+
+            return {"url": auth_url}
+
+        except NotImplementedError:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail=f"OAuth provider '{provider}' does not support authorization code flow",
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("Error in oauth_authorization_url: %s", exc, exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to generate authorization URL: {exc}",
+            ) from exc
+
     @app.post("/api/v1/auth/oauth/callback")
     async def oauth_callback(payload: Dict[str, Any]) -> Dict[str, Any]:
         """
