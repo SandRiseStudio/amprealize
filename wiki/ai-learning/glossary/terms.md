@@ -70,3 +70,35 @@ Quick reference for core terminology. Each entry links to a deeper concept page 
 **Harness** — The orchestration layer that wraps an LLM: populating the context window, routing outputs, managing state between calls, and enforcing boundaries. Frameworks like LangChain and Anthropic's Agent SDK are harness implementations. See [Agent Harnesses & Context Fragments](../concepts/agent-harness.md).
 
 **Memory Distillation** — The process of converting raw agent experience traces into compact, generalizable, retrievable higher-level primitives. Analogous to how humans consolidate episodic memories into general knowledge. See [Experiential Memory for AI Agents](../concepts/experiential-memory.md).
+
+**AI-Native IDE** — A code editor rebuilt from the ground up around AI capabilities (e.g., Cursor, Windsurf, Zed). You install it *instead of* VS Code. Distinct from an IDE Extension, which adds AI to your existing editor. See [AI Ecosystem Map](../concepts/ai-ecosystem-map.md).
+
+**A2A (Agent-to-Agent Protocol)** — Open protocol, originally by Google and now governed by the Linux Foundation, for agent-to-agent communication. Agents advertise capabilities via Agent Cards and exchange stateful Tasks using JSON-RPC 2.0 over HTTPS. Complements MCP (agent → tool). See [Agent-to-Agent Protocol (A2A)](../concepts/a2a.md).
+
+**Agent Card** — A JSON document published at `/.well-known/agent.json` that describes an A2A-compatible agent's skills, authentication requirements, streaming capabilities, and endpoint URL. The machine-readable equivalent of a business card for AI agents. See [Agent-to-Agent Protocol (A2A)](../concepts/a2a.md).
+
+**Semantic Layer** — A business logic layer sitting between raw data sources (databases, data warehouses) and consumers (dashboards, agents, APIs). Encodes metric definitions, access controls, dimension hierarchies, and join logic. Enables consistent, governed, NL-driven data access at scale. See [Semantic Layer & NL-to-Data Architecture](../concepts/semantic-layer.md).
+
+**Tool RAG** — Applying the RAG (Retrieval-Augmented Generation) pattern to tool selection. When an agent has access to a large catalog of MCP tools, Tool RAG performs semantic search over tool descriptions to surface only the most relevant tools for the current query — reducing token cost and selection confusion. See [Model Context Protocol (MCP)](../concepts/mcp.md).
+
+**ChatGPT** — OpenAI's consumer chat application (Layer 3). Uses GPT-5.x models. Distinct from the models themselves (GPT-5.4, GPT-5.5) and from Codex (OpenAI's separate coding agent product). Available on web, iOS, Android, and desktop. See [AI Ecosystem Map](../concepts/ai-ecosystem-map.md).
+
+**Codex** — OpenAI's autonomous coding agent product (Layer 4). Available as a web app (chatgpt.com/codex), CLI (open-source), and IDE extension. Uses GPT-5.3-Codex and GPT-5.5 models internally. Distinct from ChatGPT (general chat) and from "GPT-5.3-Codex" (the model name). See [AI Ecosystem Map](../concepts/ai-ecosystem-map.md).
+
+**IDE Extension** — A plugin installed inside your existing code editor (VS Code, JetBrains, Xcode, etc.) that adds AI capabilities without replacing the editor itself. Examples: GitHub Copilot, Claude Code extension, Gemini Code Assist. Distinct from an AI-Native IDE (which replaces the editor) and a CLI (which runs in a terminal). See [AI Ecosystem Map](../concepts/ai-ecosystem-map.md).
+
+**Inference Provider** — A service that hosts and serves foundation model weights via an API, so applications don't have to run the model themselves. Examples: OpenAI API, Anthropic API, AWS Bedrock, Google Vertex AI, OpenRouter, Groq, Ollama (local). The same model (e.g., Claude Sonnet 4.6) may be available from multiple inference providers. See [AI Ecosystem Map](../concepts/ai-ecosystem-map.md).
+
+**Foundation Model** — A large neural network trained on massive datasets that serves as the base for many downstream applications and products. The "weights" — the actual AI brain. A foundation model is not an app: GPT-5.4 is a model; ChatGPT is an app that uses it. See [AI Ecosystem Map](../concepts/ai-ecosystem-map.md).
+
+**Agent** — A software system that is given a *goal* and autonomously plans, uses tools, observes results, and iterates until the goal is complete. Distinct from a chatbot (single response) or assistant (reactive, stateless). Key properties: runs a loop, takes real actions via tools, maintains memory across steps. See [AI Agents: What They Are and How They Work](../concepts/agents.md).
+
+**Agent Loop** — The core execution pattern of an AI agent: Perceive → Reason → Plan → Act → Observe → (update memory) → back to Reason. The loop continues until the task is done or a stopping condition is reached. See [AI Agents](../concepts/agents.md).
+
+**ReAct** — "Reason + Act." The dominant agent architecture (Yao et al., ICLR 2023) where the model alternates between generating a Thought (reasoning about the current state) and an Action (tool call), receiving an Observation after each action. See [AI Agents](../concepts/agents.md).
+
+**Tool Call** — A structured JSON output emitted by the model to invoke an external function (search, code execution, file read, etc.). The surrounding runtime intercepts the output, executes the function, and returns the result as an Observation. See [AI Agents](../concepts/agents.md).
+
+**Observation** — The result returned to the model after a tool executes. Feeds back into the next reasoning step, grounding the model's reasoning in real-world data rather than hallucination. See [AI Agents](../concepts/agents.md).
+
+**Human-in-Loop** — A design pattern where an agent pauses at key decision points and waits for human approval before taking irreversible actions (sending emails, merging code, deleting data, spending money). Most production agents in 2026 use this pattern. See [AI Agents](../concepts/agents.md).

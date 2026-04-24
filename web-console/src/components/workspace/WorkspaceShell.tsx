@@ -170,7 +170,9 @@ const Sidebar = memo(function Sidebar({ collapsed, onToggle, children }: Sidebar
         </button>
         {!collapsed && (
           <div className="sidebar-brand animate-fade-in-up">
-            <BrandLogo variant="wordmark" alt={PRODUCT_DISPLAY_NAME} className="sidebar-brand-wordmark" />
+            <div className="sidebar-lockup-surface">
+              <BrandLogo variant="lockup" alt={PRODUCT_DISPLAY_NAME} className="sidebar-brand-lockup" />
+            </div>
           </div>
         )}
       </div>

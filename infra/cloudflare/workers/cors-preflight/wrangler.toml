@@ -1,0 +1,10 @@
+name = "amprealize-api-cors"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# Route: all traffic to api.amprealize.ai goes through this worker.
+# The worker answers OPTIONS preflights at the edge and proxies everything
+# else to the origin (amprealize-api-prod.fly.dev via Cloudflare).
+routes = [
+  { pattern = "api.amprealize.ai/*", zone_name = "amprealize.ai" }
+]

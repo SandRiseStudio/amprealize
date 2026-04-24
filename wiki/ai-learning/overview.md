@@ -40,6 +40,10 @@ Embeddings → Vector DB → RAG → Hybrid Retrieval
 
 ```
 Prompt Engineering → Tool Use → Multi-Agent Orchestration
+                                        │
+                        ┌───────────────┼───────────────┐
+                        ▼               ▼               ▼
+                  MCP (tools)     A2A (agents)    Design Patterns
 ```
 
 **Prompt Engineering**: Crafting inputs that reliably produce desired LLM behavior. Includes system prompts, few-shot examples, chain-of-thought.
@@ -47,6 +51,12 @@ Prompt Engineering → Tool Use → Multi-Agent Orchestration
 **Tool Use**: LLMs calling external functions (MCP tools, APIs). Transforms LLMs from text generators into actors.
 
 **Multi-Agent Orchestration**: Coordinating multiple specialized agents. Amprealize's GEP (Guided Execution Protocol) orchestrates 8 phases.
+
+**MCP (Model Context Protocol)**: The open standard for connecting agents to tools, data sources, and APIs. Solves the N×M integration problem. Agent → tool communication.
+
+**A2A (Agent-to-Agent Protocol)**: The open standard for agent-to-agent communication. Agents discover each other via Agent Cards and exchange stateful Tasks. Agent → agent communication. Complements MCP.
+
+**Agent Design Patterns**: Six reusable patterns (Single, Sequential, Parallel, Coordinator, Agent-as-Tool, Loop & Critique) that cover the full space of production agent architectures.
 
 ## Amprealize-Specific Layer
 

@@ -258,80 +258,28 @@
   display: inline-flex;
   align-items: center;
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
-.sidebar-brand-wordmark {
+/* Lockup PNG uses real alpha (see web-console/scripts/refresh_brand_web_assets.py). */
+.sidebar-lockup-surface {
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  background: transparent;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.sidebar-brand-lockup {
   display: block;
   width: auto;
-  height: 48px;
+  max-width: 100%;
+  height: 28px;
   object-fit: contain;
-}
-
-.sidebar-brand-mark {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  background: rgba(255, 255, 255, 0.58);
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.sidebar-brand-mark::before,
-.sidebar-brand-mark::after {
-  content: '';
-  position: absolute;
-  border-radius: 999px;
-  filter: blur(10px);
-}
-
-.sidebar-brand-mark::before {
-  width: 16px;
-  height: 16px;
-  background: rgba(34, 118, 210, 0.22);
-}
-
-.sidebar-brand-mark::after {
-  width: 10px;
-  height: 10px;
-  background: rgba(31, 182, 166, 0.18);
-  transform: translate(5px, -4px);
-}
-
-.sidebar-brand-mark-core {
-  position: relative;
-  z-index: 1;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.72);
-}
-
-.sidebar-brand-copy {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.sidebar-title {
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--color-text-primary);
-  white-space: nowrap;
-  line-height: 1;
-}
-
-.sidebar-title-caption {
-  font-size: 10px;
-  line-height: 1.2;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
+  object-position: left center;
+  vertical-align: top;
 }
 
 .sidebar-footer-meta {
@@ -1082,7 +1030,7 @@
     padding: var(--space-4);
   }
 
-  .sidebar-brand-wordmark {
+  .sidebar-brand-lockup {
     height: 24px;
   }
 

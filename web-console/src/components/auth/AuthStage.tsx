@@ -26,22 +26,17 @@ export function AuthStage({
           <span className="auth-stage-orbit auth-stage-orbit-b" />
           <span className="auth-stage-node auth-stage-node-a" />
           <span className="auth-stage-node auth-stage-node-b" />
-          <span className="auth-stage-node auth-stage-node-c" />
-          <span className="auth-stage-line auth-stage-line-a" />
-          <span className="auth-stage-line auth-stage-line-b" />
         </div>
 
         <header className="auth-stage-header">
           <div className="auth-stage-brand">
-            <div className="auth-stage-brand-mark" aria-hidden="true">
-              <BrandLogo variant="icon" decorative className="auth-stage-brand-icon" />
-            </div>
-            <div className="auth-stage-brand-copy">
-              <BrandLogo variant="wordmark" alt={PRODUCT_DISPLAY_NAME} className="auth-stage-brand-wordmark" />
-              <span className="auth-stage-brand-meta">Behavior engine</span>
+            <div className="auth-stage-lockup-surface">
+              <BrandLogo variant="lockup" alt={PRODUCT_DISPLAY_NAME} className="auth-stage-brand-lockup" />
             </div>
           </div>
-          <p className="auth-stage-tagline">Reusable behaviors for agents, tools, and workflows.</p>
+          <p className="auth-stage-tagline">
+            Boards, agents as teammates, reusable behaviors — one workspace.
+          </p>
         </header>
 
         <section className="auth-stage-panel" aria-label={panelTitle}>

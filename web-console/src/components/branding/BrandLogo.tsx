@@ -11,6 +11,9 @@ const BRAND_ASSET_PATHS = {
   lockup: '/branding/logo-lockup.png',
 } as const;
 
+/** Bump when replacing files in `public/branding/` to defeat CDN/browser cache. */
+const BRAND_ASSET_BUST = '20260424c';
+
 export function BrandLogo({
   variant = 'wordmark',
   alt = 'Amprealize',
@@ -21,7 +24,7 @@ export function BrandLogo({
 
   return (
     <img
-      src={BRAND_ASSET_PATHS[variant]}
+      src={`${BRAND_ASSET_PATHS[variant]}?v=${BRAND_ASSET_BUST}`}
       alt={decorative ? '' : alt}
       aria-hidden={decorative || undefined}
       className={resolvedClassName}

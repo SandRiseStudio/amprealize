@@ -292,16 +292,13 @@ const ContinueWorkingCard = memo(function ContinueWorkingCard({
 
   return (
     <section className="dashboard-section dashboard-focus" aria-label="Continue working">
-      <div className="section-header">
-        <h2 className="section-title">Continue Working</h2>
-      </div>
       <div className="dashboard-focus-card animate-fade-in-up">
         <div className="dashboard-focus-copy">
-          <span className="dashboard-focus-kicker">Most recently updated project</span>
+          <span className="dashboard-focus-kicker">Recently active</span>
           <h3 className="dashboard-focus-title">{project.name}</h3>
-          <p className="dashboard-focus-description">
-            {project.description || 'Pick up where you left off with boards, agents, and runs all in one place.'}
-          </p>
+          {project.description ? (
+            <p className="dashboard-focus-description">{project.description}</p>
+          ) : null}
           <div className="dashboard-focus-meta">
             <span className="dashboard-focus-pill">
               <BoardIcon />
@@ -594,8 +591,8 @@ function PersonalizedActions({
     if (!featuredProject) {
       nextActions.push({
         icon: <ProjectIcon />,
-        label: 'Create Your First Project',
-        description: 'Set up the first project where humans and agents will collaborate.',
+        label: 'Start a project',
+        description: 'Connect a workspace, bring agents in as contributors, and start running.',
         onClick: () => onNavigate(newProjectPath),
         badge: 'Start here',
       });
@@ -613,7 +610,7 @@ function PersonalizedActions({
       nextActions.push({
         icon: <ProjectIcon />,
         label: 'Create First Board',
-        description: `Add a board inside ${featuredProject.name} to coordinate execution.`,
+        description: `Add a board to ${featuredProject.name} and start tracking work.`,
         onClick: () => onNavigate(`/projects/${featuredProject.id}?newBoard=1`),
         badge: 'Setup',
       });
@@ -623,7 +620,7 @@ function PersonalizedActions({
       nextActions.push({
         icon: <RunIcon />,
         label: 'Continue Recent Run',
-        description: `Jump back into the ${recentRunTarget.label.toLowerCase()} tied to your latest execution activity.`,
+        description: `Open the ${recentRunTarget.label.toLowerCase()} from your last run.`,
         onClick: () => onNavigate(recentRunTarget.path),
         badge: 'Resume',
       });
@@ -640,8 +637,8 @@ function PersonalizedActions({
     if (!hasAgents) {
       nextActions.push({
         icon: <AgentIcon />,
-        label: 'Create Agent',
-        description: 'Configure your first AI agent for orchestration and execution.',
+        label: 'Add an agent',
+        description: 'Wire up a teammate that picks up tasks when assigned.',
         onClick: () => onNavigate('/agents/new'),
         badge: 'Recommended',
       });
@@ -656,8 +653,8 @@ function PersonalizedActions({
 
     nextActions.push({
       icon: <PlusIcon />,
-      label: 'Behavior Extraction',
-      description: 'Turn successful traces into handbook-ready behavior candidates.',
+      label: 'Extract behaviors',
+      description: 'Save patterns from a recent run so the team can reuse them.',
       onClick: () => onNavigate('/bci/extraction'),
     });
 
@@ -951,7 +948,7 @@ export function Dashboard() {
             <div className="dashboard-header-copy">
               <h1 className="dashboard-title animate-fade-in-up">Home</h1>
               <p className="dashboard-description animate-fade-in-up">
-                Continue work across projects, monitor agents, and launch tools from one place.
+                Your boards, agents, and behaviors — all in one place.
               </p>
             </div>
           </div>
@@ -1134,8 +1131,8 @@ export function Dashboard() {
                 })
               ) : (
                 <EmptyState
-                  title="No projects yet"
-                  description="Create your first project to get started"
+                  title="No projects"
+                  description="Create one and start bringing work and agents together."
                     actionLabel={CREATE_PROJECT_CTA}
                   onAction={() => handleNavigate(newProjectPath)}
                 />
@@ -1169,8 +1166,8 @@ export function Dashboard() {
                 ))
               ) : (
                 <EmptyState
-                  title="No agents configured"
-                  description="Set up agents to automate your workflows"
+                  title="No agents yet"
+                  description="Add one to start assigning tasks from the board."
                   actionLabel="Create Agent"
                   onAction={() => handleNavigate('/agents/new')}
                 />
@@ -1200,17 +1197,17 @@ export function Dashboard() {
                 })
               ) : (
                 <EmptyState
-                  title="No recent runs"
-                  description="Runs will appear here once agents start executing"
+                  title="No runs yet"
+                  description="Agent runs show up here once they have something to do."
                 />
               )}
             </div>
           </section>
 
           {/* Quick Actions Section */}
-          <section className="dashboard-section dashboard-quick-actions" aria-label="Recommended next steps">
+          <section className="dashboard-section dashboard-quick-actions" aria-label="What's next">
             <div className="section-header">
-              <h2 className="section-title">Recommended Next Steps</h2>
+              <h2 className="section-title">What's next</h2>
             </div>
             <div className="quick-actions-list">
               <PersonalizedActions

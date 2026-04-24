@@ -1,6 +1,6 @@
 .auth-stage-page {
+  /* Lockup uses a transparent PNG; avoid isolation: isolate (can affect compositing). */
   position: relative;
-  isolation: isolate;
   min-height: 100dvh;
   display: flex;
   align-items: center;
@@ -51,70 +51,37 @@
 .auth-stage-brand {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  min-width: 0;
 }
 
-.auth-stage-brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: rgba(34, 118, 210, 0.08);
-  border: 1px solid rgba(34, 118, 210, 0.18);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48);
+.auth-stage-lockup-surface {
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  background: transparent;
+  border-radius: 2px;
 }
 
-.auth-stage-brand-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.auth-stage-brand-icon {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-}
-
-.auth-stage-brand-wordmark {
+.auth-stage-brand-lockup {
   display: block;
   width: auto;
-  height: 28px;
+  max-width: min(100%, 340px);
+  height: 34px;
   object-fit: contain;
-}
-
-.auth-stage-brand-name {
-  font-size: 1.03rem;
-  font-weight: var(--font-semibold);
-  color: var(--color-text-primary);
-  letter-spacing: -0.02em;
-}
-
-.auth-stage-brand-meta,
-.auth-stage-tagline {
-  font-size: var(--text-sm);
-  color: var(--color-text-tertiary);
-}
-
-.auth-stage-brand-meta {
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(51, 65, 85, 0.72);
+  object-position: left center;
+  vertical-align: top;
 }
 
 .auth-stage-tagline {
   margin: 0;
-  max-width: 30ch;
+  max-width: 34ch;
   padding-left: 16px;
-  border-left: 1px solid rgba(34, 118, 210, 0.16);
-  font-size: 0.79rem;
-  line-height: 1.42;
+  border-left: 1px solid rgba(34, 118, 210, 0.14);
+  font-size: 0.76rem;
+  line-height: 1.48;
   font-weight: var(--font-medium);
-  color: rgba(15, 23, 42, 0.66);
-  letter-spacing: -0.01em;
+  color: rgba(15, 23, 42, 0.62);
+  letter-spacing: -0.012em;
   text-align: right;
 }
 
@@ -146,37 +113,37 @@
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding: 28px 32px 22px;
+  gap: 20px;
+  padding: 24px 28px 20px;
   background: transparent;
 }
 
 .auth-stage-panel-header {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .auth-stage-panel-eyebrow {
   display: inline-flex;
   align-items: center;
   width: fit-content;
-  min-height: 29px;
-  padding: 0 13px;
+  min-height: 26px;
+  padding: 0 11px;
   border-radius: var(--radius-full);
-  background: rgba(34, 118, 210, 0.1);
-  border: 1px solid rgba(34, 118, 210, 0.18);
+  background: rgba(34, 118, 210, 0.08);
+  border: 1px solid rgba(34, 118, 210, 0.16);
   color: var(--color-accent);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: var(--font-semibold);
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
 }
 
 .auth-stage-panel-title {
   margin: 0;
-  font-size: clamp(1.68rem, 2.7vw, 2.04rem);
-  line-height: 0.98;
-  letter-spacing: -0.05em;
+  font-size: clamp(1.28rem, 2.1vw, 1.56rem);
+  line-height: 1.12;
+  letter-spacing: -0.038em;
   color: var(--color-text-primary);
 }
 
@@ -184,9 +151,9 @@
   margin: 0;
   width: 100%;
   max-width: none;
-  font-size: 0.97rem;
-  line-height: 1.62;
-  color: rgba(15, 23, 42, 0.78);
+  font-size: 0.875rem;
+  line-height: 1.58;
+  color: rgba(15, 23, 42, 0.72);
 }
 
 .auth-stage-panel-body {
@@ -198,12 +165,11 @@
   position: absolute;
   inset: -56px;
   pointer-events: none;
-  opacity: 0.54;
+  opacity: 0.32;
 }
 
 .auth-stage-orbit,
-.auth-stage-node,
-.auth-stage-line {
+.auth-stage-node {
   position: absolute;
   display: block;
 }
@@ -250,34 +216,6 @@
   border-color: rgba(16, 152, 173, 0.14);
 }
 
-.auth-stage-node-c {
-  bottom: 90px;
-  left: 94px;
-  width: 10px;
-  height: 10px;
-}
-
-.auth-stage-line {
-  height: 1px;
-  background: rgba(34, 118, 210, 0.18);
-  transform-origin: left center;
-}
-
-.auth-stage-line-a {
-  top: 74px;
-  right: 128px;
-  width: 86px;
-  transform: rotate(18deg);
-}
-
-.auth-stage-line-b {
-  bottom: 108px;
-  left: 72px;
-  width: 76px;
-  transform: rotate(-28deg);
-  background: rgba(16, 152, 173, 0.18);
-}
-
 @media (max-width: 780px) {
   .auth-stage-page {
     padding: 16px;
@@ -312,20 +250,21 @@
   }
 
   .auth-stage-panel-title {
-    font-size: 1.56rem;
+    font-size: 1.38rem;
   }
 
   .auth-stage-panel-subtitle {
-    font-size: 0.93rem;
-    line-height: 1.58;
+    font-size: 0.88rem;
+    line-height: 1.55;
   }
 
   .auth-stage-tagline {
     font-size: 0.82rem;
   }
 
-  .auth-stage-brand-wordmark {
-    height: 24px;
+  .auth-stage-brand-lockup {
+    height: 28px;
+    max-width: min(100%, 300px);
   }
 }
 
