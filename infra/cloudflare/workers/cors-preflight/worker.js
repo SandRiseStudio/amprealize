@@ -44,6 +44,8 @@ const CORS_HEADERS = {
   "Access-Control-Max-Age": "86400",
 };
 
+const ORIGIN_HOSTNAME = "amprealize-api-prod.fly.dev";
+
 export default {
   async fetch(request) {
     const origin = request.headers.get("Origin") || "";
@@ -60,8 +62,22 @@ export default {
       return new Response(null, { status: 204, headers });
     }
 
-    // Forward all other requests to the origin.
-    const response = await fetch(request);
+    // Forward all other requests directly to Fly. Fetching the original
+    // api.amprealize.ai URL here re-enters this Worker route and can loop.
+    const upstreamUrl = new URL(request.url);
+    upstreamUrl.hostname = ORIGIN_HOSTNAME;
+    upstreamUrl.protocol = "https:";
+
+    const upstreamRequest = new Request(upstreamUrl, request);
+    const upstreamHeaders = new Headers(upstreamRequest.headers);
+    upstreamHeaders.set("X-Forwarded-Host", "api.amprealize.ai");
+    upstreamHeaders.set("X-Forwarded-Proto", "https");
+
+    const response = await fetch(
+      new Request(upstreamRequest, {
+        headers: upstreamHeaders,
+      }),
+    );
     const newHeaders = new Headers(response.headers);
 
     if (isAllowedOrigin) {
