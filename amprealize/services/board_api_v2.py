@@ -240,6 +240,17 @@ class WorkItemProgressRollupListResponse(BaseModel):
     total: int
 
 
+class BoardBootstrapResponse(BaseModel):
+    """Bundled board load payload for reducing first-render request fanout."""
+    board: BoardWithColumns
+    items: List[WorkItem]
+    total: int
+    page: int = 1
+    page_size: int = 100
+    has_more: bool = False
+    rollups: List[WorkItemProgressRollup] = Field(default_factory=list)
+
+
 class CompleteWithDescendantsResponse(BaseModel):
     """Response for completing a work item with all descendants."""
     updated_count: int
@@ -403,6 +414,81 @@ def create_board_routes(
                 )
                 span["column_count"] = len(board.columns) if getattr(board, "columns", None) else 0
             return BoardWithColumnsResponse(board=board)
+        except BoardNotFoundError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+    @router.get(
+        "/v1/boards/{board_id}/bootstrap",
+        response_model=BoardBootstrapResponse,
+        summary="Bootstrap board page",
+        description="Fetch board metadata, first work-item page, and rollups in one request.",
+    )
+    async def get_board_bootstrap(
+        request: Request,
+        board_id: str,
+        limit: int = Query(100, ge=1, le=250, description="Max first-page work items to return"),
+        offset: int = Query(0, ge=0, description="Work items to skip"),
+        include_rollups: bool = Query(True, description="Include board progress rollups"),
+    ) -> BoardBootstrapResponse:
+        org_id = _get_org_id(request)
+        _t0 = time.perf_counter()
+
+        try:
+            _t_board = time.perf_counter()
+            board = await run_in_threadpool(board_service.get_board_with_columns, board_id, org_id=org_id)
+            t_board_ms = round((time.perf_counter() - _t_board) * 1000, 1)
+
+            _t_items = time.perf_counter()
+            maybe_items = await run_in_threadpool(
+                board_service.list_work_items,
+                board_id=board_id,
+                org_id=org_id,
+                limit=limit,
+                offset=offset,
+                include_total=True,
+            )
+            if isinstance(maybe_items, tuple):
+                items, total = maybe_items
+            else:
+                items = maybe_items
+                total = len(items)
+            t_items_ms = round((time.perf_counter() - _t_items) * 1000, 1)
+
+            rollups: List[WorkItemProgressRollup] = []
+            t_rollups_ms = 0.0
+            if include_rollups:
+                _t_rollups = time.perf_counter()
+                rollups = await run_in_threadpool(
+                    board_service.list_board_progress_rollups,
+                    board_id,
+                    org_id=org_id,
+                )
+                t_rollups_ms = round((time.perf_counter() - _t_rollups) * 1000, 1)
+
+            has_more = offset + len(items) < total
+            perf_log(
+                "boards.bootstrap",
+                round((time.perf_counter() - _t0) * 1000, 1),
+                board_id=board_id,
+                t_board_ms=t_board_ms,
+                t_items_ms=t_items_ms,
+                t_rollups_ms=t_rollups_ms,
+                item_count=len(items),
+                rollup_count=len(rollups),
+                limit=limit,
+                offset=offset,
+                has_more=has_more,
+            )
+
+            return BoardBootstrapResponse(
+                board=board,
+                items=items,
+                total=total,
+                page=offset // limit + 1 if limit else 1,
+                page_size=limit,
+                has_more=has_more,
+                rollups=rollups,
+            )
         except BoardNotFoundError as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -816,13 +902,23 @@ def create_board_routes(
         ),
     ) -> WorkItemProgressRollupListResponse:
         org_id = _get_org_id(request)
+        _t0 = time.perf_counter()
 
         try:
-            rollups = board_service.list_board_progress_rollups(
+            rollups = await run_in_threadpool(
+                board_service.list_board_progress_rollups,
                 board_id,
                 item_type=item_type,
                 include_incomplete_descendants=include_incomplete_descendants,
                 org_id=org_id,
+            )
+            perf_log(
+                "progress_rollups.list",
+                round((time.perf_counter() - _t0) * 1000, 1),
+                board_id=board_id,
+                item_type=item_type.value if item_type else None,
+                rollup_count=len(rollups),
+                include_incomplete_descendants=include_incomplete_descendants,
             )
             return WorkItemProgressRollupListResponse(rollups=rollups, total=len(rollups))
         except BoardNotFoundError as e:

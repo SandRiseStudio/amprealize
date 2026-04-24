@@ -26,6 +26,7 @@ import {
   useAssignWorkItem,
   useUnassignWorkItem,
   useBoard,
+  useBoardBootstrap,
   useBoardProgressRollups,
   useCreateWorkItem,
   useDeleteWorkItem,
@@ -2830,6 +2831,7 @@ export function BoardPage(): React.JSX.Element {
   const filterState = useBoardFilters();
   const { filters, sort, hasActiveFilters } = filterState;
   const workItemQuery = useMemo(() => filtersToQueryParams(filters, sort), [filters, sort]);
+  const bootstrapEnabled = Boolean(boardId) && !hasActiveFilters;
 
   // Collapse header chrome after scrolling past threshold
   useEffect(() => {
@@ -2858,7 +2860,11 @@ export function BoardPage(): React.JSX.Element {
   }, [boardId]);
 
   const { data: project } = useProject(projectId);
-  const { data: board, isLoading: boardLoading } = useBoard(boardId);
+  const bootstrapQuery = useBoardBootstrap(boardId, { enabled: bootstrapEnabled, pageSize: 100 });
+  const waitingForBootstrap = bootstrapEnabled && bootstrapQuery.isLoading && !bootstrapQuery.error;
+  const { data: board, isLoading: boardLoading } = useBoard(boardId, {
+    enabled: !waitingForBootstrap,
+  });
   const {
     data: workItems,
     isInitialLoading: itemsLoading,
@@ -2875,6 +2881,7 @@ export function BoardPage(): React.JSX.Element {
     query: workItemQuery,
     pageSize: 100,
     progressive: true,
+    enabled: !waitingForBootstrap,
   });
 
   const deleteItem = useDeleteWorkItem(boardId);
@@ -2976,7 +2983,7 @@ export function BoardPage(): React.JSX.Element {
   });
   const executeWorkItem = useExecuteWorkItem();
   const cancelExecution = useCancelWorkItemExecution();
-  const shouldLoadRollups = Boolean(boardId) && !itemsLoading && loadedCount > 0;
+  const shouldLoadRollups = Boolean(boardId) && !waitingForBootstrap && !itemsLoading && loadedCount > 0;
   const goalRollupsQuery = useBoardProgressRollups(boardId, {
     itemType: 'goal',
     enabled: shouldLoadRollups,

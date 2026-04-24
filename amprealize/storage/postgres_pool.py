@@ -8,6 +8,7 @@ import threading
 import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
+from urllib.parse import parse_qs, unquote_plus, urlparse
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
@@ -32,6 +33,35 @@ _APP_SEARCH_PATH = "board, auth, execution, behavior, workflow, consent, audit, 
 
 _POOL_CACHE: Dict[Tuple[str, int, int, int, int, int], Engine] = {}
 _CACHE_LOCK = threading.Lock()
+
+
+def _dsn_search_path(dsn: str) -> Optional[str]:
+    """Extract a safe search_path from a DSN options parameter."""
+
+    parsed = urlparse(dsn)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    for raw_option in query.get("options") or []:
+        decoded = unquote_plus(raw_option)
+        for token in decoded.split("-c"):
+            token = token.strip()
+            if not token.startswith("search_path="):
+                continue
+            value = token.split("=", 1)[1].strip()
+            schemas = [
+                schema.strip()
+                for schema in value.split(",")
+                if schema.strip() and all(ch.isalnum() or ch == "_" for ch in schema.strip())
+            ]
+            if schemas:
+                return ", ".join(schemas)
+    return None
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.lower() not in ("0", "false", "no", "off")
 
 
 def _int_env(name: str, default: int) -> int:
@@ -88,6 +118,7 @@ def _get_engine(dsn: str) -> Engine:
         engine = _POOL_CACHE.get(key)
         if engine is None:
             pool_size, max_overflow, pool_timeout, pool_recycle, connect_timeout = config
+            search_path = _dsn_search_path(dsn) or _APP_SEARCH_PATH
             engine = create_engine(
                 dsn,
                 pool_size=pool_size,
@@ -105,7 +136,7 @@ def _get_engine(dsn: str) -> Engine:
             @event.listens_for(engine, "connect")
             def _set_search_path(dbapi_conn, connection_record):
                 cursor = dbapi_conn.cursor()
-                cursor.execute(f"SET search_path = {_APP_SEARCH_PATH}")
+                cursor.execute(f"SET search_path = {search_path}")
                 cursor.close()
                 dbapi_conn.commit()
 
@@ -163,6 +194,8 @@ class PostgresPool:
             resolved_dsn = dsn
 
         self._dsn = resolved_dsn
+        self._search_path = _dsn_search_path(resolved_dsn) or _APP_SEARCH_PATH
+        self._set_search_path_on_checkout = _bool_env("AMPREALIZE_PG_SET_SEARCH_PATH_ON_CHECKOUT", True)
         self._engine = _get_engine(resolved_dsn)
         self._service_name = service_name or "postgres"
         self._schema = schema  # Reserved for future multi-schema support
@@ -185,9 +218,9 @@ class PostgresPool:
             try:
                 if hasattr(raw, "autocommit"):
                     raw.autocommit = autocommit
-                # search_path is set once per physical connection via the
-                # SQLAlchemy "connect" event (see _get_engine), so we do
-                # NOT need to SET it on every checkout.
+                if self._set_search_path_on_checkout:
+                    with raw.cursor() as cur:
+                        cur.execute(f"SET search_path = {self._search_path}")
                 yield raw
                 # Always commit before returning connection to pool
                 # Even in autocommit mode, ensure any pending statements are flushed

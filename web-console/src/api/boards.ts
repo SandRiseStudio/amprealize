@@ -93,6 +93,16 @@ export interface BoardWithColumns extends Board {
   columns: BoardColumn[];
 }
 
+export interface BoardBootstrapResponse {
+  board: BoardWithColumns;
+  items: WorkItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+  rollups: WorkItemProgressRollup[];
+}
+
 export interface WorkItem {
   item_id: string;
   item_type: WorkItemType;
@@ -264,6 +274,7 @@ export const boardKeys = {
   all: ['boards'] as const,
   list: (projectId?: string) => [...boardKeys.all, 'list', projectId] as const,
   board: (boardId?: string) => [...boardKeys.all, 'board', boardId] as const,
+  bootstrap: (boardId?: string) => [...boardKeys.all, 'bootstrap', boardId] as const,
   items: (boardId?: string, query?: BoardWorkItemQuery) =>
     [...boardKeys.all, 'items', boardId, ...(query ? [query] : [])] as const,
   itemsMeta: (boardId?: string, query?: BoardWorkItemQuery) =>
@@ -435,7 +446,7 @@ export function useCreateBoard() {
   });
 }
 
-export function useBoard(boardId?: string) {
+export function useBoard(boardId?: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: boardKeys.board(boardId),
     queryFn: async (): Promise<BoardWithColumns | null> => {
@@ -443,7 +454,7 @@ export function useBoard(boardId?: string) {
       const response = await apiClient.get<{ board: BoardWithColumns }>(`/v1/boards/${boardId}`);
       return response.board ?? null;
     },
-    enabled: Boolean(boardId),
+    enabled: Boolean(boardId) && (options?.enabled ?? true),
     staleTime: 5_000,
   });
 }
@@ -673,6 +684,45 @@ function normalizePageItems(items: WorkItem[]): WorkItem[] {
   }));
 }
 
+export function useBoardBootstrap(
+  boardId?: string,
+  options?: { enabled?: boolean; pageSize?: number },
+) {
+  const queryClient = useQueryClient();
+  const pageSize = Math.min(options?.pageSize ?? DEFAULT_ITEMS_PAGE_SIZE, MAX_ITEMS_PAGE_SIZE);
+
+  return useQuery({
+    queryKey: boardKeys.bootstrap(boardId),
+    queryFn: async (): Promise<BoardBootstrapResponse | null> => {
+      if (!boardId) return null;
+      const response = await apiClient.get<BoardBootstrapResponse>(
+        `/v1/boards/${boardId}/bootstrap?limit=${pageSize}&offset=0`
+      );
+      const items = normalizePageItems(response.items ?? []);
+      const payload: BoardBootstrapResponse = {
+        ...response,
+        items,
+        rollups: response.rollups ?? [],
+      };
+
+      queryClient.setQueryData(boardKeys.board(boardId), payload.board);
+      queryClient.setQueryData<WorkItem[]>(boardKeys.items(boardId, undefined), items);
+      queryClient.setQueryData<WorkItemsMeta>(boardKeys.itemsMeta(boardId, undefined), {
+        total: payload.total,
+        loadedCount: items.length,
+        isPartial: payload.has_more && items.length < payload.total,
+      });
+      queryClient.setQueryData(
+        boardKeys.rollups(boardId, undefined, false),
+        payload.rollups,
+      );
+      return payload;
+    },
+    enabled: Boolean(boardId) && (options?.enabled ?? true),
+    staleTime: 5_000,
+  });
+}
+
 const WORK_ITEMS_429_RETRY_DELAYS_MS = [250, 750, 1500] as const;
 
 function sleep(ms: number): Promise<void> {
@@ -763,6 +813,7 @@ export function useWorkItems(
     query?: BoardWorkItemQuery;
     pageSize?: number;
     progressive?: boolean;
+    enabled?: boolean;
   },
 ): WorkItemsResult {
   const isTabVisible = useDocumentVisible();
@@ -773,6 +824,7 @@ export function useWorkItems(
   );
   const pageSize = Math.min(options?.pageSize ?? DEFAULT_ITEMS_PAGE_SIZE, MAX_ITEMS_PAGE_SIZE);
   const progressive = options?.progressive ?? true;
+  const enabled = options?.enabled ?? true;
   const itemsKey = React.useMemo(() => boardKeys.items(boardId, normalizedQuery), [boardId, normalizedQuery]);
   const itemsMetaKey = React.useMemo(() => boardKeys.itemsMeta(boardId, normalizedQuery), [boardId, normalizedQuery]);
 
@@ -834,7 +886,7 @@ export function useWorkItems(
       });
       return buildVisibleWorkItems(firstPage.items, normalizedQuery);
     },
-    enabled: Boolean(boardId),
+    enabled: Boolean(boardId) && enabled,
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
     refetchOnWindowFocus: false,
