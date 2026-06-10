@@ -145,9 +145,12 @@ def test_run_mcp_smoke_test_reports_tool_summary(monkeypatch) -> None:
 def test_mcp_server_bootstraps_monorepo_packages_for_brainstorm_tools() -> None:
     repo_root = Path(__file__).resolve().parent.parent
     script = """
+import os
+
+os.environ.setdefault("AMPREALIZE_ENABLE_WHITEBOARD", "true")
+
 import asyncio
 import json
-import os
 
 os.environ.setdefault("MCP_REQUIRE_AUTH", "false")
 os.environ.setdefault("MCP_PREWARM_POOLS", "false")
@@ -158,6 +161,15 @@ from amprealize.mcp_server import MCPServer
 
 async def main() -> None:
     server = MCPServer()
+    act_raw = await server._dispatch_tool_call(
+        "activate-wb",
+        "tools_activategroup",
+        {"group_name": "whiteboard"},
+    )
+    act = json.loads(act_raw)
+    assert "error" not in act, act
+    assert act.get("result") is not None, act
+
     tools_response = json.loads(server._handle_tools_list("list-1"))
     tool_names = {tool["name"] for tool in tools_response["result"]["tools"]}
     assert "brainstorm_openwhiteboard" in tool_names, sorted(tool_names)
@@ -193,6 +205,7 @@ asyncio.run(main())
     env["MCP_REQUIRE_AUTH"] = "false"
     env["MCP_PREWARM_POOLS"] = "false"
     env["MCP_RESTORE_SESSION_ON_STARTUP"] = "false"
+    env["AMPREALIZE_ENABLE_WHITEBOARD"] = "true"
     for key in (
         "DATABASE_URL",
         "AMPREALIZE_PG_DSN",

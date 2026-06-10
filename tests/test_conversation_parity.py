@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from amprealize.conversation_contracts import ALL_CONVERSATION_SCOPE_VALUES
+
 pytestmark = [pytest.mark.unit]
 
 
@@ -25,7 +27,7 @@ MCP_TOOLS_DIR = Path(__file__).resolve().parent.parent / "mcp" / "tools"
 # Canonical enums from conversation_contracts.py
 # =============================================================================
 
-CANONICAL_SCOPES = {"project_room", "agent_dm"}
+CANONICAL_SCOPES = set(ALL_CONVERSATION_SCOPE_VALUES)
 
 CANONICAL_MESSAGE_TYPES = {
     "text",
@@ -62,6 +64,7 @@ CORE_OPERATIONS = [
     ("list_conversations", True, "conversations.list", "list"),
     ("get_conversation", True, "conversations.get", "get"),
     ("archive_conversation", True, "conversations.archive", "archive"),
+    ("patch_conversation", True, "conversations.update", "patch"),
     ("send_message", True, "messages.send", "send"),
     ("list_messages", True, "messages.list", "messages"),
     ("get_message", True, "messages.get", "get-message"),
@@ -104,6 +107,7 @@ class TestOperationCoverage:
             "list_conversations": "list_conversations",
             "get_conversation": "get_conversation",
             "archive_conversation": "archive_conversation",
+            "patch_conversation": "patch_conversation",
             "send_message": "send_message",
             "list_messages": "list_messages",
             "get_message": "get_message",

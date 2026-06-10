@@ -363,6 +363,24 @@ class TestMCPHandlerIntegration:
         assert '"telemetry.dashboard"' in content or "'telemetry.dashboard'" in content, \
             "MCP server missing telemetry.dashboard handler"
 
+    def test_mcp_server_registers_traces_tools(self) -> None:
+        """Verify MCP server handles traces.* tools (warehouse mirror of REST trace APIs)."""
+        from pathlib import Path
+
+        mcp_server_path = Path(__file__).parent.parent / "amprealize" / "mcp_server.py"
+        content = mcp_server_path.read_text()
+
+        assert 'internal_tool_name.startswith("traces.")' in content, (
+            "MCP server missing traces.* tool handler"
+        )
+        assert '"traces.runs"' in content or "'traces.runs'" in content
+        assert '"traces.conversations"' in content or "'traces.conversations'" in content
+        assert '"traces.spans"' in content or "'traces.spans'" in content
+
+        perm_path = Path(__file__).parent.parent / "amprealize" / "mcp_permission_registry.py"
+        perm_text = perm_path.read_text()
+        assert '"traces.runs"' in perm_text and "VIEW_RUNS" in perm_text
+
 
 class TestCLIOutputFormats:
     """Test CLI output format consistency between table and JSON."""

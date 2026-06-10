@@ -19,14 +19,13 @@ from unittest.mock import Mock, MagicMock
 import pytest
 
 # Load environment variables from .env file (for OPENAI_API_KEY, etc.)
+REPO_ROOT = Path(__file__).resolve().parents[1]
 try:
-    from dotenv import load_dotenv
-    REPO_ROOT = Path(__file__).resolve().parents[1]
-    env_path = REPO_ROOT / ".env"
-    if env_path.exists():
-        load_dotenv(env_path)
+    from amprealize.runtime_env import load_dotenv_files
+
+    load_dotenv_files((REPO_ROOT / ".env",))
 except ImportError:
-    REPO_ROOT = Path(__file__).resolve().parents[1]  # Define even if dotenv not available
+    pass  # dotenv / package layout unavailable during minimal bootstrap
 
 from amprealize.action_contracts import Actor, utc_now_iso
 from amprealize.behavior_service import (
@@ -70,8 +69,36 @@ def pytest_configure(config: pytest.Config) -> None:
     """Ensure custom markers are documented to avoid Pytest warnings."""
     config.addinivalue_line(
         "markers",
-        "integration: tests that exercise live infrastructure and require --run-integration",
+        "telemetry_pg_only: only AMPREALIZE_TELEMETRY_PG_DSN / telemetry migrations; skip monolith Alembic",
     )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: List[pytest.Item]
+) -> None:
+    """Gate tests/load behind AMPREALIZE_RUN_LOAD_TESTS (see tests/load/conftest.py)."""
+    if os.environ.get("AMPREALIZE_RUN_LOAD_TESTS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return
+    skip_load = pytest.mark.skip(
+        reason=(
+            "Load tests are opt-in: set AMPREALIZE_RUN_LOAD_TESTS=1. "
+            "They target HTTP under load, optional Kafka, ML stack, and Podman; "
+            "see tests/load/conftest.py."
+        ),
+    )
+    for item in items:
+        p = Path(str(getattr(item, "path", item.fspath)))
+        try:
+            rel = p.resolve().relative_to(REPO_ROOT.resolve())
+        except ValueError:
+            continue
+        if len(rel.parts) >= 2 and rel.parts[0] == "tests" and rel.parts[1] == "load":
+            item.add_marker(skip_load)
 
 
 # ============================================================================
@@ -117,6 +144,29 @@ def mock_faiss():
 
     if 'faiss' in sys.modules:
         del sys.modules['faiss']
+
+
+@pytest.fixture(scope="session", autouse=True)
+def silence_resource_analysis_raze_in_tests() -> Generator[None, None, None]:
+    """Replace resource-analysis Raze telemetry with a no-op during pytest.
+
+    Real logs would write JSON to stderr whenever `raze` is installed, which
+    clutters CI and local runs. Tests that need to assert on the hook should
+    monkeypatch ``amprealize.resource_analysis._emit_resource_analysis_telemetry``.
+    """
+    try:
+        from amprealize import resource_analysis as ra
+    except ImportError:
+        yield
+        return
+    orig = ra._emit_resource_analysis_telemetry
+
+    def _noop(*_a: object, **_k: object) -> None:
+        return None
+
+    ra._emit_resource_analysis_telemetry = _noop
+    yield
+    ra._emit_resource_analysis_telemetry = orig
 
 
 # ============================================================================
@@ -403,6 +453,9 @@ def check_test_environment(request):
     if items and all(item.get_closest_marker("unit") is not None for item in items):
         return
 
+    if items and all(item.get_closest_marker("telemetry_pg_only") is not None for item in items):
+        return
+
     # Skip for any tests in tests/load/ or tests/smoke/ directory (they have their own infrastructure requirements)
     import pathlib
     for arg in request.config.args:
@@ -475,6 +528,9 @@ def validate_all_dsns(request):
     except Exception:
         _items = None
     if _items and all(item.get_closest_marker("unit") is not None for item in _items):
+        return
+
+    if _items and all(item.get_closest_marker("telemetry_pg_only") is not None for item in _items):
         return
 
     offending: List[str] = []
@@ -776,6 +832,9 @@ def initialize_test_schemas(request):
     if _items and all(item.get_closest_marker("unit") is not None for item in _items):
         return
 
+    if _items and all(item.get_closest_marker("telemetry_pg_only") is not None for item in _items):
+        return
+
     if os.getenv("AMPREALIZE_TEST_INFRA_MODE", "legacy") == "breakeramp":
         return
 
@@ -829,6 +888,9 @@ def seed_launch_behavior(request) -> None:
     except Exception:
         _items = None
     if _items and all(item.get_closest_marker("unit") is not None for item in _items):
+        return
+
+    if _items and all(item.get_closest_marker("telemetry_pg_only") is not None for item in _items):
         return
 
     # Get DSN - skip if not configured

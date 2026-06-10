@@ -39,6 +39,7 @@ class MockReflectionCandidate:
     reviewed_at: Any = None
     merged_behavior_id: Optional[str] = None
     updated_at: Any = None
+    metadata: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
         if self.triggers is None:
@@ -80,6 +81,15 @@ class MockPostgresReflectionService:
                 confidence=0.85,
                 status="proposed",
                 role="Student",
+                metadata={
+                    "source_trace_ids": ["trace-001"],
+                    "execution_observability": {
+                        "run_id": "run-001",
+                        "project_id": "proj-1",
+                        "work_item_id": "GUIDEAI-1097",
+                        "surface": "board",
+                    },
+                },
             ),
             MockReflectionCandidate(
                 id="cand-002",
@@ -88,6 +98,15 @@ class MockPostgresReflectionService:
                 confidence=0.72,
                 status="proposed",
                 role="Teacher",
+                metadata={
+                    "source_trace_ids": ["trace-002"],
+                    "execution_observability": {
+                        "run_id": "run-002",
+                        "project_id": "proj-1",
+                        "work_item_id": "GUIDEAI-1097",
+                        "surface": "board",
+                    },
+                },
             ),
             MockReflectionCandidate(
                 id="cand-003",
@@ -476,14 +495,25 @@ class TestMCPReflectionServiceAdapterReject:
         service = MockPostgresReflectionService()
         adapter = MCPReflectionServiceAdapter(service=service)  # type: ignore[arg-type]
 
-        result = adapter.reject_candidate({
-            "candidate_id": "cand-002",
-            "reviewed_by": "mcp-user",
-            "reason": "Too vague",
-        })
+        telemetry = MagicMock()
+        with patch("amprealize.telemetry.create_sink_from_env", return_value=MagicMock()), \
+             patch("amprealize.telemetry.TelemetryClient", return_value=telemetry):
+            result = adapter.reject_candidate({
+                "candidate_id": "cand-002",
+                "reviewed_by": "mcp-user",
+                "reason": "Too vague",
+            })
 
         assert result["success"] is True
         assert result["candidate_id"] == "cand-002"
+        telemetry.emit_event.assert_called_once()
+        call_kwargs = telemetry.emit_event.call_args.kwargs
+        assert call_kwargs["event_type"] == "reflection.candidate_rejected"
+        assert call_kwargs["payload"]["candidate_id"] == "cand-002"
+        assert call_kwargs["payload"]["rejection_reason"] == "Too vague"
+        assert call_kwargs["payload"]["execution_observability"]["run_id"] == "run-002"
+        assert call_kwargs["payload"]["source_trace_ids"] == ["trace-002"]
+        assert call_kwargs["run_id"] == "run-002"
 
 
 class TestCLIReflectionSubcommands:

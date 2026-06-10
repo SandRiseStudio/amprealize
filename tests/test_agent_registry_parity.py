@@ -19,16 +19,7 @@ except ImportError:  # pragma: no cover - psycopg2 is optional for lint environm
     psycopg2 = None
 import pytest
 
-from amprealize.adapters import RestAgentRegistryAdapter
-
-try:
-    from amprealize.adapters import CLIAgentRegistryAdapter, MCPAgentRegistryAdapter
-except ImportError:
-    # CLI and MCP adapters not yet implemented — skip this module
-    pytest.skip(
-        "CLIAgentRegistryAdapter / MCPAgentRegistryAdapter not yet implemented",
-        allow_module_level=True,
-    )
+from amprealize.adapters import RestAgentRegistryAdapter, CLIAgentRegistryAdapter, MCPAgentRegistryAdapter
 
 from amprealize.agent_registry_service import (
     AgentRegistryService,

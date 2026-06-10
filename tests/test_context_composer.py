@@ -34,6 +34,8 @@ from amprealize.context_composer import (
     RelevanceWeights,
     TokenBudget,
     TokenCounter,
+    _workspace_inventory_max_content_tokens,
+    default_token_budget,
 )
 
 
@@ -489,6 +491,61 @@ class TestContextComposerCompose:
         )
         assert DataSourceType.CONVERSATION_HISTORY in result.sources_included
 
+    async def test_compose_omits_conversation_history_when_disabled(
+        self,
+        full_composer: ContextComposer,
+        mock_conversation_provider: AsyncMock,
+    ):
+        """When include_conversation_history=False, composer skips the conversation provider."""
+        result = await full_composer.compose(
+            conversation_id="conv-001",
+            user_id="user-123",
+            query="question",
+            include_conversation_history=False,
+        )
+        mock_conversation_provider.get_recent_messages.assert_not_called()
+        assert DataSourceType.CONVERSATION_HISTORY not in result.sources_included
+
+    async def test_conversation_history_fragments_follow_chronological_order(
+        self,
+        mock_conversation_provider: AsyncMock,
+        mock_user_provider: AsyncMock,
+        mock_behavior_provider: AsyncMock,
+    ):
+        """Conversation history packing uses message time order, not relevance score order."""
+        base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        mock_conversation_provider.get_recent_messages.return_value = [
+            {
+                "message_id": "m2",
+                "content": "second user line",
+                "sender_id": "u1",
+                "sender_type": "user",
+                "created_at": (base + timedelta(hours=2)).isoformat(),
+            },
+            {
+                "message_id": "m1",
+                "content": "first user line",
+                "sender_id": "u1",
+                "sender_type": "user",
+                "created_at": base.isoformat(),
+            },
+        ]
+        composer = ContextComposer(
+            conversation_provider=mock_conversation_provider,
+            user_provider=mock_user_provider,
+            behavior_provider=mock_behavior_provider,
+            token_budget=default_token_budget(),
+        )
+        result = await composer.compose(
+            conversation_id="conv-001",
+            user_id="user-123",
+            query="question",
+        )
+        idx_first = result.composed_text.find("first user line")
+        idx_second = result.composed_text.find("second user line")
+        assert idx_first != -1 and idx_second != -1
+        assert idx_first < idx_second
+
     async def test_compose_includes_user_profile(
         self,
         full_composer: ContextComposer,
@@ -884,3 +941,76 @@ class TestContextComposerIntegration:
 
         # Should stay within override budget
         assert result.total_tokens <= 300
+
+
+# =============================================================================
+# Workspace inventory compact digest (context token budget)
+# =============================================================================
+
+
+def test_compact_workspace_inventory_digest_round_robin_across_projects() -> None:
+    """Digest samples across projects fairly and notes omissions when over cap."""
+    inventory: Dict[str, Any] = {
+        "projects": [
+            {"project_id": "p1", "name": "Alpha"},
+            {"project_id": "p2", "name": "Beta"},
+        ],
+        "boards_by_project": {},
+        "work_items_by_project": {
+            "p1": [{"item_id": f"p1-{i}", "title": f"A{i}", "updated_at": "2026-05-01"} for i in range(15)],
+            "p2": [{"item_id": f"p2-{i}", "title": f"B{i}"} for i in range(15)],
+        },
+    }
+    text = ContextComposer._compact_workspace_inventory_content(inventory)
+    lowered = text.lower()
+    assert "compact digest" in lowered
+    assert "work_items (flattened): 30" in text
+    assert "[p1-0]" in text
+    assert "[p2-0]" in text
+    assert "6 more work items omitted from digest text" in text
+    assert "chat model prompt uses only this digest" in lowered
+
+
+@pytest.mark.asyncio
+async def test_fetch_workspace_inventory_swaps_oversized_content_preserves_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_fetch_workspace_inventory` replaces huge `content` while keeping `metadata.inventory`."""
+    inventory: Dict[str, Any] = {
+        "projects": [{"project_id": "p1", "name": "Alpha"}],
+        "work_items_by_project": {
+            "p1": [{"item_id": "wi-1", "title": "Only item", "board_id": "b1"}],
+        },
+        "boards_by_project": {},
+    }
+    huge = "wordspace " * 900
+
+    class _HugeWorkspaceProvider:
+        async def get_workspace_inventory(self, **kwargs: Any) -> List[Dict[str, Any]]:
+            return [
+                {
+                    "content": huge,
+                    "entity_id": kwargs.get("user_id", "u"),
+                    "entity_type": "workspace_inventory",
+                    "metadata": {"inventory": inventory},
+                }
+            ]
+
+    monkeypatch.setenv("AMPREALIZE_WORKSPACE_INVENTORY_MAX_CONTENT_TOKENS", "820")
+    max_toks = _workspace_inventory_max_content_tokens()
+
+    composer = ContextComposer(workspace_provider=_HugeWorkspaceProvider())
+    fragments = await composer._fetch_workspace_inventory(
+        user_id="user-1",
+        query="list work items",
+        org_id=None,
+        project_id=None,
+        conversation_scope=None,
+    )
+    assert len(fragments) == 1
+    frag = fragments[0]
+    assert frag.metadata.get("inventory") == inventory
+    assert TokenCounter.count_tokens(huge) > max_toks
+    assert TokenCounter.count_tokens(frag.content) <= max_toks
+    assert "compact digest" in frag.content.lower()
+    assert "[wi-1]" in frag.content

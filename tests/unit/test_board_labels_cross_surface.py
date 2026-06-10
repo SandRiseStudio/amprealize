@@ -1,6 +1,7 @@
 import json
 import logging
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
@@ -188,9 +189,18 @@ async def test_mcp_list_labels_and_delete_shapes(monkeypatch) -> None:
             return []
 
     monkeypatch.setattr(board_service_mod, "BoardService", FakeBoardServiceForMCP)
+    monkeypatch.setenv("MCP_REQUIRE_AUTH", "false")
 
     server = mcp_server_mod.MCPServer.__new__(mcp_server_mod.MCPServer)
     server._logger = logging.getLogger("test.mcp")
+    server._session_context = SimpleNamespace(is_authenticated=False)
+    fake_board = FakeBoardServiceForMCP()
+
+    class _FakeMCPServiceRegistry:
+        def board_service(self):
+            return fake_board
+
+    server._services = _FakeMCPServiceRegistry()
 
     list_resp_raw = await server._dispatch_tool_call(
         request_id="1",

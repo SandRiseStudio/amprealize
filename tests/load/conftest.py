@@ -1,4 +1,17 @@
-"""Pytest configuration for load tests."""
+"""Pytest configuration for load tests.
+
+Suite-wide opt-in (enforced in ``tests/conftest.py``):
+    Export ``AMPREALIZE_RUN_LOAD_TESTS=1`` (or ``true``/``yes``/``on``) so ``tests/load/*``
+    is collected. Without it, those tests are skipped so default CI and ``pytest tests/``
+    do not depend on HTTP hammering, Kafka, embedding models, or Podman memory tests.
+
+Latency overrides when load tests are enabled (see ``test_service_load.py``):
+    ``AMPREALIZE_LOAD_RELAXED`` — relax default P95 ceilings for laptops.
+    ``AMPREALIZE_LOAD_P95_HEALTH_S``, ``AMPREALIZE_LOAD_P95_READ_S``, ``AMPREALIZE_LOAD_P95_METRICS_S`` —
+    explicit per-endpoint P95 thresholds in seconds.
+
+Kafka helpers below gate streaming tests when brokers are down.
+"""
 
 import os
 import socket

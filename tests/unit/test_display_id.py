@@ -7,9 +7,8 @@ Tests verify:
 """
 import uuid
 import pytest
-from unittest.mock import MagicMock, patch
 
-from amprealize.services.board_service import parse_display_id
+from amprealize.services.board_service import AuthorNotFoundError, BoardService, parse_display_id
 
 pytestmark = pytest.mark.unit
 
@@ -92,3 +91,98 @@ class TestParseDisplayId:
 
     def test_rejects_leading_spaces(self):
         assert parse_display_id(" proj-42") is None
+
+
+class _FakeCursor:
+    def __init__(self, row):
+        self.row = row
+        self.executed: list[str] = []
+        self.params: list[object] = []
+        self.description = [("id",)]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return None
+
+    def execute(self, query, params=None):
+        self.executed.append(query)
+        self.params.append(params)
+
+    def fetchone(self):
+        return self.row
+
+    def fetchall(self):
+        return []
+
+
+class _FakeConnection:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return self._cursor
+
+
+class _FakePool:
+    def __init__(self, row):
+        self.cursor = _FakeCursor(row)
+        self.connection = _FakeConnection(self.cursor)
+
+    def set_tenant_context(self, conn, org_id, user_id):
+        return None
+
+    def run_query(self, *, executor, **kwargs):
+        return executor(self.connection)
+
+
+def test_display_id_resolution_uses_auth_projects_table():
+    pool = _FakePool(("item-1",))
+    service = BoardService(pool=pool)
+
+    assert service._resolve_by_slug_and_number("guideai", 1051) == "item-1"
+    assert "JOIN auth.projects p ON p.project_id = wi.project_id" in pool.cursor.executed[0]
+
+
+def test_project_slug_lookup_uses_auth_projects_table():
+    pool = _FakePool(("guideai",))
+    service = BoardService(pool=pool)
+
+    assert service._get_project_slug("project-1") == "guideai"
+    assert "FROM auth.projects WHERE project_id = %s" in pool.cursor.executed[0]
+
+
+def test_validate_user_author_uses_auth_users_id_or_email():
+    pool = _FakePool((1,))
+    service = BoardService(pool=pool)
+
+    assert service.validate_author("nick.sanders.a@gmail.com", "user") is True
+    assert "FROM auth.users WHERE id = %s OR email = %s" in pool.cursor.executed[0]
+
+
+def test_validate_user_author_rejects_unknown_user():
+    pool = _FakePool(None)
+    service = BoardService(pool=pool)
+
+    with pytest.raises(AuthorNotFoundError):
+        service.validate_author("missing@example.com", "user")
+
+
+def test_validate_agent_author_allows_runtime_mcp_agent_identity():
+    pool = _FakePool(None)
+    service = BoardService(pool=pool)
+
+    assert service.validate_author("system", "agent") is True
+    assert "FROM execution.agents WHERE agent_id = %s" in pool.cursor.executed[0]
+
+
+def test_batch_lookup_casts_ids_to_uuid_array():
+    pool = _FakePool(None)
+    service = BoardService(pool=pool)
+
+    result = service.get_work_items_batch(["362d561c-1e28-4a5f-8d4f-000000000001"])
+
+    assert result == []
+    assert "WHERE id = ANY(%s::uuid[])" in pool.cursor.executed[0]
+    assert pool.cursor.params[0] == (["362d561c-1e28-4a5f-8d4f-000000000001"],)

@@ -9,10 +9,13 @@ import pytest
 pytestmark = pytest.mark.unit
 
 from amprealize.mcp_rate_limiter import (
+    DistributedRateLimiter,
     MCPRateLimiter,
     RateLimitConfig,
     RateLimitDecision,
     RateLimitResult,
+    SubscriptionTier,
+    TierLimits,
     TokenBucket,
 )
 
@@ -418,3 +421,184 @@ class TestMCPRateLimiterIntegration:
         # Should have some allows and some denies (burst protects)
         assert allows + warnings <= 6  # Burst limit with possible 1 warning
         assert denies >= 4  # Most should be denied after burst
+
+
+class FakeAsyncRedis:
+    """Minimal async Redis mock supporting eval, evalsha, and script_load."""
+
+    def __init__(self, response, sha: str = "fakeshafakeshafakeshafakeshafakeshafakesh"):
+        self.response = response
+        self.eval_calls = []
+        self.evalsha_calls = []
+        self._sha = sha
+
+    async def eval(self, script, numkeys, *args):
+        self.eval_calls.append((script, numkeys, args))
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
+
+    async def evalsha(self, sha, numkeys, *args):
+        self.evalsha_calls.append((sha, numkeys, args))
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
+
+    async def script_load(self, script: str) -> str:
+        return self._sha
+
+
+class TestDistributedRateLimiter:
+    """Tests for Redis-backed tenant limiting."""
+
+    @pytest.mark.asyncio
+    async def test_tenant_check_uses_single_combined_redis_round_trip(self, monkeypatch):
+        redis = FakeAsyncRedis([1, 42, 0, "minute", "pro"])
+        limiter = DistributedRateLimiter(
+            tier_limits={
+                SubscriptionTier.PRO: TierLimits(
+                    requests_per_minute=300,
+                    burst_size=75,
+                    daily_quota=10000,
+                    user_requests_per_minute=100,
+                )
+            },
+            key_prefix="test:ratelimit",
+        )
+        limiter._redis_client = redis
+
+        async def redis_available():
+            return True
+
+        monkeypatch.setattr(limiter, "_ensure_redis", redis_available)
+
+        result = await limiter.check_tenant_limit(
+            org_id="org-1",
+            user_id="user-1",
+            tier=SubscriptionTier.PRO,
+            tool_name="behaviors.getForTask",
+        )
+
+        assert result.allowed is True
+        assert result.remaining == 42
+        assert len(redis.eval_calls) == 1
+        script, numkeys, args = redis.eval_calls[0]
+        assert "consume_minute" in script
+        assert numkeys == 3
+        assert args[0].startswith("test:ratelimit:org:org-1:daily:")
+        assert args[1] == "test:ratelimit:org:org-1:minute"
+        assert args[2] == "test:ratelimit:user:user-1:in:org-1:minute"
+        assert limiter._metrics["redis_combined_checks"] == 1
+        assert limiter._metrics["redis_checks"] == 1
+
+    @pytest.mark.asyncio
+    async def test_tenant_check_reports_combined_redis_denial(self, monkeypatch):
+        redis = FakeAsyncRedis([0, 0, 12, "user_minute", "pro"])
+        limiter = DistributedRateLimiter(key_prefix="test:ratelimit")
+        limiter._redis_client = redis
+
+        async def redis_available():
+            return True
+
+        monkeypatch.setattr(limiter, "_ensure_redis", redis_available)
+
+        result = await limiter.check_tenant_limit(
+            org_id="org-1",
+            user_id="user-1",
+            tier=SubscriptionTier.PRO,
+        )
+
+        assert result.allowed is False
+        assert result.retry_after == 12
+        assert result.limit_type == "user_minute"
+        assert limiter._metrics["denies_total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_tenant_check_uses_evalsha_when_sha_cached(self, monkeypatch):
+        """EVALSHA path skips Lua compilation on each check."""
+        redis = FakeAsyncRedis([1, 42, 0, "minute", "pro"])
+        cached_sha = redis._sha
+        limiter = DistributedRateLimiter(key_prefix="test:ratelimit")
+        limiter._redis_client = redis
+        limiter._lua_sha = cached_sha  # pre-loaded SHA
+
+        async def redis_available():
+            return True
+
+        monkeypatch.setattr(limiter, "_ensure_redis", redis_available)
+
+        result = await limiter.check_tenant_limit(
+            org_id="org-1",
+            user_id="user-1",
+            tier=SubscriptionTier.PRO,
+        )
+
+        assert result.allowed is True
+        # EVALSHA should be called, not EVAL
+        assert len(redis.evalsha_calls) == 1
+        assert len(redis.eval_calls) == 0
+        sha, numkeys, args = redis.evalsha_calls[0]
+        assert sha == cached_sha
+        assert numkeys == 3
+
+    @pytest.mark.asyncio
+    async def test_tenant_check_falls_back_to_eval_on_noscript(self, monkeypatch):
+        """NOSCRIPT error from EVALSHA triggers EVAL fallback and SHA reload."""
+
+        class NoscriptRedis(FakeAsyncRedis):
+            def __init__(self):
+                super().__init__([1, 10, 0, "minute", "pro"])
+                self.evalsha_raised = False
+                self.script_load_called = False
+
+            async def evalsha(self, sha, numkeys, *args):
+                self.evalsha_raised = True
+                raise Exception("NOSCRIPT No matching script. Please use EVAL.")
+
+            async def script_load(self, script):
+                self.script_load_called = True
+                return "reloadedshavalue"
+
+        redis = NoscriptRedis()
+        limiter = DistributedRateLimiter(key_prefix="test:ratelimit")
+        limiter._redis_client = redis
+        limiter._lua_sha = "staleshafakeshafakeshafakeshafakeshafakes"
+
+        async def redis_available():
+            return True
+
+        monkeypatch.setattr(limiter, "_ensure_redis", redis_available)
+
+        result = await limiter.check_tenant_limit(
+            org_id="org-1",
+            user_id="user-1",
+            tier=SubscriptionTier.PRO,
+        )
+
+        assert result.allowed is True
+        assert redis.evalsha_raised
+        assert len(redis.eval_calls) == 1
+        assert redis.script_load_called
+        assert limiter._lua_sha == "reloadedshavalue"
+
+    @pytest.mark.asyncio
+    async def test_tenant_check_fails_open_and_disables_redis_after_error(self, monkeypatch):
+        redis = FakeAsyncRedis(RuntimeError("redis unavailable"))
+        limiter = DistributedRateLimiter(key_prefix="test:ratelimit")
+        limiter._redis_client = redis
+        limiter._use_redis = True
+
+        async def redis_available():
+            return True
+
+        monkeypatch.setattr(limiter, "_ensure_redis", redis_available)
+
+        result = await limiter.check_tenant_limit(
+            org_id="org-1",
+            user_id="user-1",
+            tier=SubscriptionTier.PRO,
+        )
+
+        assert result.allowed is True
+        assert limiter._use_redis is False
+        assert limiter._metrics["redis_errors"] == 1

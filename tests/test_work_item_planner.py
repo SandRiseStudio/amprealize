@@ -8,6 +8,10 @@ from amprealize.agents.work_item_planner.planner import (
     PlanResult,
     WorkItemPlanner,
 )
+from amprealize.agents.work_item_planner.prompts import (
+    GWS_COMPACT_SUMMARY,
+    GWS_CONVENTION_TEXT,
+)
 
 
 class TestWorkItemPlanner:
@@ -178,3 +182,10 @@ class TestWorkItemPlanner:
         ])
         assert len(errors) == 1
         assert "item-123" in errors[0]
+
+    @pytest.mark.unit
+    def test_prompt_guidance_mentions_session_aware_mcp_tools(self) -> None:
+        assert "board.filterItems" in GWS_CONVENTION_TEXT
+        assert "workItems.create" in GWS_CONVENTION_TEXT
+        assert "project_id" in GWS_COMPACT_SUMMARY
+        assert "story_points" in GWS_COMPACT_SUMMARY

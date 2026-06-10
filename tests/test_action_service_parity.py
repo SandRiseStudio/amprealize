@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import unittest
 
+import pytest
+
 from amprealize.action_service import ActionService
 from amprealize.adapters import (
     CLIActionServiceAdapter,
     MCPActionServiceAdapter,
     RestActionServiceAdapter,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class ActionServiceParityTests(unittest.TestCase):

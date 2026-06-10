@@ -12,7 +12,9 @@ Following behavior_design_test_strategy (Student):
 from __future__ import annotations
 
 import pytest
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock, patch
 from typing import Optional
 
@@ -260,10 +262,11 @@ class TestHandlerRegistries:
             "orgs.invite",
             "orgs.acceptInvitation",
             "orgs.switch",
+            "orgs.projects",
         ]
         for tool in expected_tools:
             assert tool in ORG_HANDLERS, f"Missing handler for {tool}"
-        assert len(ORG_HANDLERS) == 13
+        assert len(ORG_HANDLERS) == 14
 
     def test_project_handlers_registry(self):
         """Test PROJECT_HANDLERS contains expected tools."""
@@ -279,10 +282,26 @@ class TestHandlerRegistries:
             "projects.updateSettings",
             "projects.getStats",
             "projects.getUsage",
+            "projects.switch",
+            "projects.listMembers",
+            "projects.addMember",
+            "projects.removeMember",
+            "projects.updateMemberRole",
         ]
         for tool in expected_tools:
             assert tool in PROJECT_HANDLERS, f"Missing handler for {tool}"
-        assert len(PROJECT_HANDLERS) == 11
+        assert len(PROJECT_HANDLERS) == 16
+
+    def test_org_and_project_manifests_have_handlers(self):
+        """Every published org/project MCP manifest should route to a handler."""
+        tools_dir = Path(__file__).parent.parent / "mcp" / "tools"
+        for manifest_path in list(tools_dir.glob("orgs.*.json")) + list(tools_dir.glob("projects.*.json")):
+            manifest = json.loads(manifest_path.read_text())
+            tool_name = manifest["name"]
+            if tool_name.startswith("orgs."):
+                assert tool_name in ORG_HANDLERS, f"Missing org handler for {tool_name}"
+            if tool_name.startswith("projects."):
+                assert tool_name in PROJECT_HANDLERS, f"Missing project handler for {tool_name}"
 
     def test_org_agent_handlers_registry(self):
         """Test ORG_AGENT_HANDLERS contains expected tools."""
@@ -394,6 +413,25 @@ class TestOrgHandlers:
         assert result["success"] is True
         assert len(result["organizations"]) == 1
         assert result["organizations"][0]["id"] == "org-abc123"
+
+    @pytest.mark.asyncio
+    async def test_list_orgs_total_counts_before_pagination(self, mock_org_service, sample_org):
+        """Test org list total reports the full filtered count."""
+        second_org = sample_org.model_copy(update={"id": "org-second", "name": "Second Org"})
+        mock_org_service.list_user_organizations.return_value = [sample_org, second_org]
+
+        result = await handle_list_orgs(
+            mock_org_service,
+            {
+                "user_id": "user-123",
+                "limit": 1,
+                "offset": 0,
+            }
+        )
+
+        assert result["success"] is True
+        assert len(result["organizations"]) == 1
+        assert result["total"] == 2
 
     @pytest.mark.asyncio
     async def test_update_org_success(self, mock_org_service, sample_org, sample_membership):

@@ -41,6 +41,7 @@ def test_oss_org_dsn_mounts_projects_and_participants_without_org_routes(monkeyp
 
     assert "/api/v1/projects" in paths
     assert "/api/v1/projects/{project_id}/participants" in paths
+    assert "/api/v1/projects/{project_id}/settings" in paths
     assert "/api/v1/orgs" not in paths
 
     client = TestClient(app)
@@ -50,7 +51,7 @@ def test_oss_org_dsn_mounts_projects_and_participants_without_org_routes(monkeyp
         "projects": True,
         "participants": True,
         "orgs": False,
-        "settings": False,
+        "settings": True,
         "executions": False,
     }
 

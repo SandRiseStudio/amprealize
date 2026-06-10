@@ -232,7 +232,7 @@ class TestTraceFormatParity:
         reflection_service_memory: ReflectionService,
         reflection_service_postgres: PostgresReflectionService,
     ) -> None:
-        """Both backends should handle STRUCTURED_JSON format."""
+        """Both backends should handle JSON_STEPS format."""
         structured_trace = """
         {
             "steps": [
@@ -245,7 +245,7 @@ class TestTraceFormatParity:
 
         request = ReflectRequest(
             trace_text=structured_trace,
-            trace_format=TraceFormat.STRUCTURED_JSON,
+            trace_format=TraceFormat.JSON_STEPS,
             max_candidates=2,
         )
 

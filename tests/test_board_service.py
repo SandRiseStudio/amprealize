@@ -443,6 +443,127 @@ class TestGoalLifecycle:
         assert goal.status == WorkItemStatus.BACKLOG
         assert goal.priority == WorkItemPriority.HIGH
 
+    def test_create_work_items_stack_at_top_of_column(
+        self, service: BoardService, actor: Actor, test_org_id: str, test_project_id: str
+    ) -> None:
+        """New work items in a column get position 0; prior items in that column shift down."""
+        board = service.create_board(
+            CreateBoardRequest(
+                project_id=test_project_id,
+                name="Stack Board",
+                create_default_columns=True,
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        board_with_cols = service.get_board(
+            board.board_id, include_columns=True, org_id=test_org_id
+        )
+        backlog_col = next(c for c in board_with_cols.columns if c.name == "Backlog")
+
+        first = service.create_work_item(
+            CreateWorkItemRequest(
+                item_type=WorkItemType.TASK,
+                board_id=board.board_id,
+                column_id=backlog_col.column_id,
+                title="First",
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        assert first.position == 0
+
+        second = service.create_work_item(
+            CreateWorkItemRequest(
+                item_type=WorkItemType.TASK,
+                board_id=board.board_id,
+                column_id=backlog_col.column_id,
+                title="Second",
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        assert second.position == 0
+        assert service.get_work_item(first.item_id, org_id=test_org_id).position == 1
+
+        third = service.create_work_item(
+            CreateWorkItemRequest(
+                item_type=WorkItemType.TASK,
+                board_id=board.board_id,
+                column_id=backlog_col.column_id,
+                title="Third",
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        assert third.position == 0
+        assert service.get_work_item(second.item_id, org_id=test_org_id).position == 1
+        assert service.get_work_item(first.item_id, org_id=test_org_id).position == 2
+
+    def test_list_work_items_priority_sort_tiebreaks_by_stack_position(
+        self, service: BoardService, actor: Actor, test_org_id: str, test_project_id: str
+    ) -> None:
+        """When sort_by is not position, ties use column position so newest-on-top stack matches API order."""
+        board = service.create_board(
+            CreateBoardRequest(
+                project_id=test_project_id,
+                name="Sort Tie Board",
+                create_default_columns=True,
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        board_with_cols = service.get_board(
+            board.board_id, include_columns=True, org_id=test_org_id
+        )
+        backlog_col = next(c for c in board_with_cols.columns if c.name == "Backlog")
+
+        first = service.create_work_item(
+            CreateWorkItemRequest(
+                item_type=WorkItemType.TASK,
+                board_id=board.board_id,
+                column_id=backlog_col.column_id,
+                title="First",
+                priority=WorkItemPriority.MEDIUM,
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        second = service.create_work_item(
+            CreateWorkItemRequest(
+                item_type=WorkItemType.TASK,
+                board_id=board.board_id,
+                column_id=backlog_col.column_id,
+                title="Second",
+                priority=WorkItemPriority.MEDIUM,
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        third = service.create_work_item(
+            CreateWorkItemRequest(
+                item_type=WorkItemType.TASK,
+                board_id=board.board_id,
+                column_id=backlog_col.column_id,
+                title="Third",
+                priority=WorkItemPriority.MEDIUM,
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+
+        items, _total = service.list_work_items(
+            board_id=board.board_id,
+            sort_by="priority",
+            order="asc",
+            org_id=test_org_id,
+            limit=50,
+            offset=0,
+            include_total=True,
+        )
+        titles = [i.title for i in items if i.column_id == backlog_col.column_id]
+        assert titles[:3] == ["Third", "Second", "First"]
+
     def test_goal_status_transitions(
         self, service: BoardService, actor: Actor, test_org_id: str, test_project_id: str
     ):
@@ -758,6 +879,40 @@ class TestTaskLifecycle:
         )
         assert assigned.assignee_id == "agent-copilot-001"
         assert assigned.assignee_type == AssigneeType.AGENT
+
+    def test_assign_research_item_to_agent(
+        self, service: BoardService, actor: Actor, agent_actor: Actor,
+        test_org_id: str, test_project_id: str
+    ):
+        """Research items must assign without tripping assignment_history CHECK (research not in enum)."""
+        board, feature = self._create_board_with_feature(
+            service, actor, test_org_id, test_project_id
+        )
+
+        research = service.create_work_item(
+            CreateWorkItemRequest(
+                item_type=WorkItemType.RESEARCH,
+                board_id=board.board_id,
+                parent_id=feature.item_id,
+                title="Paper review",
+                metadata={"research_url": "https://example.com/paper"},
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+
+        assigned = service.assign_work_item(
+            research.item_id,
+            AssignWorkItemRequest(
+                assignee_id="agent-copilot-001",
+                assignee_type=AssigneeType.AGENT,
+            ),
+            actor,
+            org_id=test_org_id,
+        )
+        assert assigned.assignee_id == "agent-copilot-001"
+        assert assigned.assignee_type == AssigneeType.AGENT
+        assert assigned.item_type == WorkItemType.RESEARCH
 
     def _create_board_with_feature(
         self, service: BoardService, actor: Actor, org_id: str, project_id: str

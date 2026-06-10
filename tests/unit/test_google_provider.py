@@ -437,6 +437,8 @@ class TestGoogleProviderIntegration:
                 pytest.skip(
                     "Configured Google OAuth client is not a TVs/Limited Input device client"
                 )
+            if "invalid_client" in message or "not found" in message.lower():
+                pytest.skip("Google OAuth client is missing, revoked, or not enabled for device flow")
             raise
 
         assert result.device_code

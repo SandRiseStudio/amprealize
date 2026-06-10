@@ -276,6 +276,84 @@ def test_conversation_archive_table(mock_get_adapter, capsys):
 
 
 # =============================================================================
+# Conversation patch (title)
+# =============================================================================
+
+
+@patch("amprealize.cli._get_conversation_adapter")
+def test_conversation_patch_title_json(mock_get_adapter, capsys):
+    adapter = MagicMock()
+    adapter.patch_conversation.return_value = _make_conversation(title="New title")
+    mock_get_adapter.return_value = adapter
+
+    code, out, err = _run_cli(
+        ["conversation", "patch", "conv-001", "--title", "New title", "--format", "json"],
+        capsys,
+    )
+    assert code == 0
+    adapter.patch_conversation.assert_called_once_with(
+        "conv-001",
+        user_id="local-cli",
+        org_id=None,
+        patch={"title": "New title"},
+    )
+    data = json.loads(out)
+    assert data["title"] == "New title"
+
+
+@patch("amprealize.cli._get_conversation_adapter")
+def test_conversation_patch_clear_title(mock_get_adapter, capsys):
+    adapter = MagicMock()
+    adapter.patch_conversation.return_value = _make_conversation(title=None)
+    mock_get_adapter.return_value = adapter
+
+    code, out, err = _run_cli(
+        ["conversation", "patch", "conv-001", "--clear-title", "--format", "json"],
+        capsys,
+    )
+    assert code == 0
+    call_kw = adapter.patch_conversation.call_args[1]
+    assert call_kw["patch"] == {"title": None}
+
+
+@patch("amprealize.cli._get_conversation_adapter")
+def test_conversation_patch_errors_when_no_title_action(mock_get_adapter, capsys):
+    adapter = MagicMock()
+    mock_get_adapter.return_value = adapter
+
+    code, out, err = _run_cli(
+        ["conversation", "patch", "conv-001", "--format", "json"],
+        capsys,
+    )
+    assert code == 1
+    assert "provide --title or --clear-title" in err
+    adapter.patch_conversation.assert_not_called()
+
+
+@patch("amprealize.cli._get_conversation_adapter")
+def test_conversation_patch_errors_when_title_and_clear(mock_get_adapter, capsys):
+    adapter = MagicMock()
+    mock_get_adapter.return_value = adapter
+
+    code, out, err = _run_cli(
+        [
+            "conversation",
+            "patch",
+            "conv-001",
+            "--title",
+            "X",
+            "--clear-title",
+            "--format",
+            "json",
+        ],
+        capsys,
+    )
+    assert code == 1
+    assert "not both" in err
+    adapter.patch_conversation.assert_not_called()
+
+
+# =============================================================================
 # Conversation send
 # =============================================================================
 

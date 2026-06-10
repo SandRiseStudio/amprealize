@@ -370,20 +370,24 @@ class TestCLITenantContext:
 # =============================================================================
 
 @pytest.mark.unit
-@pytest.mark.skip(reason="MCPServiceRegistry.permission_service and MCPServer._check_permission not yet implemented")
 class TestMCPPermissionIntegration:
     """Test MCP server permission checking."""
 
-    def test_mcp_service_registry_permission_service(self):
-        """MCPServiceRegistry should provide permission service."""
+    def test_mcp_service_registry_permission_service(self, monkeypatch):
+        """MCPServiceRegistry.permission_service returns None when no auth DSN is set."""
         from amprealize.mcp_server import MCPServiceRegistry
 
-        # Create registry
-        registry = MCPServiceRegistry()
+        for key in (
+            "AMPREALIZE_AUTH_PG_DSN",
+            "AMPREALIZE_ORG_PG_DSN",
+            "AMPREALIZE_MULTI_TENANT_PG_DSN",
+            "AMPREALIZE_PG_DSN",
+        ):
+            monkeypatch.delenv(key, raising=False)
 
-        # First call should return None (not configured)
+        registry = MCPServiceRegistry()
         service = registry.permission_service()
-        assert service is None  # No pool configured
+        assert service is None
 
     def test_mcp_server_check_permission_method_exists(self):
         """MCPServer should have _check_permission method."""
@@ -401,6 +405,46 @@ class TestMCPPermissionIntegration:
         assert "project_id" in params
         assert "org_permission" in params
         assert "project_permission" in params
+
+    @pytest.mark.asyncio
+    async def test_check_permission_skips_when_no_permission_service(self):
+        """Without DSN, RBAC helper should allow (scope/session still apply)."""
+        from amprealize.mcp_server import MCPServer
+        from amprealize.tenant.permissions import OrgPermission
+
+        server = MCPServer()
+        server._services._permission_service_cache = None  # type: ignore[attr-defined]
+        allowed = await server._check_permission(
+            "user-1",
+            "org-1",
+            None,
+            OrgPermission.VIEW_ORG,
+            None,
+        )
+        assert allowed is True
+
+    @pytest.mark.asyncio
+    async def test_check_permission_denies_missing_org_context(self):
+        """Org-level requirement without org_id should deny when service exists."""
+        from amprealize.mcp_server import MCPServer
+        from amprealize.tenant.permissions import OrgPermission
+
+        mock_svc = MagicMock()
+        mock_svc.has_org_permission = AsyncMock(
+            return_value=MagicMock(allowed=True, reason=None)
+        )
+        server = MCPServer()
+        server._services._permission_service_cache = mock_svc  # type: ignore[attr-defined]
+
+        allowed = await server._check_permission(
+            "user-1",
+            None,
+            "proj-1",
+            OrgPermission.VIEW_ORG,
+            None,
+        )
+        assert allowed is False
+        mock_svc.has_org_permission.assert_not_called()
 
 
 # =============================================================================

@@ -45,14 +45,44 @@ from amprealize.collaboration_service_postgres import PostgresCollaborationServi
 # Test constants
 TEST_USER_ID = "test-user-123"
 TEST_USER_EMAIL = "test@example.com"
+_DEFAULT_WS_DESCRIPTION = "Parity test workspace"
+
+
+def _ensure_collaboration_auth_users(dsn: str) -> None:
+    """Insert auth.users rows required by collaboration table FKs (owner_id, members, created_by)."""
+    if psycopg2 is None:
+        return
+    conn = psycopg2.connect(dsn)
+    try:
+        with conn.cursor() as cur:
+            for uid, email, display in (
+                (TEST_USER_ID, TEST_USER_EMAIL, "Parity Test User"),
+                ("invited-user-1", "invited@example.com", "Invited User"),
+            ):
+                cur.execute(
+                    """
+                    INSERT INTO auth.users (id, email, display_name, is_active, email_verified)
+                    VALUES (%s, %s, %s, true, true)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    (uid, email, display),
+                )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _truncate_collaboration_tables(dsn: str) -> None:
     """Remove all data from collaboration tables to ensure test isolation."""
     from conftest import safe_truncate
     safe_truncate(dsn, [
-        "collaboration_comments", "collaboration_operations",
-        "collaboration_documents", "collaboration_members",
+        # Order: children before parents; names resolve via DSN search_path (typically board).
+        "active_cursors",
+        "pending_edits",
+        "document_versions",
+        "collaboration_events",
+        "collaboration_documents",
+        "workspace_members",
         "collaboration_workspaces",
     ])
 
@@ -70,6 +100,7 @@ def postgres_dsn() -> Generator[str, None, None]:
 def collaboration_service_postgres(postgres_dsn: str) -> Generator[PostgresCollaborationService, None, None]:
     """Create a fresh PostgresCollaborationService for each test."""
     _truncate_collaboration_tables(postgres_dsn)
+    _ensure_collaboration_auth_users(postgres_dsn)
     service = PostgresCollaborationService(dsn=postgres_dsn)
 
     try:
@@ -124,6 +155,7 @@ class TestWorkspaceCRUDParity:
         """Both backends should retrieve workspaces consistently."""
         request = CreateWorkspaceRequest(
             name="Retrieval Test",
+            description=_DEFAULT_WS_DESCRIPTION,
             owner_id=TEST_USER_ID,
         )
 
@@ -168,6 +200,7 @@ class TestMemberManagementParity:
         # Create workspaces first
         ws_request = CreateWorkspaceRequest(
             name="Member Test Workspace",
+            description=_DEFAULT_WS_DESCRIPTION,
             owner_id=TEST_USER_ID,
         )
         ws_memory = collaboration_service_memory.create_workspace(ws_request)
@@ -177,14 +210,16 @@ class TestMemberManagementParity:
         invite_request_memory = InviteUserRequest(
             workspace_id=ws_memory.workspace_id,
             user_id="invited-user-1",
-            email="invited@example.com",
             role=MemberRole.EDITOR,
+            permissions=["read", "write"],
+            invited_by=TEST_USER_ID,
         )
         invite_request_postgres = InviteUserRequest(
             workspace_id=ws_postgres.workspace_id,
             user_id="invited-user-1",
-            email="invited@example.com",
             role=MemberRole.EDITOR,
+            permissions=["read", "write"],
+            invited_by=TEST_USER_ID,
         )
 
         member_memory = collaboration_service_memory.invite_user(invite_request_memory)
@@ -206,6 +241,7 @@ class TestMemberManagementParity:
         # Create workspaces
         ws_request = CreateWorkspaceRequest(
             name="Members List Test",
+            description=_DEFAULT_WS_DESCRIPTION,
             owner_id=TEST_USER_ID,
         )
         ws_memory = collaboration_service_memory.create_workspace(ws_request)
@@ -235,6 +271,7 @@ class TestDocumentOperationsParity:
         # Create workspaces first
         ws_request = CreateWorkspaceRequest(
             name="Document Test Workspace",
+            description=_DEFAULT_WS_DESCRIPTION,
             owner_id=TEST_USER_ID,
         )
         ws_memory = collaboration_service_memory.create_workspace(ws_request)
@@ -244,16 +281,16 @@ class TestDocumentOperationsParity:
         doc_request_memory = CreateDocumentRequest(
             workspace_id=ws_memory.workspace_id,
             title="Test Document",
-            doc_type=DocumentType.MARKDOWN,
+            document_type=DocumentType.MARKDOWN.value,
             content="# Hello World",
-            creator_id=TEST_USER_ID,
+            created_by=TEST_USER_ID,
         )
         doc_request_postgres = CreateDocumentRequest(
             workspace_id=ws_postgres.workspace_id,
             title="Test Document",
-            doc_type=DocumentType.MARKDOWN,
+            document_type=DocumentType.MARKDOWN.value,
             content="# Hello World",
-            creator_id=TEST_USER_ID,
+            created_by=TEST_USER_ID,
         )
 
         doc_memory = collaboration_service_memory.create_document(doc_request_memory)
@@ -263,8 +300,8 @@ class TestDocumentOperationsParity:
         assert isinstance(doc_postgres, Document)
         assert doc_memory.title == "Test Document"
         assert doc_postgres.title == "Test Document"
-        assert doc_memory.doc_type == DocumentType.MARKDOWN
-        assert doc_postgres.doc_type == DocumentType.MARKDOWN
+        assert doc_memory.document_type == DocumentType.MARKDOWN.value
+        assert doc_postgres.document_type == DocumentType.MARKDOWN.value
         assert doc_memory.content == "# Hello World"
         assert doc_postgres.content == "# Hello World"
 
@@ -275,23 +312,23 @@ class TestDocumentOperationsParity:
     ) -> None:
         """Both backends should retrieve documents consistently."""
         # Create workspace and document
-        ws_request = CreateWorkspaceRequest(name="Doc Retrieval Test", owner_id=TEST_USER_ID)
+        ws_request = CreateWorkspaceRequest(name="Doc Retrieval Test", description="doc retrieval", owner_id=TEST_USER_ID)
         ws_memory = collaboration_service_memory.create_workspace(ws_request)
         ws_postgres = collaboration_service_postgres.create_workspace(ws_request)
 
         doc_request_memory = CreateDocumentRequest(
             workspace_id=ws_memory.workspace_id,
             title="Retrievable Doc",
-            doc_type=DocumentType.CODE,
+            document_type=DocumentType.CODE.value,
             content="print('hello')",
-            creator_id=TEST_USER_ID,
+            created_by=TEST_USER_ID,
         )
         doc_request_postgres = CreateDocumentRequest(
             workspace_id=ws_postgres.workspace_id,
             title="Retrievable Doc",
-            doc_type=DocumentType.CODE,
+            document_type=DocumentType.CODE.value,
             content="print('hello')",
-            creator_id=TEST_USER_ID,
+            created_by=TEST_USER_ID,
         )
 
         created_memory = collaboration_service_memory.create_document(doc_request_memory)
@@ -319,23 +356,23 @@ class TestRealTimeEditingParity:
     ) -> None:
         """Both backends should apply edits consistently."""
         # Setup workspace and document
-        ws_request = CreateWorkspaceRequest(name="Edit Test", owner_id=TEST_USER_ID)
+        ws_request = CreateWorkspaceRequest(name="Edit Test", description="edit test", owner_id=TEST_USER_ID)
         ws_memory = collaboration_service_memory.create_workspace(ws_request)
         ws_postgres = collaboration_service_postgres.create_workspace(ws_request)
 
         doc_request_memory = CreateDocumentRequest(
             workspace_id=ws_memory.workspace_id,
             title="Editable Doc",
-            doc_type=DocumentType.TEXT,
+            document_type=DocumentType.TEXT.value,
             content="Original content",
-            creator_id=TEST_USER_ID,
+            created_by=TEST_USER_ID,
         )
         doc_request_postgres = CreateDocumentRequest(
             workspace_id=ws_postgres.workspace_id,
             title="Editable Doc",
-            doc_type=DocumentType.TEXT,
+            document_type=DocumentType.TEXT.value,
             content="Original content",
-            creator_id=TEST_USER_ID,
+            created_by=TEST_USER_ID,
         )
 
         doc_memory = collaboration_service_memory.create_document(doc_request_memory)
@@ -348,6 +385,7 @@ class TestRealTimeEditingParity:
             operation_type=EditOperationType.INSERT,
             position=8,  # After "Original"
             content=" modified",
+            version=1,
         )
         edit_request_postgres = RealTimeEditRequest(
             document_id=doc_postgres.document_id,
@@ -355,6 +393,7 @@ class TestRealTimeEditingParity:
             operation_type=EditOperationType.INSERT,
             position=8,
             content=" modified",
+            version=1,
         )
 
         op_memory = collaboration_service_memory.apply_real_time_edit(edit_request_memory)
@@ -379,23 +418,23 @@ class TestCommentsParity:
     ) -> None:
         """Both backends should add comments consistently."""
         # Setup workspace and document
-        ws_request = CreateWorkspaceRequest(name="Comment Test", owner_id=TEST_USER_ID)
+        ws_request = CreateWorkspaceRequest(name="Comment Test", description="comment test", owner_id=TEST_USER_ID)
         ws_memory = collaboration_service_memory.create_workspace(ws_request)
         ws_postgres = collaboration_service_postgres.create_workspace(ws_request)
 
         doc_request_memory = CreateDocumentRequest(
             workspace_id=ws_memory.workspace_id,
             title="Commentable Doc",
-            doc_type=DocumentType.TEXT,
+            document_type=DocumentType.TEXT.value,
             content="Content to comment on",
-            creator_id=TEST_USER_ID,
+            created_by=TEST_USER_ID,
         )
         doc_request_postgres = CreateDocumentRequest(
             workspace_id=ws_postgres.workspace_id,
             title="Commentable Doc",
-            doc_type=DocumentType.TEXT,
+            document_type=DocumentType.TEXT.value,
             content="Content to comment on",
-            creator_id=TEST_USER_ID,
+            created_by=TEST_USER_ID,
         )
 
         doc_memory = collaboration_service_memory.create_document(doc_request_memory)
@@ -441,23 +480,23 @@ class TestDocumentLockingParity:
     ) -> None:
         """Both backends should handle document locking consistently."""
         # Setup workspace and document
-        ws_request = CreateWorkspaceRequest(name="Lock Test", owner_id=TEST_USER_ID)
+        ws_request = CreateWorkspaceRequest(name="Lock Test", description="lock test", owner_id=TEST_USER_ID)
         ws_memory = collaboration_service_memory.create_workspace(ws_request)
         ws_postgres = collaboration_service_postgres.create_workspace(ws_request)
 
         doc_request_memory = CreateDocumentRequest(
             workspace_id=ws_memory.workspace_id,
             title="Lockable Doc",
-            doc_type=DocumentType.TEXT,
+            document_type=DocumentType.TEXT.value,
             content="Lock me",
-            creator_id=TEST_USER_ID,
+            created_by=TEST_USER_ID,
         )
         doc_request_postgres = CreateDocumentRequest(
             workspace_id=ws_postgres.workspace_id,
             title="Lockable Doc",
-            doc_type=DocumentType.TEXT,
+            document_type=DocumentType.TEXT.value,
             content="Lock me",
-            creator_id=TEST_USER_ID,
+            created_by=TEST_USER_ID,
         )
 
         doc_memory = collaboration_service_memory.create_document(doc_request_memory)
@@ -499,7 +538,7 @@ class TestCollaborationMetricsParity:
     ) -> None:
         """Both backends should calculate metrics consistently."""
         # Setup workspace
-        ws_request = CreateWorkspaceRequest(name="Metrics Test", owner_id=TEST_USER_ID)
+        ws_request = CreateWorkspaceRequest(name="Metrics Test", description="metrics test", owner_id=TEST_USER_ID)
         ws_memory = collaboration_service_memory.create_workspace(ws_request)
         ws_postgres = collaboration_service_postgres.create_workspace(ws_request)
 
@@ -515,8 +554,10 @@ class TestCollaborationMetricsParity:
         assert metrics_memory is not None
         assert metrics_postgres is not None
 
-        # Initial metrics should be similar (1 member, 0 documents, etc.)
-        assert metrics_memory.total_members >= 1
-        assert metrics_postgres.total_members >= 1
-        assert metrics_memory.total_documents >= 0
-        assert metrics_postgres.total_documents >= 0
+        # Initial metrics should be similar (scores bounded; collaborator counts non-negative)
+        assert metrics_memory.workspace_id == ws_memory.workspace_id
+        assert metrics_postgres.workspace_id == ws_postgres.workspace_id
+        assert metrics_memory.collaboration_score >= 0.0
+        assert metrics_postgres.collaboration_score >= 0.0
+        assert metrics_memory.engagement_level >= 0.0
+        assert metrics_postgres.engagement_level >= 0.0

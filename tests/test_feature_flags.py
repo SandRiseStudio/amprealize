@@ -367,7 +367,7 @@ class TestDefaultCatalogue:
         assert svc.get_flag("feature.quality_gates") is not None
 
     def test_default_count(self):
-        assert len(DEFAULT_FLAGS) == 9
+        assert len(DEFAULT_FLAGS) == 13
 
     def test_legacy_env_metadata(self):
         svc = FeatureFlagService()

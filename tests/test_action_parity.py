@@ -101,7 +101,8 @@ def test_create_action_postgres(action_service_postgres: PostgresActionService) 
     assert action.artifact_path == "/tmp/test.py"
     assert action.summary == "Test action creation"
     assert action.behaviors_cited == ["behavior-1", "behavior-2"]
-    assert action.metadata == {"source": "pytest"}
+    assert action.metadata.get("source") == "pytest"
+    assert "action_trace" in action.metadata
     assert action.actor.id == "test-user"
     assert action.actor.role == "engineer"
     assert action.actor.surface == "cli"
@@ -187,7 +188,8 @@ def test_get_action_postgres(action_service_postgres: PostgresActionService) -> 
     assert retrieved.artifact_path == "/tmp/retrieve.py"
     assert retrieved.summary == "Retrieve this action"
     assert retrieved.behaviors_cited == ["behavior-1"]
-    assert retrieved.metadata == {"test": "get"}
+    assert retrieved.metadata.get("test") == "get"
+    assert "action_trace" in retrieved.metadata
 
 
 def test_get_action_memory(action_service_memory: ActionService) -> None:

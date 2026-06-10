@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -61,6 +62,44 @@ class FakeWebSocket:
 
     async def close(self, code: int = 1000) -> None:
         self.closed = True
+
+
+class FakeRealtimeBackend:
+    """Minimal realtime backend for ConversationEventHub contract tests."""
+
+    def __init__(self, replay_events: Optional[List[Dict[str, Any]]] = None) -> None:
+        self.published: List[Dict[str, Any]] = []
+        self.replay_events = replay_events or []
+        self.subscribed_conversations: List[str] = []
+
+    async def publish(
+        self,
+        *,
+        conversation_id: str,
+        event: Dict[str, Any],
+        message_id: Optional[str] = None,
+    ) -> None:
+        self.published.append(
+            {
+                "conversation_id": conversation_id,
+                "event": event,
+                "message_id": message_id,
+            }
+        )
+
+    async def replay(
+        self,
+        *,
+        conversation_id: str,
+        message_id: Optional[str] = None,
+        after_id: str = "0-0",
+        limit: int = 250,
+    ) -> List[Dict[str, Any]]:
+        return self.replay_events
+
+    async def subscribe(self, *, conversation_id: str, callback: Any) -> Any:
+        self.subscribed_conversations.append(conversation_id)
+        return SimpleNamespace(close=AsyncMock())
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +189,126 @@ async def test_subscribe_and_publish_to_queue():
     msg = queue.get_nowait()
     assert msg["type"] == EVENT_MESSAGE_NEW
     assert msg["payload"]["text"] == "from queue"
+
+
+@pytest.mark.asyncio
+async def test_publish_forwards_to_realtime_backend():
+    backend = FakeRealtimeBackend()
+    hub = ConversationEventHub(realtime_backend=backend)
+    queue = await hub.subscribe_queue("conv-1")
+
+    await hub._broadcast(EVENT_MESSAGE_NEW, "conv-1", {"text": "from queue"})
+
+    msg = queue.get_nowait()
+    assert msg["type"] == EVENT_MESSAGE_NEW
+    assert msg["payload"]["text"] == "from queue"
+    assert msg["payload"]["_event_id"]
+    assert len(backend.published) == 1
+    assert backend.published[0]["conversation_id"] == "conv-1"
+    assert backend.published[0]["event"]["type"] == EVENT_MESSAGE_NEW
+
+
+@pytest.mark.asyncio
+async def test_ws_connect_replays_conversation_scoped_events():
+    replay_event = {
+        "type": EVENT_MESSAGE_NEW,
+        "payload": {"text": "replayed", "_event_id": "evt-ws-1", "_origin_id": "hub-other"},
+        "event_id": "evt-ws-1",
+        "origin_id": "hub-other",
+        "conversation_id": "conv-1",
+        "message_id": None,
+    }
+    backend = FakeRealtimeBackend(replay_events=[replay_event])
+    hub = ConversationEventHub(realtime_backend=backend)
+    ws = FakeWebSocket()
+    await hub.connect(ws, "conv-1")
+    assert ws.messages and ws.messages[0]["type"] == EVENT_MESSAGE_NEW
+    assert ws.messages[0]["payload"]["text"] == "replayed"
+    assert backend.subscribed_conversations == ["conv-1"]
+
+
+@pytest.mark.asyncio
+async def test_remote_subscription_teardown_on_ws_disconnect():
+    backend = FakeRealtimeBackend()
+    hub = ConversationEventHub(realtime_backend=backend)
+    ws = FakeWebSocket()
+    await hub.connect(ws, "conv-1")
+    assert "conv-1" in hub._remote_subscriptions
+    handle = hub._remote_subscriptions["conv-1"]
+    await hub.disconnect(ws, "conv-1")
+    assert "conv-1" not in hub._remote_subscriptions
+    handle.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_remote_subscription_teardown_on_queue_unsubscribe():
+    backend = FakeRealtimeBackend()
+    hub = ConversationEventHub(realtime_backend=backend)
+    queue = await hub.subscribe_queue("conv-1")
+    assert "conv-1" in hub._remote_subscriptions
+    handle = hub._remote_subscriptions["conv-1"]
+    await hub.unsubscribe_queue(queue, conversation_id="conv-1")
+    assert "conv-1" not in hub._remote_subscriptions
+    handle.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_remote_subscription_not_torn_down_while_second_subscriber_active():
+    backend = FakeRealtimeBackend()
+    hub = ConversationEventHub(realtime_backend=backend)
+    ws = FakeWebSocket()
+    queue = await hub.subscribe_queue("conv-1")
+    await hub.connect(ws, "conv-1")
+    handle = hub._remote_subscriptions["conv-1"]
+    await hub.unsubscribe_queue(queue, conversation_id="conv-1")
+    assert "conv-1" in hub._remote_subscriptions
+    handle.close.assert_not_called()
+    await hub.disconnect(ws, "conv-1")
+    assert "conv-1" not in hub._remote_subscriptions
+    handle.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_remote_subscription_cap_skips_new_listener():
+    backend = FakeRealtimeBackend()
+    hub = ConversationEventHub(realtime_backend=backend, max_remote_subscriptions=1)
+    ws1 = FakeWebSocket()
+    ws2 = FakeWebSocket()
+    ws3 = FakeWebSocket()
+    await hub.connect(ws1, "conv-a")
+    assert backend.subscribed_conversations == ["conv-a"]
+    await hub.connect(ws2, "conv-b")
+    assert backend.subscribed_conversations == ["conv-a"]
+    assert "conv-b" not in hub._remote_subscriptions
+    await hub.disconnect(ws1, "conv-a")
+    await hub.connect(ws3, "conv-c")
+    assert backend.subscribed_conversations == ["conv-a", "conv-c"]
+    assert "conv-c" in hub._remote_subscriptions
+
+
+@pytest.mark.asyncio
+async def test_message_stream_subscribe_replays_recent_events():
+    replay_event = {
+        "type": EVENT_TOKEN,
+        "payload": {
+            "token": "hello",
+            "_event_id": "evt-replay-1",
+            "_origin_id": "hub-other",
+        },
+        "event_id": "evt-replay-1",
+        "origin_id": "hub-other",
+        "conversation_id": "conv-1",
+        "message_id": "msg-42",
+    }
+    backend = FakeRealtimeBackend(replay_events=[replay_event])
+    hub = ConversationEventHub(realtime_backend=backend)
+
+    queue = await hub.subscribe_queue("conv-1", message_id="msg-42")
+
+    msg = queue.get_nowait()
+    assert msg["type"] == EVENT_TOKEN
+    assert msg["payload"]["token"] == "hello"
+    assert backend.subscribed_conversations == ["conv-1"]
 
 
 @pytest.mark.asyncio
@@ -415,6 +574,148 @@ def test_event_constants():
 # ---------------------------------------------------------------------------
 # WebSocket disconnect cleans up broken connections
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# WebSocket message.send → conversation reply scheduling (REST parity)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ws_message_send_schedules_reply_when_llm_metadata():
+    """WS message.send should asyncio-schedule generate_reply like REST send."""
+    from amprealize.services import conversation_events_api as cea
+
+    ws = FakeWebSocket()
+    hub = ConversationEventHub()
+    scope = SimpleNamespace(value="direct")
+    conversation = SimpleNamespace(org_id="org-1", project_id="proj-1", scope=scope)
+    msg = SimpleNamespace(id="msg-123", metadata={})
+
+    conv_svc = MagicMock()
+    conv_svc.get_conversation.return_value = conversation
+    conv_svc.send_message.return_value = msg
+
+    reply_svc = MagicMock()
+    reply_svc.generate_reply = AsyncMock()
+
+    data: Dict[str, Any] = {
+        "type": "message.send",
+        "content": "hi",
+        "message_type": "text",
+        "metadata": {"llm_model_id": "gpt-test"},
+        "run_id": "run-9",
+        "work_item_id": "wi-1",
+    }
+
+    with patch.object(cea, "_validate_model_metadata", return_value=dict(data["metadata"])):
+        await cea._handle_client_message(
+            ws,
+            data,
+            "conv-1",
+            "user-1",
+            hub,
+            conv_svc,
+            conversation_reply_service=reply_svc,
+        )
+
+    await asyncio.sleep(0)
+    reply_svc.generate_reply.assert_awaited_once()
+    req = reply_svc.generate_reply.call_args[0][0]
+    assert req.conversation_id == "conv-1"
+    assert req.user_message_id == "msg-123"
+    assert req.user_message_content == "hi"
+    assert req.user_id == "user-1"
+    assert req.work_item_id == "wi-1"
+    assert req.run_id == "run-9"
+    assert req.org_id == "org-1"
+    assert req.project_id == "proj-1"
+    assert req.metadata.get("llm_model_id") == "gpt-test"
+    assert req.metadata.get("conversation_scope") == "direct"
+    conv_svc.send_message.assert_called_once()
+    call_kw = conv_svc.send_message.call_args[1]
+    assert call_kw.get("org_id") == "org-1"
+    assert call_kw.get("run_id") == "run-9"
+    assert call_kw.get("work_item_id") == "wi-1"
+
+
+@pytest.mark.asyncio
+async def test_ws_message_send_skips_reply_for_agent_actor():
+    from amprealize.services import conversation_events_api as cea
+
+    ws = FakeWebSocket()
+    hub = ConversationEventHub()
+    scope = SimpleNamespace(value="direct")
+    conversation = SimpleNamespace(org_id="org-1", project_id="proj-1", scope=scope)
+    msg = SimpleNamespace(id="msg-agent")
+
+    conv_svc = MagicMock()
+    conv_svc.get_conversation.return_value = conversation
+    conv_svc.send_message.return_value = msg
+
+    reply_svc = MagicMock()
+    reply_svc.generate_reply = AsyncMock()
+
+    meta = {"llm_model_id": "gpt-test", "actor_type": "agent"}
+    data: Dict[str, Any] = {
+        "type": "message.send",
+        "content": "from agent",
+        "message_type": "text",
+        "metadata": meta,
+    }
+
+    with patch.object(cea, "_validate_model_metadata", return_value=dict(meta)):
+        await cea._handle_client_message(
+            ws,
+            data,
+            "conv-1",
+            "agent-user",
+            hub,
+            conv_svc,
+            conversation_reply_service=reply_svc,
+        )
+
+    await asyncio.sleep(0)
+    reply_svc.generate_reply.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ws_message_send_no_reply_without_llm_model_id():
+    from amprealize.services import conversation_events_api as cea
+
+    ws = FakeWebSocket()
+    hub = ConversationEventHub()
+    scope = SimpleNamespace(value="direct")
+    conversation = SimpleNamespace(org_id=None, project_id=None, scope=scope)
+    msg = SimpleNamespace(id="msg-plain")
+
+    conv_svc = MagicMock()
+    conv_svc.get_conversation.return_value = conversation
+    conv_svc.send_message.return_value = msg
+
+    reply_svc = MagicMock()
+    reply_svc.generate_reply = AsyncMock()
+
+    data: Dict[str, Any] = {
+        "type": "message.send",
+        "content": "plain",
+        "message_type": "text",
+        "metadata": {},
+    }
+
+    with patch.object(cea, "_validate_model_metadata", return_value={}):
+        await cea._handle_client_message(
+            ws,
+            data,
+            "conv-1",
+            "user-1",
+            hub,
+            conv_svc,
+            conversation_reply_service=reply_svc,
+        )
+
+    await asyncio.sleep(0)
+    reply_svc.generate_reply.assert_not_called()
 
 
 @pytest.mark.asyncio

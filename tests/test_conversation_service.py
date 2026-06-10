@@ -13,9 +13,13 @@ Tests verify:
 Infrastructure requirements:
 - PostgreSQL with messaging schema
 - Uses AMPREALIZE_MESSAGING_PG_DSN or AMPREALIZE_PG_DSN from environment
+- ``TestBootstrapGlobalUserHomeConcurrent`` runs only when ``AMPREALIZE_PG_DSN`` is set (hammers
+  ``bootstrap_global_user_home`` with threads; optional integration check for the
+  ``uq_global_user_home`` race).
 
 Run with: ./scripts/run_tests.sh --breakeramp --env test tests/test_conversation_service.py
 """
+import concurrent.futures
 import os
 import time
 import uuid
@@ -175,7 +179,8 @@ class TestConversationCRUD:
             org_id=org_id,
         )
         assert conv.title == "Sprint Planning Discussion"
-        assert conv.scope == ConversationScope.AGENT_DM
+        # AGENT_DM is persisted under the DM alias and reads back as DM.
+        assert conv.scope == ConversationScope.DM
 
     def test_create_agent_dm_with_participants(self, service, project_id, user_id, user2_id, org_id):
         """Create an agent DM conversation with participants."""
@@ -186,7 +191,7 @@ class TestConversationCRUD:
             participant_ids=[user2_id],
             org_id=org_id,
         )
-        assert conv.scope == ConversationScope.AGENT_DM
+        assert conv.scope == ConversationScope.DM
 
     def test_get_conversation(self, service, project_id, user_id, org_id):
         """Retrieve a conversation by ID."""
@@ -246,7 +251,82 @@ class TestConversationCRUD:
             scope=ConversationScope.AGENT_DM,
         )
         for c in convs:
-            assert c.scope == ConversationScope.AGENT_DM
+            assert c.scope == ConversationScope.DM
+
+    def test_list_conversations_multi_scopes_union(self, service, project_id, user_id, org_id):
+        """Multiple scopes in one list returns rows matching any scope (union)."""
+        room = service.create_conversation(
+            project_id=project_id,
+            scope=ConversationScope.PROJECT_ROOM,
+            title="Room",
+            created_by=user_id,
+            org_id=org_id,
+        )
+        dm = service.create_conversation(
+            project_id=project_id,
+            scope=ConversationScope.AGENT_DM,
+            title="A DM",
+            created_by=user_id,
+            org_id=org_id,
+        )
+        convs, total = service.list_conversations(
+            project_id=project_id,
+            user_id=user_id,
+            org_id=org_id,
+            scopes=[ConversationScope.PROJECT_ROOM, ConversationScope.DM],
+        )
+        ids = {c.id for c in convs}
+        assert room.id in ids
+        assert dm.id in ids
+        assert total >= 2
+
+    def test_list_conversations_include_total_false(self, service, project_id, user_id, org_id):
+        """include_total=False skips COUNT and returns total=-1."""
+        service.create_conversation(
+            project_id=project_id,
+            scope=ConversationScope.PROJECT_ROOM,
+            title="Room",
+            created_by=user_id,
+            org_id=org_id,
+        )
+        convs, total = service.list_conversations(
+            project_id=project_id,
+            user_id=user_id,
+            org_id=org_id,
+            include_total=False,
+            limit=10,
+            offset=0,
+        )
+        assert total == -1
+        assert len(convs) >= 1
+
+    def test_list_messages_include_total_false(self, service, project_id, user_id, org_id):
+        """include_total=False skips message COUNT."""
+        conv = service.create_conversation(
+            project_id=project_id,
+            scope=ConversationScope.PROJECT_ROOM,
+            title="Room",
+            created_by=user_id,
+            org_id=org_id,
+        )
+        service.send_message(
+            conv.id,
+            sender_id=user_id,
+            content="hello",
+            message_type=MessageType.TEXT,
+            org_id=org_id,
+        )
+        msgs, total, has_more = service.list_messages(
+            conv.id,
+            user_id=user_id,
+            org_id=org_id,
+            include_total=False,
+            limit=10,
+            offset=0,
+        )
+        assert total == -1
+        assert len(msgs) >= 1
+        assert isinstance(has_more, bool)
 
     def test_archive_conversation(self, service, project_id, user_id, org_id):
         """Archive a conversation."""
@@ -288,6 +368,40 @@ class TestConversationCRUD:
         )
         ids = [c.id for c in convs]
         assert conv.id not in ids
+
+    def test_patch_conversation_title(self, service, project_id, user_id, org_id):
+        """Owner can rename a conversation."""
+        conv = service.create_conversation(
+            project_id=project_id,
+            scope=ConversationScope.PROJECT_ROOM,
+            title="Original",
+            created_by=user_id,
+            org_id=org_id,
+        )
+        updated = service.patch_conversation(
+            conv.id,
+            user_id=user_id,
+            org_id=org_id,
+            patch={"title": "Renamed room"},
+        )
+        assert updated.title == "Renamed room"
+
+    def test_patch_conversation_clear_title(self, service, project_id, user_id, org_id):
+        """Clear title stores null."""
+        conv = service.create_conversation(
+            project_id=project_id,
+            scope=ConversationScope.PROJECT_ROOM,
+            title="Named",
+            created_by=user_id,
+            org_id=org_id,
+        )
+        updated = service.patch_conversation(
+            conv.id,
+            user_id=user_id,
+            org_id=org_id,
+            patch={"title": None},
+        )
+        assert updated.title is None
 
 
 # =============================================================================
@@ -488,6 +602,38 @@ class TestMessageLifecycle:
         assert total == 3
         for r in replies:
             assert r.parent_id == parent.id
+
+    def test_list_messages_include_thread_replies(self, service, conversation, user_id, org_id):
+        """Flat transcript includes assistant-style replies (non-null parent_id)."""
+        root = service.send_message(
+            conversation.id,
+            sender_id=user_id,
+            content="User asks",
+            org_id=org_id,
+        )
+        service.send_message(
+            conversation.id,
+            sender_id=user_id,
+            content="Assistant reply",
+            parent_id=root.id,
+            org_id=org_id,
+        )
+        roots_only, total_roots, _ = service.list_messages(
+            conversation.id,
+            user_id=user_id,
+            org_id=org_id,
+        )
+        assert total_roots == 1
+        assert len(roots_only) == 1
+
+        flat, total_flat, _ = service.list_messages(
+            conversation.id,
+            user_id=user_id,
+            org_id=org_id,
+            include_thread_replies=True,
+        )
+        assert total_flat == 2
+        assert len(flat) == 2
 
 
 # =============================================================================
@@ -724,6 +870,20 @@ class TestMCPHandlers:
         assert result["success"] is True
         assert result["total"] >= 1
 
+    def test_mcp_list_conversations_scopes(self, service, conversation, project_id, org_id):
+        """MCP handler: conversations.list with scopes array."""
+        from mcp.handlers.conversation_handlers import handle_list_conversations
+
+        result = handle_list_conversations(service, {
+            "project_id": project_id,
+            "user_id": "test-user-001",
+            "org_id": org_id,
+            "scopes": ["project_room", "dm"],
+            "include_total": False,
+        })
+        assert result["success"] is True
+        assert result["total"] == -1
+
     def test_mcp_send_message(self, service, conversation, org_id):
         """MCP handler: messages.send"""
         from mcp.handlers.conversation_handlers import handle_send_message
@@ -785,3 +945,60 @@ class TestMCPHandlers:
         })
         assert result["success"] is True
         assert result["reaction"]["emoji"] == "🎉"
+
+
+# =============================================================================
+# Concurrent global_user_home bootstrap (race on uq_global_user_home)
+# =============================================================================
+
+
+@pytest.mark.skipif(
+    not os.environ.get("AMPREALIZE_PG_DSN"),
+    reason="Concurrent bootstrap hammer requires AMPREALIZE_PG_DSN (real monolith Postgres)",
+)
+class TestBootstrapGlobalUserHomeConcurrent:
+    """Stress ``bootstrap_global_user_home`` under parallel calls for one user.
+
+    Reproduces the load-test race: without handling ``UniqueViolation``, only one
+    insert wins and others return 500. Requires ``AMPREALIZE_PG_DSN`` so CI/local
+    runs only exercise this when the canonical DSN is configured.
+    """
+
+    def test_concurrent_bootstrap_yields_single_conversation(
+        self,
+        service: ConversationService,
+        dsn: str,
+        org_id: str,
+        user_id: str,
+    ) -> None:
+        n = 32
+
+        def worker() -> str:
+            # Fresh service per thread — matches separate API workers sharing one DB.
+            svc = ConversationService(dsn=dsn)
+            conv, _msgs, _total, _has_more = svc.bootstrap_global_user_home(
+                user_id=user_id,
+                org_id=org_id,
+                message_limit=5,
+            )
+            assert conv.scope == ConversationScope.GLOBAL_USER_HOME
+            return conv.id
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=n) as pool:
+            futures = [pool.submit(worker) for _ in range(n)]
+            ids = [f.result() for f in futures]
+
+        assert len(set(ids)) == 1, f"expected one conversation id, got {set(ids)}"
+
+        convs, total = service.list_conversations(
+            project_id=None,
+            user_id=user_id,
+            org_id=org_id,
+            scope=ConversationScope.GLOBAL_USER_HOME,
+            include_archived=False,
+            limit=10,
+            offset=0,
+        )
+        assert total == 1
+        assert len(convs) == 1
+        assert convs[0].id == ids[0]

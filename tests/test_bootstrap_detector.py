@@ -336,7 +336,9 @@ class TestWorkspaceDetectorIntegration:
 
     def test_detect_amprealize_repo(self):
         """Detection on the actual amprealize repo should return amprealize-platform."""
-        amprealize_root = Path(__file__).parents[2]
+        # Parent of tests/ is the amprealize package root (avoid parents[2], which is the
+        # monorepo root when this repo lives under e.g. Main/amprealize/).
+        amprealize_root = Path(__file__).resolve().parents[1]
         if not (amprealize_root / "AGENTS.md").exists():
             pytest.skip("Not running from amprealize repo root")
 

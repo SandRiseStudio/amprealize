@@ -16,6 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from dataclasses import dataclass, field
 from typing import Optional, Set
 
+pytestmark = pytest.mark.unit
+
 
 # ============================================================================
 # MCPServiceAdapter Tests
@@ -408,9 +410,27 @@ class TestMCPServerContextHandlers:
 
     def test_context_getcontext_returns_session_state(self):
         """Test context.getContext returns current session."""
-        # This would be an integration test with MCP server
-        # For unit testing, we verify the underlying method
-        pass
+        from amprealize.mcp_server import MCPServer, MCPSessionContext
+
+        server = MCPServer.__new__(MCPServer)
+        server._session_context = MCPSessionContext(
+            user_id="user-123",
+            org_id="org-456",
+            project_id="proj-789",
+            auth_method="device_flow",
+            roles=["STUDENT"],
+            granted_scopes={"context.read"},
+        )
+        server._services = MagicMock()
+        server._services.organization_service.return_value = None
+
+        result = server._get_current_context({"workspace_id": "workspace-1"})
+
+        assert result["user_id"] == "user-123"
+        assert result["org_id"] == "org-456"
+        assert result["project_id"] == "proj-789"
+        assert result["workspace_id"] == "workspace-1"
+        assert result["is_authenticated"] is True
 
     def test_context_switch_scope_requirement(self):
         """Verify context.setOrg and context.setProject require context.switch scope."""

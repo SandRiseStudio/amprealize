@@ -15,7 +15,13 @@ for the current session (falls back to http://localhost:8000 when unset).
 
 Usage:
     # Run all load tests with default settings (20 concurrent, 1k total)
+    export AMPREALIZE_RUN_LOAD_TESTS=1
     pytest tests/load/test_service_load.py -v
+
+Optional latency overrides when load tests are enabled:
+    AMPREALIZE_LOAD_RELAXED=1 — raise default P95 ceilings for laptops
+    AMPREALIZE_TEST_INFRA_MODE=breakeramp — same relaxed read ceilings when using BreakerAmp/Podman test stack
+    AMPREALIZE_LOAD_P95_HEALTH_S / AMPREALIZE_LOAD_P95_READ_S / AMPREALIZE_LOAD_P95_METRICS_S — seconds
 
     # Run with custom parameters
     pytest tests/load/test_service_load.py -v --concurrent=50 --total=5000
@@ -41,6 +47,41 @@ httpx = pytest.importorskip("httpx")
 
 # Configuration
 DEFAULT_BASE_URL = os.environ.get("AMPREALIZE_GATEWAY_URL", "http://localhost:8080")
+
+_RELAXED = os.environ.get("AMPREALIZE_LOAD_RELAXED", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+
+def _local_breakeramp_stack() -> bool:
+    """True when pytest runs under ./scripts/run_tests.sh --breakeramp (Podman test env)."""
+    return os.environ.get("AMPREALIZE_TEST_INFRA_MODE", "").strip().lower() == "breakeramp"
+
+
+def _p95_health_seconds() -> float:
+    raw = os.environ.get("AMPREALIZE_LOAD_P95_HEALTH_S")
+    if raw:
+        return float(raw)
+    return 2.0 if _RELAXED else 0.5
+
+
+def _p95_read_seconds() -> float:
+    raw = os.environ.get("AMPREALIZE_LOAD_P95_READ_S")
+    if raw:
+        return float(raw)
+    if _RELAXED or _local_breakeramp_stack():
+        return 0.5
+    return 0.1
+
+
+def _p95_metrics_seconds() -> float:
+    raw = os.environ.get("AMPREALIZE_LOAD_P95_METRICS_S")
+    if raw:
+        return float(raw)
+    return 2.0 if _RELAXED else 1.0
 
 
 def measure_latency(
@@ -205,8 +246,10 @@ def test_health_endpoint_load(load_tester, load_params):
     print(f"  P99 latency: {stats['p99']*1000:.2f}ms")
     print(f"  Error rate: {stats['error_rate']*100:.2f}%")
 
-    # Assert P95 < 500ms for health checks
-    assert stats["p95"] < 0.5, f"P95 latency {stats['p95']*1000:.0f}ms exceeds 500ms threshold"
+    assert stats["p95"] < _p95_health_seconds(), (
+        f"P95 latency {stats['p95']*1000:.0f}ms exceeds {_p95_health_seconds()*1000:.0f}ms "
+        f"(set AMPREALIZE_LOAD_RELAXED=1 or AMPREALIZE_LOAD_P95_HEALTH_S on slow runners)"
+    )
     assert stats["error_rate"] < 0.01, f"Error rate {stats['error_rate']*100:.1f}% exceeds 1% threshold"
 
 
@@ -230,8 +273,9 @@ def test_metrics_endpoint_load(load_tester, load_params):
     print(f"  P95 latency: {stats['p95']*1000:.2f}ms")
     print(f"  P99 latency: {stats['p99']*1000:.2f}ms")
 
-    # Metrics can be slower, allow up to 1s P95
-    assert stats["p95"] < 1.0, f"P95 latency {stats['p95']*1000:.0f}ms exceeds 1000ms threshold"
+    assert stats["p95"] < _p95_metrics_seconds(), (
+        f"P95 latency {stats['p95']*1000:.0f}ms exceeds {_p95_metrics_seconds()*1000:.0f}ms threshold"
+    )
 
 
 def test_behavior_service_load(load_tester, load_params):
@@ -250,8 +294,10 @@ def test_behavior_service_load(load_tester, load_params):
     print(f"  P99 latency: {stats['p99']*1000:.2f}ms")
     print(f"  Error rate: {stats['error_rate']*100:.2f}%")
 
-    # Assert P95 < 100ms for read operations per RETRIEVAL_ENGINE_PERFORMANCE.md
-    assert stats["p95"] < 0.1, f"P95 latency {stats['p95']*1000:.0f}ms exceeds 100ms threshold"
+    assert stats["p95"] < _p95_read_seconds(), (
+        f"P95 latency {stats['p95']*1000:.0f}ms exceeds {_p95_read_seconds()*1000:.0f}ms "
+        f"(set AMPREALIZE_LOAD_RELAXED=1 or AMPREALIZE_LOAD_P95_READ_S)"
+    )
     assert stats["error_rate"] < 0.01, f"Error rate {stats['error_rate']*100:.1f}% exceeds 1% threshold"
 
 
@@ -270,7 +316,9 @@ def test_workflow_service_load(load_tester, load_params):
     print(f"  P95 latency: {stats['p95']*1000:.2f}ms")
     print(f"  P99 latency: {stats['p99']*1000:.2f}ms")
 
-    assert stats["p95"] < 0.1, f"P95 latency {stats['p95']*1000:.0f}ms exceeds 100ms threshold"
+    assert stats["p95"] < _p95_read_seconds(), (
+        f"P95 latency {stats['p95']*1000:.0f}ms exceeds {_p95_read_seconds()*1000:.0f}ms threshold"
+    )
 
 
 def test_action_service_load(load_tester, load_params):
@@ -288,7 +336,9 @@ def test_action_service_load(load_tester, load_params):
     print(f"  P95 latency: {stats['p95']*1000:.2f}ms")
     print(f"  P99 latency: {stats['p99']*1000:.2f}ms")
 
-    assert stats["p95"] < 0.1, f"P95 latency {stats['p95']*1000:.0f}ms exceeds 100ms threshold"
+    assert stats["p95"] < _p95_read_seconds(), (
+        f"P95 latency {stats['p95']*1000:.0f}ms exceeds {_p95_read_seconds()*1000:.0f}ms threshold"
+    )
 
 
 @pytest.mark.skip(reason="RunService may not have /v1/runs endpoint yet")

@@ -156,6 +156,15 @@ class TestAutoReflectionExecution:
 
         telemetry = MagicMock()
         loop = _build_loop_with_flag(auto_reflection_enabled=True, telemetry=telemetry)
+        from amprealize.execution_observability import ExecutionObservabilityContext
+
+        loop._current_observability_context = ExecutionObservabilityContext(
+            run_id="run-tel",
+            cycle_id="cycle-1",
+            work_item_id="GUIDEAI-1097",
+            project_id="proj-1",
+            surface="board",
+        )
 
         with patch("amprealize.reflection_service.ReflectionService", return_value=mock_reflection_svc), \
              patch.object(loop, "_persist_reflection_candidates"):
@@ -167,6 +176,9 @@ class TestAutoReflectionExecution:
         assert call_kwargs["event_type"] == "reflection.candidate_extracted"
         assert call_kwargs["payload"]["candidate_id"] == "behavior_parse_user_input"
         assert call_kwargs["payload"]["confidence"] == 0.82
+        assert call_kwargs["payload"]["source_trace_ids"] == ["run-tel"]
+        assert call_kwargs["payload"]["execution_observability"]["work_item_id"] == "GUIDEAI-1097"
+        assert call_kwargs["run_id"] == "run-tel"
 
     def test_no_candidates_no_telemetry(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When reflection produces no candidates, telemetry is not emitted."""
@@ -183,6 +195,60 @@ class TestAutoReflectionExecution:
             loop._run_post_run_reflection("run-empty", _make_phase_outputs())
 
         telemetry.emit_event.assert_not_called()
+
+    def test_persistence_includes_candidate_provenance(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Persisted candidates keep trace-analysis and execution provenance."""
+        from amprealize.execution_observability import ExecutionObservabilityContext
+        from amprealize.reflection_contracts import (
+            ReflectionCandidate,
+            ReflectionQualityScores,
+            ReflectResponse,
+        )
+
+        mock_candidate = ReflectionCandidate(
+            slug="behavior_parse_user_input",
+            display_name="Parse User Input",
+            instruction="Parse and validate user input before persistence.",
+            summary="Input parsing pattern",
+            supporting_steps=["Parse user input", "Validate schema"],
+            examples=[],
+            quality_scores=ReflectionQualityScores(
+                clarity=0.85, generality=0.7, reusability=0.8, correctness=0.9,
+            ),
+            confidence=0.82,
+            tags=["parse", "input", "validation"],
+        )
+        response = ReflectResponse(
+            run_id="run-persist",
+            trace_step_count=5,
+            candidates=[mock_candidate],
+            metadata={
+                "pattern_id": "pat-123",
+                "extraction_job_id": "job-456",
+                "source_trace_ids": ["trace-789"],
+            },
+        )
+        pg_reflection = MagicMock()
+        loop = _build_loop_with_flag(auto_reflection_enabled=True)
+        loop._current_observability_context = ExecutionObservabilityContext(
+            run_id="run-persist",
+            cycle_id="cycle-1",
+            work_item_id="GUIDEAI-1097",
+            project_id="proj-1",
+            surface="board",
+        )
+
+        monkeypatch.setenv("AMPREALIZE_REFLECTION_PG_DSN", "postgresql://user:pass@localhost:5432/reflection")
+        with patch("amprealize.reflection_service_postgres.PostgresReflectionService", return_value=pg_reflection):
+            loop._persist_reflection_candidates("run-persist", response)
+
+        pg_reflection.create_candidate.assert_called_once()
+        call_kwargs = pg_reflection.create_candidate.call_args.kwargs
+        assert call_kwargs["pattern_id"] == "pat-123"
+        assert call_kwargs["metadata"]["source_run_id"] == "run-persist"
+        assert call_kwargs["metadata"]["source_trace_ids"] == ["trace-789"]
+        assert call_kwargs["metadata"]["extraction_job_id"] == "job-456"
+        assert call_kwargs["metadata"]["execution_observability"]["work_item_id"] == "GUIDEAI-1097"
 
     def test_empty_phase_outputs_skips_reflection(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When no phase has summary/plan content, reflection is skipped."""

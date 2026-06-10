@@ -123,11 +123,12 @@ class TestValidateTitle:
     @pytest.mark.unit
     def test_constants_exist(self) -> None:
         assert GWS_VERSION == "1.0"
-        assert len(GWS_TITLE_PATTERNS) == 4
+        assert len(GWS_TITLE_PATTERNS) == 5
         assert "goal" in GWS_TITLE_PATTERNS
         assert "feature" in GWS_TITLE_PATTERNS
         assert "task" in GWS_TITLE_PATTERNS
         assert "bug" in GWS_TITLE_PATTERNS
+        assert "research" in GWS_TITLE_PATTERNS
         assert len(GWS_COMPACT_SUMMARY) > 50
         assert len(GWS_CONVENTION_TEXT) > 100
 

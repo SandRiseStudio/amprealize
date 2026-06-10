@@ -16,9 +16,12 @@ pytestmark = pytest.mark.unit
 from amprealize.session_audit import (
     EscalationDetector,
     EscalationSignal,
+    GovernedChatAuditEventType,
+    GovernedChatAuditLogger,
     SessionAuditLogger,
     _sanitize_value,
 )
+from amprealize.execution_observability import ExecutionObservabilityContext
 from amprealize.telemetry import InMemoryTelemetrySink, TelemetryClient
 from amprealize.work_item_execution_contracts import (
     SESSION_MODE_TOOL_PERMISSIONS,
@@ -57,6 +60,23 @@ def _make_telemetry() -> tuple:
     sink = InMemoryTelemetrySink()
     client = TelemetryClient(sink=sink)
     return client, sink
+
+
+def _make_observability_context() -> ExecutionObservabilityContext:
+    return ExecutionObservabilityContext(
+        run_id="run-1",
+        cycle_id="cycle-1",
+        work_item_id="wi-1",
+        project_id="proj-1",
+        org_id="org-1",
+        agent_id="agent-1",
+        model_id="claude-sonnet-4-5",
+        surface="chat",
+        conversation_id="conv-1",
+        message_id="msg-1",
+        request_id="req-1",
+        execution_mode="session",
+    )
 
 
 # ===========================================================================
@@ -144,6 +164,31 @@ class TestSessionAuditLogger:
         payload = sink.events[0].payload
         assert payload["success"] is False
         assert payload["error"] == "Permission denied"
+        assert payload["decision"] == "denied"
+        assert payload["error_class"] == "ToolPermissionDenied"
+
+    def test_log_tool_call_includes_execution_observability_and_sanitized_output(self):
+        client, sink = _make_telemetry()
+        logger = SessionAuditLogger(
+            run_id="run-1",
+            telemetry=client,
+            observability_context=_make_observability_context(),
+        )
+
+        call = _make_tool_call("run_in_terminal", {
+            "command": "echo token=abc123456789",  # gitleaks:allow
+            "password": "secret-value",
+        })
+        result = _make_result(success=True, output={"text": "api_key=abc123456789"})  # gitleaks:allow
+
+        logger.log_tool_call(call, result, elapsed_ms=12)
+
+        payload = sink.events[0].payload
+        assert payload["execution_observability"]["cycle_id"] == "cycle-1"
+        assert payload["execution_observability"]["work_item_id"] == "wi-1"
+        assert payload["args"]["password"] == "***REDACTED***"
+        assert "abc123456789" not in payload["output_preview"]
+        assert payload["target_resources"] == [{"type": "mcp_tool", "id": "run_in_terminal"}]
 
     def test_log_session_start(self):
         client, sink = _make_telemetry()
@@ -231,6 +276,87 @@ class TestSessionAuditLogger:
         call = _make_tool_call("read_file")
         logger.log_tool_call(call, _make_result(), elapsed_ms=1)
         assert len(sink.events) == 1  # Telemetry still works
+
+    def test_log_tool_call_writes_governed_chat_record(self):
+        client, _ = _make_telemetry()
+        governed = GovernedChatAuditLogger()
+        logger = SessionAuditLogger(
+            run_id="run-1",
+            telemetry=client,
+            governed_chat_audit=governed,
+            user_id="user-1",
+            observability_context=_make_observability_context(),
+        )
+
+        call = _make_tool_call("delete_file", {"path": "/tmp/secret.txt", "api_key": "secret-value"})
+        result = _make_result(success=False, error="Tool denied by policy")
+        logger.log_tool_call(call, result, elapsed_ms=4)
+
+        records = governed.denied_or_review_required()
+        assert len(records) == 1
+        assert records[0].event_type == "tool_call"
+        assert records[0].decision == "denied"
+        assert records[0].run_id == "run-1"
+        assert records[0].work_item_id == "wi-1"
+        assert records[0].conversation_id == "conv-1"
+        assert records[0].execution_observability["cycle_id"] == "cycle-1"
+        assert records[0].metadata["args"]["api_key"] == "***REDACTED***"
+        assert records[0].metadata["error_class"] == "ToolPermissionDenied"
+
+
+class TestGovernedChatAuditLogger:
+    def test_log_appends_record_and_emits_sanitized_telemetry(self):
+        client, sink = _make_telemetry()
+        logger = GovernedChatAuditLogger(telemetry=client)
+
+        record = logger.log(
+            event_type=GovernedChatAuditEventType.POLICY_DECISION,
+            user_id="user-1",
+            chat_scope="work_item_thread",
+            target_resources=[{"type": "work_item", "id": "wi-1"}],
+            action="execute",
+            decision="review_required",
+            policy_ids=["CHAT_PERMISSION_MATRIX"],
+            run_id="run-1",
+            work_item_id="wi-1",
+            conversation_id="conv-1",
+            request_id="req-1",
+            metadata={"prompt": "token=super-secret-value"},
+        )
+
+        assert logger.records == [record]
+        assert len(sink.events) == 1
+        payload = sink.events[0].payload
+        assert payload["decision"] == "review_required"
+        assert "super-secret-value" not in json.dumps(payload)
+        assert "REDACTED" in json.dumps(payload)
+
+    def test_denied_and_review_required_records_are_queryable(self):
+        logger = GovernedChatAuditLogger()
+        logger.log(
+            event_type=GovernedChatAuditEventType.POLICY_DECISION,
+            user_id="user-1",
+            action="read",
+            decision="allow",
+        )
+        logger.log(
+            event_type=GovernedChatAuditEventType.POLICY_DECISION,
+            user_id="user-1",
+            action="execute",
+            decision="review_required",
+            work_item_id="wi-1",
+        )
+        logger.log(
+            event_type=GovernedChatAuditEventType.DENIAL,
+            user_id="user-2",
+            action="delete",
+            decision="denied",
+            work_item_id="wi-2",
+        )
+
+        records = logger.denied_or_review_required()
+        assert [record.decision for record in records] == ["review_required", "denied"]
+        assert logger.query(work_item_id="wi-1")[0].action == "execute"
 
 
 # ===========================================================================

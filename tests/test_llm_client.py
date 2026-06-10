@@ -35,6 +35,7 @@ from amprealize.llm.providers import get_provider, PROVIDER_REGISTRY, _register_
 from amprealize.llm.providers.test import TestProvider
 from amprealize.llm.client import LLMClient
 from amprealize.llm.retry import RetryMiddleware
+from amprealize.telemetry import InMemoryTelemetrySink, TelemetryClient
 
 
 # Ensure provider registry is populated for all tests
@@ -53,6 +54,7 @@ class TestProviderType:
         assert ProviderType.ANTHROPIC.value == "anthropic"
         assert ProviderType.OPENAI.value == "openai"
         assert ProviderType.OPENROUTER.value == "openrouter"
+        assert ProviderType.NVIDIA.value == "nvidia"
         assert ProviderType.TEST.value == "test"
 
     def test_str_enum(self):
@@ -89,6 +91,16 @@ class TestModelCatalog:
         assert m.input_price_per_m == 2.5
         assert m.output_price_per_m == 10.0
         assert m.context_limit == 128_000
+
+    def test_nvidia_defaults_are_open_free_models(self):
+        m = get_model("nvidia-deepseek-v4-flash")
+        assert m is not None
+        assert m.provider == ProviderType.NVIDIA
+        assert m.api_name == "deepseek-ai/deepseek-v4-flash"
+        assert m.provider_base_url == "https://integrate.api.nvidia.com/v1"
+        assert m.is_open_model is True
+        assert m.free_endpoint is True
+        assert m.supports_reasoning_delta is True
 
 
 class TestLLMConfig:
@@ -145,6 +157,20 @@ class TestLLMConfig:
         cfg = LLMConfig.from_env(ProviderType.TEST)
         assert cfg.token_budget_enabled is True
         assert cfg.token_budget_per_request == 25000
+
+    @patch.dict(os.environ, {
+        "AMPREALIZE_LLM_PROVIDER": "nvidia",
+        "NVIDIA_API_KEY": "nvapi-test",
+    }, clear=False)
+    def test_from_env_nvidia(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AMPREALIZE_LLM_MODEL", None)
+            os.environ.pop("AMPREALIZE_LLM_API_BASE", None)
+            cfg = LLMConfig.from_env()
+        assert cfg.provider == ProviderType.NVIDIA
+        assert cfg.api_key == "nvapi-test"
+        assert cfg.api_base == "https://integrate.api.nvidia.com/v1"
+        assert cfg.model == "deepseek-ai/deepseek-v4-flash"
 
 
 class TestLLMResponse:
@@ -206,6 +232,7 @@ class TestProviderRegistry:
         assert ProviderType.OPENAI in PROVIDER_REGISTRY
         assert ProviderType.TEST in PROVIDER_REGISTRY
         assert ProviderType.OPENROUTER in PROVIDER_REGISTRY
+        assert ProviderType.NVIDIA in PROVIDER_REGISTRY
         assert ProviderType.OLLAMA in PROVIDER_REGISTRY
 
     def test_get_provider_test(self):
@@ -328,6 +355,32 @@ class TestLLMClient:
                 )
                 assert resp.content == "mocked"
 
+    def test_model_override_sets_nvidia_base_url_and_key(self):
+        captured = {}
+
+        def fake_call(self, messages, **kwargs):
+            captured["config"] = self.config
+            return LLMResponse(
+                content="mocked",
+                model="deepseek-ai/deepseek-v4-flash",
+                provider=ProviderType.NVIDIA,
+                input_tokens=10,
+                output_tokens=5,
+            )
+
+        with patch("amprealize.llm.providers.openai.OpenAIProvider.call", new=fake_call):
+            with patch.dict(os.environ, {"NVIDIA_API_KEY": "nvapi-test"}, clear=False):
+                client = LLMClient()
+                resp = client.call(
+                    [{"role": "user", "content": "hi"}],
+                    model="nvidia-deepseek-v4-flash",
+                )
+
+        assert resp.content == "mocked"
+        assert captured["config"].provider == ProviderType.NVIDIA
+        assert captured["config"].api_key == "nvapi-test"
+        assert captured["config"].api_base == "https://integrate.api.nvidia.com/v1"
+
     def test_tool_registry(self):
         schema = {
             "name": "search",
@@ -353,6 +406,114 @@ class TestLLMClient:
         )
         assert resp.content
         assert len(collected) > 0
+
+    def test_call_emits_generation_telemetry(self):
+        sink = InMemoryTelemetrySink()
+        client = LLMClient(self.cfg, telemetry=TelemetryClient(sink=sink))
+        client.register_tool(
+            "search",
+            {
+                "name": "search",
+                "description": "Search",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+        )
+
+        client.call(
+            [{"role": "user", "content": "hi"}],
+            tools=["search"],
+            project_id="proj-1",
+            execution_observability={"run_id": "run-1", "work_item_id": "GUIDEAI-1103"},
+        )
+
+        event = sink.events[-1]
+        assert event.event_type == "llm.generation.completed"
+        assert event.run_id == "run-1"
+        assert event.payload["operation"] == "call"
+        assert event.payload["model_id"] == "test-model"
+        assert event.payload["provider"] == "test"
+        assert event.payload["input_tokens"] > 0
+        assert event.payload["output_tokens"] > 0
+        assert event.payload["total_tokens"] == (
+            event.payload["input_tokens"] + event.payload["output_tokens"]
+        )
+        assert event.payload["tool_schema_count"] == 1
+        assert event.payload["credential_scope"] == "project"
+        assert event.payload["execution_observability"]["work_item_id"] == "GUIDEAI-1103"
+        assert event.session_id is None
+
+    def test_call_emits_generation_telemetry_session_from_conversation_id(self):
+        sink = InMemoryTelemetrySink()
+        client = LLMClient(self.cfg, telemetry=TelemetryClient(sink=sink))
+
+        client.call(
+            [{"role": "user", "content": "hi"}],
+            project_id="proj-1",
+            execution_observability={
+                "run_id": "run-42",
+                "conversation_id": "conv-telemetry-bridge",
+            },
+        )
+
+        event = sink.events[-1]
+        assert event.event_type == "llm.generation.completed"
+        assert event.session_id == "conv-telemetry-bridge"
+
+    def test_stream_sync_emits_first_token_latency(self):
+        sink = InMemoryTelemetrySink()
+        client = LLMClient(self.cfg, telemetry=TelemetryClient(sink=sink))
+
+        client.stream_sync([{"role": "user", "content": "streaming"}])
+
+        event = sink.events[-1]
+        assert event.event_type == "llm.generation.completed"
+        assert event.payload["operation"] == "stream_sync"
+        assert event.payload["is_streaming"] is True
+        assert event.payload["first_token_latency_ms"] is not None
+
+    @pytest.mark.asyncio
+    async def test_astream_emits_generation_telemetry(self):
+        sink = InMemoryTelemetrySink()
+        client = LLMClient(self.cfg, telemetry=TelemetryClient(sink=sink))
+
+        chunks = [
+            chunk
+            async for chunk in client.astream([{"role": "user", "content": "streaming"}])
+        ]
+
+        assert chunks[-1].response is not None
+        event = sink.events[-1]
+        assert event.event_type == "llm.generation.completed"
+        assert event.payload["operation"] == "astream"
+        assert event.payload["is_streaming"] is True
+        assert event.payload["first_token_latency_ms"] is not None
+
+    def test_call_emits_sanitized_failure_telemetry(self):
+        sink = InMemoryTelemetrySink()
+        client = LLMClient(self.cfg, telemetry=TelemetryClient(sink=sink))
+
+        with patch.object(
+            TestProvider,
+            "call",
+            side_effect=AuthenticationError(
+                "provider rejected api_key=abc123456789",  # gitleaks:allow
+                provider=ProviderType.TEST,
+                status_code=401,
+            ),
+        ):
+            with pytest.raises(AuthenticationError):
+                client.call(
+                    [{"role": "user", "content": "hi"}],
+                    execution_observability={"run_id": "run-failed"},
+                )
+
+        event = sink.events[-1]
+        assert event.event_type == "llm.generation.failed"
+        assert event.run_id == "run-failed"
+        assert event.payload["operation"] == "call"
+        assert event.payload["error_class"] == "AuthenticationError"
+        assert event.payload["provider_status_code"] == 401
+        assert "abc123456789" not in event.payload["error"]
 
     def test_credential_resolver(self):
         """Custom credential resolver is used."""

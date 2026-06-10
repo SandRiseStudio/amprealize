@@ -219,6 +219,39 @@ class TestMCPDeviceLogin:
         assert "verification_uri" in result
 
     @pytest.mark.asyncio
+    async def test_device_poll_finds_memory_session_when_postgres_miss_after_init_fallback(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        device_flow_manager: DeviceFlowManager,
+        file_token_store: FileTokenStore,
+        telemetry_sink: InMemoryTelemetrySink,
+    ) -> None:
+        """device_init may fall back to in-memory while postgres_store is set; poll must follow."""
+        from amprealize.telemetry import TelemetryClient
+
+        failing_pg = Mock()
+        failing_pg.create_session.side_effect = RuntimeError("postgres unavailable")
+        failing_pg.get_by_device_code.return_value = None
+
+        telemetry = TelemetryClient(sink=telemetry_sink)
+        service = MCPDeviceFlowService(
+            manager=device_flow_manager,
+            token_store=file_token_store,
+            telemetry=telemetry,
+            postgres_store=failing_pg,
+        )
+        monkeypatch.setenv("MCP_AUTO_APPROVE_DEVICE_FLOW", "true")
+
+        init = await service.device_init(client_id="test-client", scopes=["behaviors.read"])
+        poll = await service.device_poll(
+            device_code=init["device_code"],
+            client_id="test-client",
+            store_tokens=False,
+        )
+        assert poll.get("error") != "invalid_device_code"
+        assert poll.get("status") == "authorized"
+
+    @pytest.mark.asyncio
     async def test_device_login_successful_authorization(
         self,
         mcp_service: MCPDeviceFlowService,

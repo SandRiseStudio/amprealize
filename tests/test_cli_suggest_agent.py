@@ -7,7 +7,7 @@ import sys
 import pytest
 
 
-@pytest.mark.skip(reason="suggest-agent CLI command not yet registered in argparse")
+@pytest.mark.unit
 class TestCLISuggestAgent:
     """Test the suggest-agent CLI command."""
 

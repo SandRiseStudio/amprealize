@@ -950,6 +950,8 @@ class TestAPIModuleGating:
         enabled_routers = get_enabled_api_routers(goals_only)
         all_routers = get_all_module_api_routers()
         disabled = all_routers - enabled_routers
+        assert "conversations" in enabled_routers
+        assert "conversations" not in disabled
         assert len(disabled) > 0
 
 
@@ -1353,8 +1355,9 @@ class TestRequiresEditionDecorator:
         def my_func() -> str:
             return "ok"
 
-        with pytest.raises(EditionGateError) as exc_info:
-            my_func()
+        with patch("amprealize.edition.detect_edition", return_value=Edition.OSS):
+            with pytest.raises(EditionGateError) as exc_info:
+                my_func()
         assert exc_info.value.feature == "collab"
 
     def test_preserves_function_name(self) -> None:
@@ -1373,8 +1376,11 @@ class TestRequiresCapabilityDecorator:
         def collab_fn() -> str:
             return "ok"
 
-        with pytest.raises(EditionGateError):
-            collab_fn()
+        with patch("amprealize.edition.detect_edition", return_value=Edition.OSS), patch(
+            "amprealize.edition.get_caps", return_value=get_caps(Edition.OSS)
+        ):
+            with pytest.raises(EditionGateError):
+                collab_fn()
 
     def test_starter_has_collaboration(self) -> None:
         @requires_capability("collaboration")
@@ -1392,8 +1398,9 @@ class TestRequiresCapabilityDecorator:
 
         with patch("amprealize.edition.detect_edition", return_value=Edition.ENTERPRISE_STARTER), \
              patch("amprealize.edition.get_caps", return_value=get_caps(Edition.ENTERPRISE_STARTER)):
-            with pytest.raises(EditionGateError):
+            with pytest.raises(EditionGateError) as exc_info:
                 si_fn()
+            assert exc_info.value.required == Edition.ENTERPRISE_PREMIUM
 
     def test_premium_has_self_improving(self) -> None:
         @requires_capability("self_improving")

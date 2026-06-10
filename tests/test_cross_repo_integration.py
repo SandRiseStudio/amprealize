@@ -141,7 +141,7 @@ class TestModuleEditionGating:
         """MODULE_REGISTRY contains all 5 expected modules."""
         from amprealize.module_registry import MODULE_REGISTRY
 
-        expected = {"goals", "agents", "behaviors", "self_improving", "collaboration"}
+        expected = {"goals", "agents", "behaviors", "self_improving", "collaboration", "whiteboard"}
         assert set(MODULE_REGISTRY.keys()) == expected
 
     def test_goals_always_enabled(self):

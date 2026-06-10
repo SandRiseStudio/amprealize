@@ -18,7 +18,6 @@ from amprealize.boards.contracts import (
 class TestMCPSuggestAgent:
     """Test MCP board.suggestAgent tool wiring."""
 
-    @pytest.mark.skip(reason="MCPTaskAssignmentAdapter.suggest_agent not yet implemented — suggest_agent lives on RestAssignmentAdapter")
     def test_mcp_adapter_has_suggest_agent(self):
         """Verify MCPTaskAssignmentAdapter has suggest_agent method."""
         service = AssignmentService()
@@ -26,7 +25,6 @@ class TestMCPSuggestAgent:
         assert hasattr(adapter, "suggest_agent")
         assert callable(adapter.suggest_agent)
 
-    @pytest.mark.skip(reason="MCPTaskAssignmentAdapter.suggest_agent not yet implemented")
     def test_mcp_adapter_accepts_payload(self):
         """Test MCPTaskAssignmentAdapter.suggest_agent accepts dict payload."""
         service = AssignmentService()
@@ -118,7 +116,6 @@ class TestMCPSuggestAgent:
 class TestCLIMCPParity:
     """Test CLI and MCP have consistent behavior."""
 
-    @pytest.mark.skip(reason="CLITaskAssignmentAdapter.surface not yet implemented")
     def test_cli_and_mcp_use_same_request_model(self):
         """Verify CLI and MCP adapters use the same SuggestAgentRequest."""
         from amprealize.adapters import CLITaskAssignmentAdapter, MCPTaskAssignmentAdapter

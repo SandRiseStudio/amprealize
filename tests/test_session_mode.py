@@ -200,7 +200,7 @@ class TestSessionModeExecutor:
         )
 
         executor = SessionModeExecutor()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             executor.execute(
                 resolved, loop,
                 work_item=MagicMock(),
@@ -222,14 +222,14 @@ class TestSessionModeExecutor:
         executor = SessionModeExecutor(inner_executor=inner)
 
         resolved = SimpleNamespace(run_id="run-1")
-        asyncio.get_event_loop().run_until_complete(executor.setup(resolved))
+        asyncio.run(executor.setup(resolved))
         inner.setup.assert_called_once_with(resolved)
 
     def test_setup_noop_without_inner(self):
         """setup() should be a no-op when no inner executor."""
         executor = SessionModeExecutor()
         resolved = SimpleNamespace(run_id="run-1")
-        asyncio.get_event_loop().run_until_complete(executor.setup(resolved))
+        asyncio.run(executor.setup(resolved))
 
     def test_cleanup_delegates_to_inner(self):
         """cleanup() should delegate to inner executor if present."""
@@ -238,14 +238,14 @@ class TestSessionModeExecutor:
         executor = SessionModeExecutor(inner_executor=inner)
 
         resolved = SimpleNamespace(run_id="run-1")
-        asyncio.get_event_loop().run_until_complete(executor.cleanup(resolved))
+        asyncio.run(executor.cleanup(resolved))
         inner.cleanup.assert_called_once_with(resolved)
 
     def test_cleanup_noop_without_inner(self):
         """cleanup() should be a no-op when no inner executor."""
         executor = SessionModeExecutor()
         resolved = SimpleNamespace(run_id="run-1")
-        asyncio.get_event_loop().run_until_complete(executor.cleanup(resolved))
+        asyncio.run(executor.cleanup(resolved))
 
 
 # =============================================================================
