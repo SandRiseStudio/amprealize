@@ -7,7 +7,7 @@ contracts described in `docs/contracts/MCP_SERVER_DESIGN.md` and planned RunServ
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from .action_contracts import Actor
@@ -16,7 +16,7 @@ from .action_contracts import Actor
 def utc_now_iso() -> str:
     """Return the current timestamp in RFC3339 format."""
 
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 class RunStatus:

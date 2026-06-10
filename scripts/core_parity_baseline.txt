@@ -10,15 +10,11 @@ DIFFER   action_service.py
 DIFFER   action_service_postgres.py
 DIFFER   adapters.py
 DIFFER   adherence_tracker.py
-DIFFER   advanced_retrieval_contracts.py
 DIFFER   advanced_retrieval_service.py
 DIFFER   agent_execution_loop.py
 DIFFER   agent_orchestrator_service_postgres.py
-DIFFER   agent_performance_contracts.py
 DIFFER   agent_registry_service.py
-DIFFER   agent_review_contracts.py
 MISSING  api_http_telemetry.py
-DIFFER   api_rate_limiting_contracts.py
 DIFFER   auth/consent_service.py
 DIFFER   auth/credential_encryption.py
 DIFFER   auth/github_app_service.py
@@ -115,7 +111,6 @@ DIFFER   midnighter/__init__.py
 DIFFER   migration.py
 DIFFER   mode_executors.py
 DIFFER   module_registry.py
-DIFFER   multi_tenant_contracts.py
 DIFFER   notifications/webhook_dispatcher.py
 DIFFER   notify/service.py
 MISSING  observability_export_config.py
@@ -131,10 +126,8 @@ DIFFER   platform_management_actions.py
 MISSING  project_settings_api.py
 DIFFER   projects_api.py
 DIFFER   reflection_service_postgres.py
-DIFFER   research_contracts.py
 DIFFER   research_service.py
 DIFFER   resource_analysis.py
-DIFFER   run_contracts.py
 MISSING  run_reliability.py
 DIFFER   run_service.py
 DIFFER   run_service_postgres.py
