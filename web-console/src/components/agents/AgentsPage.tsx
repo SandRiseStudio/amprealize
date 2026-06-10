@@ -31,6 +31,7 @@ import {
   type RoleAlignment,
 } from '../../api/agentRegistry';
 import { SCOPE_LABEL } from '../../copy/scopeLabels';
+import { AgentRegistryListSkeleton } from '../loading';
 import './AgentsPage.css';
 
 type PanelMode = 'detail' | 'create';
@@ -900,11 +901,7 @@ export function AgentsPage(): React.JSX.Element {
             </div>
             <div className="agents-list">
               {registryLoading ? (
-                <>
-                  <div className="agents-list-card skeleton animate-shimmer" />
-                  <div className="agents-list-card skeleton animate-shimmer" />
-                  <div className="agents-list-card skeleton animate-shimmer" />
-                </>
+                <AgentRegistryListSkeleton count={3} />
               ) : showRegistryError ? (
                 <div className="agents-empty animate-fade-in-up">
                   <h3 className="agents-empty-title">Registry offline</h3>

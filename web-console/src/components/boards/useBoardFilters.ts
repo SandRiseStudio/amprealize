@@ -77,7 +77,7 @@ const PARAM_DUE_BEFORE = 'due_before';
 const PARAM_SORT = 'sort';
 const PARAM_ORDER = 'order';
 
-const VALID_TYPES = new Set<WorkItemType>(['goal', 'feature', 'task', 'bug']);
+const VALID_TYPES = new Set<WorkItemType>(['goal', 'feature', 'task', 'bug', 'research']);
 const VALID_PRIORITIES = new Set<WorkItemPriority>(['critical', 'high', 'medium', 'low']);
 const VALID_SORT_FIELDS = new Set<SortField>([
   'position', 'priority', 'created_at', 'updated_at', 'due_date', 'title', 'points',

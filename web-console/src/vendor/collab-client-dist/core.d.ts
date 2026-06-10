@@ -242,17 +242,46 @@ interface CollabClientEvents {
     error: (code: ErrorCode, message: string) => void;
 }
 type ExecutionState = 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+interface ExecutionTraceSummary {
+    origin?: Record<string, unknown>;
+    execution?: Record<string, unknown>;
+    queue?: Record<string, unknown>;
+    metrics?: Record<string, unknown>;
+    phase_timings?: Record<string, unknown>;
+    last_error?: string | null;
+    knowledge_retrieval?: Record<string, unknown>;
+}
 interface ExecutionStatus {
     hasExecution: boolean;
     runId?: string | null;
     taskCycleId?: string | null;
+    workItemId?: string | null;
+    agentId?: string | null;
+    projectId?: string | null;
+    orgId?: string | null;
     state?: ExecutionState | null;
     phase?: string | null;
     startedAt?: string | null;
+    completedAt?: string | null;
     progressPct?: number | null;
     currentStep?: string | null;
     totalTokens?: number | null;
     totalCostUsd?: number | null;
+    toolCount?: number | null;
+    stepCount?: number | null;
+    error?: string | null;
+    lastError?: string | null;
+    modelId?: string | null;
+    surface?: string | null;
+    sourceType?: string | null;
+    conversationId?: string | null;
+    messageId?: string | null;
+    requestId?: string | null;
+    executionMode?: string | null;
+    queueJobId?: string | null;
+    queueMetadata?: Record<string, unknown> | null;
+    phaseTimings?: Record<string, unknown> | null;
+    traceSummary?: ExecutionTraceSummary | null;
     pendingClarifications?: Array<Record<string, unknown>> | null;
 }
 interface ExecutionListItem {
@@ -265,6 +294,24 @@ interface ExecutionListItem {
     startedAt: string;
     completedAt?: string | null;
     progressPct: number;
+    projectId?: string | null;
+    orgId?: string | null;
+    modelId?: string | null;
+    surface?: string | null;
+    sourceType?: string | null;
+    conversationId?: string | null;
+    messageId?: string | null;
+    requestId?: string | null;
+    executionMode?: string | null;
+    queueJobId?: string | null;
+    queueMetadata?: Record<string, unknown> | null;
+    phaseTimings?: Record<string, unknown> | null;
+    traceSummary?: ExecutionTraceSummary | null;
+    totalTokens?: number | null;
+    totalCostUsd?: number | null;
+    toolCount?: number | null;
+    stepCount?: number | null;
+    lastError?: string | null;
 }
 interface ExecutionListResponse {
     executions: ExecutionListItem[];
@@ -278,13 +325,20 @@ interface ExecutionStep {
     stepType: string;
     startedAt: string;
     completedAt?: string | null;
+    name?: string | null;
+    status?: string | null;
+    progressPct?: number | null;
+    durationMs?: number | null;
     inputTokens?: number | null;
     outputTokens?: number | null;
+    costUsd?: number | null;
     toolCalls?: number | null;
     contentPreview?: string | null;
     contentFull?: string | null;
     toolNames?: string[] | null;
     modelId?: string | null;
+    error?: string | null;
+    metadata?: Record<string, unknown> | null;
 }
 interface ExecutionStepsResponse {
     steps: ExecutionStep[];
@@ -299,6 +353,16 @@ interface ExecutionStatusEventPayload {
     model_id?: string | null;
     cycle_id?: string | null;
     task_cycle_id?: string | null;
+    surface?: string | null;
+    source_type?: string | null;
+    conversation_id?: string | null;
+    message_id?: string | null;
+    request_id?: string | null;
+    execution_mode?: string | null;
+    queue_job_id?: string | null;
+    queue_metadata?: Record<string, unknown> | null;
+    phase_timings?: Record<string, unknown> | null;
+    trace_summary?: ExecutionTraceSummary | null;
     status: string;
     phase?: string | null;
     progress_pct?: number | null;
@@ -344,6 +408,9 @@ interface ExecutionStatusSnapshotPayload {
     cycle_id?: string | null;
     task_cycle_id?: string | null;
     work_item_id?: string | null;
+    org_id?: string | null;
+    project_id?: string | null;
+    agent_id?: string | null;
     status?: string | null;
     phase?: string | null;
     progress_pct?: number | null;
@@ -353,6 +420,16 @@ interface ExecutionStatusSnapshotPayload {
     error?: string | null;
     model_id?: string | null;
     step_count?: number | null;
+    surface?: string | null;
+    source_type?: string | null;
+    conversation_id?: string | null;
+    message_id?: string | null;
+    request_id?: string | null;
+    execution_mode?: string | null;
+    queue_job_id?: string | null;
+    queue_metadata?: Record<string, unknown> | null;
+    phase_timings?: Record<string, unknown> | null;
+    trace_summary?: ExecutionTraceSummary | null;
 }
 interface ExecutionSnapshotEventPayload {
     run_id?: string | null;
@@ -375,8 +452,16 @@ interface ExecutionStreamEvents {
     error: (code: string, message: string) => void;
 }
 declare enum ConversationScope {
+    GlobalUserHome = "global_user_home",
+    /** Additional project-less chats; unlimited per user (mirrors conversation_contracts.py). */
+    GlobalPersonalThread = "global_personal_thread",
+    ProjectSpace = "project_space",
     ProjectRoom = "project_room",
-    AgentDm = "agent_dm"
+    Dm = "dm",
+    AgentDm = "agent_dm",
+    GroupChat = "group_chat",
+    WorkItemThread = "work_item_thread",
+    RunThread = "run_thread"
 }
 declare enum ActorType {
     User = "user",
@@ -404,7 +489,7 @@ declare enum NotificationPreference {
 }
 interface Conversation {
     id: string;
-    project_id: string;
+    project_id: string | null;
     org_id?: string | null;
     scope: ConversationScope | string;
     title?: string | null;
@@ -506,6 +591,14 @@ interface ConversationParticipantEventPayload {
     conversation_id: string;
     participant: ConversationParticipant;
 }
+/** Server `reply.complete` / `complete` payload (agent stream finished; fields vary by version). */
+interface AgentReplyCompletePayload {
+    conversation_id?: string;
+    stream_message_id?: string;
+    user_message_id?: string;
+    phase?: string;
+    [key: string]: unknown;
+}
 interface ConversationStreamEvents {
     connected: (payload: ConversationReadyPayload) => void;
     disconnected: (reason: string) => void;
@@ -518,6 +611,8 @@ interface ConversationStreamEvents {
     'read.receipt': (payload: ConversationReadReceiptPayload) => void;
     'participant.joined': (payload: ConversationParticipantEventPayload) => void;
     'participant.left': (payload: ConversationParticipantEventPayload) => void;
+    /** Agent reply stream finished (`reply.complete` or legacy `complete` on WS). */
+    'agent.reply.complete': (payload: AgentReplyCompletePayload) => void;
     error: (code: string, message: string) => void;
 }
 
@@ -760,6 +855,7 @@ declare class ConversationStreamClient extends TypedEventEmitter<ConversationStr
         message_type?: MessageType | string;
         structured_payload?: Record<string, unknown> | null;
         parent_id?: string | null;
+        metadata?: Record<string, unknown>;
     }): void;
     editMessage(messageId: string, content: string): void;
     deleteMessage(messageId: string): void;
@@ -824,4 +920,4 @@ declare class CollabApiError extends Error {
 }
 declare function createCollabApi(config: CollabApiConfig): CollabApi;
 
-export { ActorType, type AgentSettings, type BrandingSettings, type ClientEditOperation, type ClientMessage, CollabApi, type CollabApiConfig, CollabApiError, CollabClient, type CollabClientConfig, type CollabClientEvents, CollaborationRole, ConnectionState, type Conversation, type ConversationListResponse, type ConversationMessage, type ConversationMessageEventPayload, type ConversationParticipant, type ConversationParticipantEventPayload, type ConversationReaction, type ConversationReactionEventPayload, type ConversationReadReceiptPayload, type ConversationReadyPayload, ConversationScope, ConversationStreamClient, type ConversationStreamConfig, type ConversationStreamEvents, type ConversationTypingPayload, type CreateDocumentRequest, type CreateWorkspaceRequest, type Document, type DocumentId, DocumentType, type EditOperation, EditOperationType, type ErrorCode, type ExecutionListItem, type ExecutionListResponse, type ExecutionReadyEventPayload, type ExecutionSnapshotEventPayload, type ExecutionState, type ExecutionStatus, type ExecutionStatusEventPayload, type ExecutionStatusSnapshotPayload, type ExecutionStep, type ExecutionStepEventPayload, type ExecutionStepSnapshotPayload, type ExecutionStepsResponse, ExecutionStreamClient, type ExecutionStreamConfig, type ExecutionStreamEvents, type ExecutionStreamTarget, type GitHubBranchInfo, type GitHubBranchListResponse, type GitHubRepoValidationRequest, type GitHubRepoValidationResponse, type MessageListResponse, MessageType, NotificationPreference, type OperationId, ParticipantRole, type ProjectSettings, type SearchResult, type SearchResultsResponse, type ServerMessage, type SessionId, type UpdateProjectSettingsRequest, type UserId, type UserPresence, type WorkflowSettings, type Workspace, type WorkspaceId, createCollabApi, createCollabClient, createConversationStreamClient, createExecutionStreamClient };
+export { ActorType, type AgentReplyCompletePayload, type AgentSettings, type BrandingSettings, type ClientEditOperation, type ClientMessage, CollabApi, type CollabApiConfig, CollabApiError, CollabClient, type CollabClientConfig, type CollabClientEvents, CollaborationRole, ConnectionState, type Conversation, type ConversationListResponse, type ConversationMessage, type ConversationMessageEventPayload, type ConversationParticipant, type ConversationParticipantEventPayload, type ConversationReaction, type ConversationReactionEventPayload, type ConversationReadReceiptPayload, type ConversationReadyPayload, ConversationScope, ConversationStreamClient, type ConversationStreamConfig, type ConversationStreamEvents, type ConversationTypingPayload, type CreateDocumentRequest, type CreateWorkspaceRequest, type Document, type DocumentId, DocumentType, type EditOperation, EditOperationType, type ErrorCode, type ExecutionListItem, type ExecutionListResponse, type ExecutionReadyEventPayload, type ExecutionSnapshotEventPayload, type ExecutionState, type ExecutionStatus, type ExecutionStatusEventPayload, type ExecutionStatusSnapshotPayload, type ExecutionStep, type ExecutionStepEventPayload, type ExecutionStepSnapshotPayload, type ExecutionStepsResponse, ExecutionStreamClient, type ExecutionStreamConfig, type ExecutionStreamEvents, type ExecutionStreamTarget, type ExecutionTraceSummary, type GitHubBranchInfo, type GitHubBranchListResponse, type GitHubRepoValidationRequest, type GitHubRepoValidationResponse, type MessageListResponse, MessageType, NotificationPreference, type OperationId, ParticipantRole, type ProjectSettings, type SearchResult, type SearchResultsResponse, type ServerMessage, type SessionId, type UpdateProjectSettingsRequest, type UserId, type UserPresence, type WorkflowSettings, type Workspace, type WorkspaceId, createCollabApi, createCollabClient, createConversationStreamClient, createExecutionStreamClient };

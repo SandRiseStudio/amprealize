@@ -40,7 +40,7 @@ describe('SidebarNav wiki launcher', () => {
       ]),
     );
 
-    vi.mocked(useProjects).mockReturnValue({ data: [] } as never);
+    vi.mocked(useProjects).mockReturnValue({ data: [], isPending: false } as never);
     vi.mocked(useBoards).mockReturnValue({ data: [] } as never);
     vi.mocked(useApiCapabilities).mockReturnValue({ data: { routes: { orgs: false } } } as never);
     vi.mocked(useModules).mockReturnValue({
@@ -109,5 +109,17 @@ describe('SidebarNav wiki launcher', () => {
     expect(studioSection).not.toBeNull();
     expect(screen.getByRole('treeitem', { name: /whiteboard/i })).toBeInTheDocument();
     expect(studioSection).toContainElement(screen.getByRole('treeitem', { name: /whiteboard/i }));
+  });
+
+  it('shows projects skeleton while projects query is pending', () => {
+    vi.mocked(useProjects).mockReturnValue({ data: undefined, isPending: true } as never);
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <SidebarNav onNavigate={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('status', { name: /loading projects/i })).toBeInTheDocument();
   });
 });

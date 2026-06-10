@@ -29,8 +29,15 @@ var DocumentType = /* @__PURE__ */ ((DocumentType2) => {
   return DocumentType2;
 })(DocumentType || {});
 var ConversationScope = /* @__PURE__ */ ((ConversationScope2) => {
+  ConversationScope2["GlobalUserHome"] = "global_user_home";
+  ConversationScope2["GlobalPersonalThread"] = "global_personal_thread";
+  ConversationScope2["ProjectSpace"] = "project_space";
   ConversationScope2["ProjectRoom"] = "project_room";
+  ConversationScope2["Dm"] = "dm";
   ConversationScope2["AgentDm"] = "agent_dm";
+  ConversationScope2["GroupChat"] = "group_chat";
+  ConversationScope2["WorkItemThread"] = "work_item_thread";
+  ConversationScope2["RunThread"] = "run_thread";
   return ConversationScope2;
 })(ConversationScope || {});
 var ActorType = /* @__PURE__ */ ((ActorType2) => {
@@ -510,6 +517,9 @@ var ExecutionStreamClient = class extends TypedEventEmitter2 {
       this.log("WebSocket error");
     };
     this.ws.onclose = (event) => {
+      if (event.target !== this.ws) {
+        return;
+      }
       this.log("WebSocket closed", event.code, event.reason);
       this.clearTimers();
       this.ws = null;
@@ -623,7 +633,9 @@ var ExecutionStreamClient = class extends TypedEventEmitter2 {
   send(message) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
-      this.log("Sent:", message.type);
+      if (message.type !== "ping") {
+        this.log("Sent:", message.type);
+      }
     }
   }
   clearTimers() {
@@ -727,7 +739,8 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
   }
   connect(conversationId) {
     if (!conversationId) {
-      throw new Error("ConversationStreamClient.connect requires a conversationId");
+      this.log("Skipping connect without conversationId");
+      return;
     }
     if (this.conversationId === conversationId && this.connectionState === "connected" /* Connected */) {
       this.log("Already connected to conversation", conversationId);
@@ -738,7 +751,7 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
     this.shouldReconnect = true;
     this.connectionState = "connecting" /* Connecting */;
     this.reconnectAttempts = 0;
-    void this.openConnection();
+    void this.openConnection(conversationId);
   }
   disconnect(reason = "manual_disconnect") {
     this.shouldReconnect = false;
@@ -760,7 +773,8 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       content: options.content,
       message_type: options.message_type,
       structured_payload: options.structured_payload,
-      parent_id: options.parent_id
+      parent_id: options.parent_id,
+      metadata: options.metadata
     });
   }
   editMessage(messageId, content) {
@@ -787,10 +801,18 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
   // ---------------------------------------------------------------------------
   // Connection Flow
   // ---------------------------------------------------------------------------
-  async openConnection() {
-    if (!this.conversationId) return;
+  async openConnection(requestedConversationId) {
+    const targetConversationId = requestedConversationId ?? this.conversationId;
+    if (!targetConversationId) {
+      this.log("Skipping openConnection without conversationId");
+      return;
+    }
     const token = await this.resolveAuthToken();
-    const url = this.buildWebSocketUrl(this.conversationId, token ?? void 0);
+    if (this.conversationId !== targetConversationId || !this.shouldReconnect) {
+      this.log("Aborting stale openConnection", targetConversationId, this.conversationId);
+      return;
+    }
+    const url = this.buildWebSocketUrl(targetConversationId, token ?? void 0);
     this.log("Connecting to", url);
     this.ws = new WebSocket(url);
     this.ws.onopen = () => {
@@ -806,6 +828,9 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       this.log("WebSocket error");
     };
     this.ws.onclose = (event) => {
+      if (event.target !== this.ws) {
+        return;
+      }
       this.log("WebSocket closed", event.code, event.reason);
       this.clearTimers();
       this.ws = null;
@@ -826,6 +851,9 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       this.log("Invalid JSON message", rawMessage);
       return;
     }
+    if (this.config.debug && message.type && message.type !== "pong" && message.type !== "heartbeat") {
+      this.log("Recv:", message.type);
+    }
     switch (message.type) {
       case "conversation.ready":
         this.emit("connected", message.payload);
@@ -845,7 +873,7 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       case "reaction.removed":
         this.emit("reaction.removed", message.payload);
         break;
-      case "typing":
+      case "typing.indicator":
         this.emit("typing.indicator", message.payload);
         break;
       case "read.receipt":
@@ -858,6 +886,23 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
         this.emit("participant.left", message.payload);
         break;
       case "pong":
+        break;
+      case "heartbeat":
+        break;
+      case "token":
+      case "reply.started":
+      case "reply.step":
+      case "reply.token":
+      case "structured_start":
+      case "structured_update":
+      case "reply.error":
+        break;
+      case "complete":
+      case "reply.complete":
+        this.emit("agent.reply.complete", message.payload ?? {});
+        break;
+      case "pin.updated":
+      case "system.announcement":
         break;
       case "error":
         this.emit("error", message.code ?? "UNKNOWN", message.message ?? "Unknown error");
@@ -922,7 +967,17 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
   send(command) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(command));
-      this.log("Sent:", command.type);
+      if (this.config.debug) {
+        if (command.type === "message.send") {
+          const meta = command.metadata;
+          this.log("Sent:", command.type, {
+            has_llm_model_id: Boolean(meta && typeof meta.llm_model_id === "string" && meta.llm_model_id),
+            content_len: typeof command.content === "string" ? command.content.length : 0
+          });
+        } else if (command.type !== "ping") {
+          this.log("Sent:", command.type);
+        }
+      }
     }
   }
   clearTimers() {
@@ -2154,12 +2209,9 @@ var CLARIFICATION_STYLE_ID = "ga-clarification-ui-styles";
 var CLARIFICATION_STYLES = `
 .ga-clar-panel {
   border-radius: var(--radius-xl, 12px);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  background: linear-gradient(
-    135deg,
-    rgba(255, 251, 235, 0.95) 0%,
-    rgba(254, 243, 199, 0.85) 100%
-  );
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: rgba(255, 251, 235, 0.92);
+  border-top-color: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(12px);
   padding: var(--space-4, 16px);
   display: flex;
@@ -2296,7 +2348,7 @@ var CLARIFICATION_STYLES = `
   min-height: 80px;
   transition:
     border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    outline-color 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .ga-clar-input::placeholder {
@@ -2308,9 +2360,9 @@ var CLARIFICATION_STYLES = `
 }
 
 .ga-clar-input:focus {
-  outline: none;
+  outline: 2px solid rgba(59, 130, 246, 0.28);
+  outline-offset: 1px;
   border-color: var(--color-accent, #3b82f6);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
 .ga-clar-actions {

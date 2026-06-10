@@ -43,8 +43,10 @@
   --color-error: #d74b45;
   --color-info: #2f8ab8;
 
+  /* Solid tokens (names kept for compatibility — no CSS gradients) */
   --gradient-brand: rgba(34, 118, 210, 0.96);
   --gradient-brand-soft: rgba(34, 118, 210, 0.12);
+  --gradient-accent-subtle: #0ea5e9;
   --gradient-surface: rgba(255, 255, 255, 0.78);
   --gradient-surface-strong: rgba(255, 255, 255, 0.9);
   --gradient-panel: rgba(220, 239, 247, 0.66);
@@ -70,8 +72,9 @@
   /* ─────────────────────────────────────────────────────────────────────────
      Typography
      ───────────────────────────────────────────────────────────────────────── */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  --font-sans: 'IBM Plex Sans Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Space Grotesk Variable', var(--font-sans);
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
 
   --text-xs: 0.75rem;    /* 12px */
   --text-sm: 0.8125rem;  /* 13px */
@@ -170,6 +173,21 @@ body {
   color: var(--color-text-primary);
   background: var(--gradient-page);
   overflow: hidden; /* Prevent body scroll, handle in containers */
+}
+
+/* Typography utilities — use these or var(--font-*) in component CSS only.
+   Do not introduce new font-family stacks outside this file. */
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Display / marketing / shell titles only — keep dense UI on --font-sans */
+.font-display {
+  font-family: var(--font-display);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -328,6 +346,137 @@ body {
 
 .animate-spin {
   animation: spin 1s linear infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Chat micro-interactions (Amprealize chat glow-up)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes msg-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes msg-pop {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.035);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0) scale(0.85);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-6px) scale(1.08);
+    opacity: 1;
+  }
+}
+
+@keyframes reaction-pop {
+  0% {
+    transform: scale(0.65);
+    opacity: 0;
+  }
+  55% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes emoji-picker-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes msg-enter {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes msg-pop {
+    from,
+    to {
+      transform: none;
+    }
+  }
+
+  @keyframes typing-bounce {
+    from,
+    to {
+      transform: none;
+      opacity: 0.75;
+    }
+  }
+
+  @keyframes reaction-pop {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes emoji-picker-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes dropdown-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

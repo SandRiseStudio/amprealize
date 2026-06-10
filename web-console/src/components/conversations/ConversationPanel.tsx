@@ -7,6 +7,7 @@
  */
 
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { useAuthStore } from '../../stores/authStore';
 import { ConversationSidebar } from './ConversationSidebar';
 import { MessageList } from './MessageList';
 import { MessageComposer } from './MessageComposer';
@@ -78,6 +79,8 @@ export const ConversationPanel = memo(function ConversationPanel({
   orgId,
   onRequestClose,
 }: ConversationPanelProps) {
+  const { actor } = useAuthStore();
+  const currentUserId = actor?.id;
   const overlayRef = useRef<HTMLDivElement>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
   const [phase, setPhase] = useState<DrawerPhase>('entering');
@@ -174,8 +177,8 @@ export const ConversationPanel = memo(function ConversationPanel({
           onClose={() => setSearchOpen(false)}
         />
       )}
-      <MessageList conversationId={activeConversationId} />
-      <MessageComposer conversationId={activeConversationId} />
+      <MessageList conversationId={activeConversationId} currentUserId={currentUserId} />
+      <MessageComposer conversationId={activeConversationId} currentUserId={currentUserId} />
     </div>
   ) : (
     <div className="conversation-panel-empty">
@@ -226,12 +229,12 @@ export const ConversationPanel = memo(function ConversationPanel({
       onClick={handleOverlayClick}
       role="dialog"
       aria-modal="true"
-      aria-label="Conversations"
+      aria-label="Chats"
     >
       <div className="conversation-panel">
         {/* Header */}
         <div className="conversation-panel-header" style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1 }}>
-          <h2 className="conversation-panel-title">Conversations</h2>
+          <h2 className="conversation-panel-title">Chats</h2>
           <div className="conversation-panel-header-actions">
             {activeConversationId && (
               <button
@@ -249,7 +252,7 @@ export const ConversationPanel = memo(function ConversationPanel({
               type="button"
               className="conversation-panel-close pressable"
               onClick={requestClose}
-              aria-label="Close conversations"
+              aria-label="Close chats"
               data-haptic="light"
             >
               <CloseIcon />
@@ -258,7 +261,7 @@ export const ConversationPanel = memo(function ConversationPanel({
         </div>
 
         {/* Body (below header) */}
-        <div className="conversation-panel-body" style={{ marginTop: 52 }}>
+        <div className="conversation-panel-body" style={{ marginTop: 40 }}>
           {/* Sidebar — conversation list */}
           <div className="conversation-panel-sidebar">
             {sidebarContent}

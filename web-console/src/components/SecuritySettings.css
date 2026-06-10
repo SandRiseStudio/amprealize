@@ -74,6 +74,147 @@
 }
 
 /* ---------------------------------------------------------------------------
+   LLM API Keys
+   --------------------------------------------------------------------------- */
+.byok-section {
+  border-color: var(--color-accent);
+}
+
+.byok-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(220px, 1.4fr) minmax(160px, 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.byok-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.byok-label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+}
+
+.byok-input,
+.byok-select {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-primary);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  font: inherit;
+}
+
+.byok-input:focus,
+.byok-select:focus {
+  border-color: var(--color-accent);
+  outline: 2px solid var(--color-accent-bg);
+  outline-offset: 1px;
+}
+
+.byok-help {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  line-height: var(--leading-relaxed);
+}
+
+.byok-add-button {
+  min-height: 44px;
+  align-self: end;
+  white-space: nowrap;
+}
+
+.byok-security-note {
+  margin: var(--space-3) 0 0;
+}
+
+.byok-alert {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+}
+
+.byok-alert-error {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger);
+}
+
+.byok-alert-success {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success);
+}
+
+.byok-credential-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.byok-credential-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.byok-credential-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.byok-credential-header,
+.byok-credential-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.byok-credential-name {
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.byok-credential-meta {
+  margin-top: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.byok-delete-button {
+  color: var(--color-danger);
+}
+
+.byok-reenable {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.byok-empty-state {
+  padding: var(--space-4);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-elevated);
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+}
+
+/* ---------------------------------------------------------------------------
    Email Status
    --------------------------------------------------------------------------- */
 .email-status {
@@ -645,6 +786,23 @@
 
   .settings-section {
     padding: var(--space-4);
+  }
+
+  .byok-form {
+    grid-template-columns: 1fr;
+  }
+
+  .byok-add-button {
+    align-self: stretch;
+  }
+
+  .byok-credential-card,
+  .byok-reenable {
+    flex-direction: column;
+  }
+
+  .byok-delete-button {
+    width: 100%;
   }
 
   .provider-card {

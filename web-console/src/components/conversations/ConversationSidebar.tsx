@@ -11,6 +11,7 @@ import {
   type Conversation,
 } from '../../lib/collab-client';
 import { useConversations, useCreateConversation } from '../../api/conversations';
+import { hapticNewConversation } from '../../utils/haptics';
 
 // ── Inline icons ─────────────────────────────────────────────────────────────
 
@@ -48,154 +49,50 @@ function SearchIcon() {
   );
 }
 
-// ── Styles (scoped via BEM-style class naming) ───────────────────────────────
-
-const styles: Record<string, React.CSSProperties> = {
-  root: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-    overflow: 'hidden',
-  },
-  searchWrap: {
-    padding: '8px 8px 4px',
-    flexShrink: 0,
-  },
-  searchInput: {
-    width: '100%',
-    height: 28,
-    padding: '0 8px 0 26px',
-    border: '1px solid rgba(0,0,0,0.06)',
-    borderRadius: 8,
-    background: 'rgba(255,255,255,0.5)',
-    fontSize: 12,
-    color: 'var(--color-text-primary)',
-    outline: 'none',
-    transition: 'border var(--duration-fast) ease, box-shadow var(--duration-fast) ease',
-  },
-  searchIcon: {
-    position: 'absolute' as const,
-    left: 16,
-    top: 14,
-    pointerEvents: 'none' as const,
-    color: 'var(--color-text-quaternary)',
-  },
-  list: {
-    flex: 1,
-    overflowY: 'auto' as const,
-    padding: '4px 0',
-  },
-  groupLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '10px 12px 4px',
-    fontSize: 10,
-    fontWeight: 600,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.06em',
-    color: 'var(--color-text-quaternary)',
-    userSelect: 'none' as const,
-  },
-  item: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    width: '100%',
-    padding: '6px 12px',
-    border: 'none',
-    borderRadius: 0,
-    background: 'transparent',
-    fontSize: 13,
-    color: 'var(--color-text-secondary)',
-    cursor: 'pointer',
-    textAlign: 'left' as const,
-    lineHeight: 1.3,
-    transition: 'background var(--duration-fast) ease',
-  },
-  itemActive: {
-    background: 'rgba(0,0,0,0.05)',
-    color: 'var(--color-text-primary)',
-    fontWeight: 500,
-  },
-  itemTitle: {
-    flex: 1,
-    minWidth: 0,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap' as const,
-  },
-  badge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 16,
-    height: 16,
-    padding: '0 4px',
-    borderRadius: 8,
-    background: 'var(--color-accent-primary)',
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: 600,
-    lineHeight: 1,
-    flexShrink: 0,
-  },
-  footer: {
-    padding: '6px 8px',
-    borderTop: '1px solid rgba(0,0,0,0.05)',
-    flexShrink: 0,
-  },
-  newBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    width: '100%',
-    height: 28,
-    border: '1px solid rgba(0,0,0,0.06)',
-    borderRadius: 8,
-    background: 'rgba(255,255,255,0.5)',
-    color: 'var(--color-text-secondary)',
-    fontSize: 12,
-    fontWeight: 500,
-    cursor: 'pointer',
-    transition: 'background var(--duration-fast) ease, border-color var(--duration-fast) ease',
-  },
-  empty: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    fontSize: 12,
-    color: 'var(--color-text-quaternary)',
-    padding: 16,
-    textAlign: 'center' as const,
-  },
-};
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────-
 
 function groupConversations(items: Conversation[]) {
+  const globalHome: Conversation[] = [];
+  const globalThreads: Conversation[] = [];
   const rooms: Conversation[] = [];
   const dms: Conversation[] = [];
+  const groups: Conversation[] = [];
   for (const c of items) {
-    if (c.scope === ConversationScope.ProjectRoom) rooms.push(c);
+    if (c.scope === ConversationScope.GlobalUserHome) globalHome.push(c);
+    else if (c.scope === ConversationScope.GlobalPersonalThread) globalThreads.push(c);
+    else if (c.scope === ConversationScope.ProjectRoom || c.scope === ConversationScope.ProjectSpace) rooms.push(c);
+    else if (c.scope === ConversationScope.GroupChat) groups.push(c);
     else dms.push(c);
   }
-  return { rooms, dms };
+  globalThreads.sort((a, b) => {
+    const ta = a.updated_at ? Date.parse(a.updated_at) : 0;
+    const tb = b.updated_at ? Date.parse(b.updated_at) : 0;
+    return tb - ta;
+  });
+  return { globalHome, globalThreads, rooms, dms, groups };
 }
 
 function displayTitle(c: Conversation): string {
-  if (c.title) return c.title;
-  if (c.scope === ConversationScope.ProjectRoom) return 'General';
-  return 'Direct Message';
+  const titled = c.title?.trim();
+  if (titled) return titled;
+  if (c.scope === ConversationScope.GlobalUserHome) return 'Home';
+  if (c.scope === ConversationScope.GlobalPersonalThread) return 'Chat';
+  if (c.scope === ConversationScope.ProjectRoom || c.scope === ConversationScope.ProjectSpace) return 'Project room';
+  if (c.scope === ConversationScope.GroupChat) return 'Group';
+  return 'Direct message';
+}
+
+function defaultPersonalThreadTitle(): string {
+  const d = new Date();
+  return `Chat ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
 }
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
 export interface ConversationSidebarProps {
-  projectId: string;
+  projectId?: string | null;
   orgId?: string | null;
+  contextKind?: 'project' | 'global';
   activeConversationId: string | null;
   onSelect: (conversationId: string) => void;
 }
@@ -203,12 +100,56 @@ export interface ConversationSidebarProps {
 // ── Component ────────────────────────────────────────────────────────────────
 
 export const ConversationSidebar = memo(function ConversationSidebar(props: ConversationSidebarProps) {
-  const { projectId, activeConversationId, onSelect } = props;
+  const { projectId, contextKind = projectId ? 'project' : 'global', activeConversationId, onSelect } = props;
   const [search, setSearch] = useState('');
-  const { data, isLoading } = useConversations({ projectId, enabled: !!projectId });
+
+  const globalWorkspaceQuery = useConversations({
+    scopes: [ConversationScope.GlobalUserHome, ConversationScope.GlobalPersonalThread],
+    includeTotal: false,
+    enabled: contextKind === 'global',
+  });
+
+  const globalWorkspaceProjectQuery = useConversations({
+    scopes: [ConversationScope.GlobalUserHome, ConversationScope.GlobalPersonalThread],
+    includeTotal: false,
+    enabled: contextKind === 'project' && !!projectId,
+  });
+  const projectQuery = useConversations({
+    projectId: projectId ?? undefined,
+    includeTotal: false,
+    enabled: contextKind === 'project' && !!projectId,
+  });
+
   const createConversation = useCreateConversation();
 
-  const items = useMemo(() => data?.items ?? [], [data?.items]);
+  const items = useMemo(() => {
+    if (contextKind === 'global') {
+      return globalWorkspaceQuery.data?.items ?? [];
+    }
+    const merged: Conversation[] = [];
+    const seen = new Set<string>();
+    for (const c of globalWorkspaceProjectQuery.data?.items ?? []) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      merged.push(c);
+    }
+    for (const c of projectQuery.data?.items ?? []) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      merged.push(c);
+    }
+    return merged;
+  }, [
+    contextKind,
+    globalWorkspaceQuery.data?.items,
+    globalWorkspaceProjectQuery.data?.items,
+    projectQuery.data?.items,
+  ]);
+
+  const isLoading =
+    contextKind === 'global'
+      ? globalWorkspaceQuery.isLoading
+      : globalWorkspaceProjectQuery.isLoading || projectQuery.isLoading;
 
   const filtered = useMemo(() => {
     if (!search.trim()) return items;
@@ -216,14 +157,22 @@ export const ConversationSidebar = memo(function ConversationSidebar(props: Conv
     return items.filter((c) => displayTitle(c).toLowerCase().includes(q));
   }, [items, search]);
 
-  const { rooms, dms } = useMemo(() => groupConversations(filtered), [filtered]);
+  const { globalHome, globalThreads, rooms, dms, groups } = useMemo(() => groupConversations(filtered), [filtered]);
 
   const handleCreate = useCallback(() => {
+    const canCreateProjectRoom = contextKind === 'project' && !!projectId;
     createConversation.mutate(
-      { projectId, scope: ConversationScope.ProjectRoom },
-      { onSuccess: (created) => onSelect(created.id) },
+      canCreateProjectRoom && projectId
+        ? { projectId, scope: ConversationScope.ProjectRoom, title: 'Project room' }
+        : { scope: ConversationScope.GlobalPersonalThread, title: defaultPersonalThreadTitle() },
+      {
+        onSuccess: (created) => {
+          hapticNewConversation();
+          onSelect(created.id);
+        },
+      },
     );
-  }, [createConversation, projectId, onSelect]);
+  }, [contextKind, createConversation, projectId, onSelect]);
 
   const renderItem = useCallback(
     (c: Conversation, icon: React.ReactNode) => {
@@ -232,16 +181,15 @@ export const ConversationSidebar = memo(function ConversationSidebar(props: Conv
         <button
           key={c.id}
           type="button"
-          className="pressable"
-          style={{ ...styles.item, ...(isActive ? styles.itemActive : {}) }}
+          className={`pressable conversation-sidebar-item${isActive ? ' conversation-sidebar-item--active' : ''}`}
           onClick={() => onSelect(c.id)}
           aria-current={isActive ? 'true' : undefined}
           data-haptic="light"
         >
           {icon}
-          <span style={styles.itemTitle}>{displayTitle(c)}</span>
+          <span className="conversation-sidebar-item-title">{displayTitle(c)}</span>
           {c.unread_count > 0 && (
-            <span style={styles.badge} aria-label={`${c.unread_count} unread`}>
+            <span className="conversation-sidebar-badge" aria-label={`${c.unread_count} unread`}>
               {c.unread_count > 99 ? '99+' : c.unread_count}
             </span>
           )}
@@ -252,62 +200,91 @@ export const ConversationSidebar = memo(function ConversationSidebar(props: Conv
   );
 
   return (
-    <div style={styles.root}>
-      {/* Search */}
-      <div style={styles.searchWrap}>
-        <div style={{ position: 'relative' }}>
-          <span style={styles.searchIcon}><SearchIcon /></span>
+    <div className="conversation-sidebar">
+      <div className="conversation-sidebar-search-wrap">
+        <div className="conversation-sidebar-search-field">
+          <span className="conversation-sidebar-search-icon" aria-hidden="true">
+            <SearchIcon />
+          </span>
           <input
             type="text"
             placeholder="Search…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={styles.searchInput}
+            className="conversation-sidebar-search"
             aria-label="Search conversations"
           />
         </div>
       </div>
 
-      {/* Conversation list */}
-      <div style={styles.list} role="listbox" aria-label="Conversations">
-        {isLoading && <div style={styles.empty}>Loading…</div>}
+      <div className="conversation-sidebar-list" role="listbox" aria-label="Threads">
+        {isLoading && <div className="conversation-sidebar-empty">Loading…</div>}
 
         {!isLoading && items.length === 0 && (
-          <div style={styles.empty}>No conversations yet</div>
+          <div className="conversation-sidebar-empty">No conversations yet</div>
         )}
 
         {!isLoading && filtered.length === 0 && items.length > 0 && (
-          <div style={styles.empty}>No matches</div>
+          <div className="conversation-sidebar-empty">No matches</div>
+        )}
+
+        {globalHome.length > 0 && (
+          <>
+            <div className="conversation-sidebar-group-label">
+              <HashIcon /> Main
+            </div>
+            {globalHome.map((c) => renderItem(c, <HashIcon />))}
+          </>
+        )}
+
+        {globalThreads.length > 0 && (
+          <>
+            <div className="conversation-sidebar-group-label">
+              <HashIcon /> Your chats
+            </div>
+            {globalThreads.map((c) => renderItem(c, <HashIcon />))}
+          </>
         )}
 
         {rooms.length > 0 && (
           <>
-            <div style={styles.groupLabel}><HashIcon /> Rooms</div>
+            <div className="conversation-sidebar-group-label">
+              <HashIcon /> Project
+            </div>
             {rooms.map((c) => renderItem(c, <HashIcon />))}
+          </>
+        )}
+
+        {groups.length > 0 && (
+          <>
+            <div className="conversation-sidebar-group-label">
+              <UserIcon /> Groups
+            </div>
+            {groups.map((c) => renderItem(c, <UserIcon />))}
           </>
         )}
 
         {dms.length > 0 && (
           <>
-            <div style={styles.groupLabel}><UserIcon /> Direct</div>
+            <div className="conversation-sidebar-group-label">
+              <UserIcon /> Direct
+            </div>
             {dms.map((c) => renderItem(c, <UserIcon />))}
           </>
         )}
       </div>
 
-      {/* New conversation */}
-      <div style={styles.footer}>
+      <div className="conversation-sidebar-footer">
         <button
           type="button"
-          className="pressable"
-          style={styles.newBtn}
+          className="pressable conversation-sidebar-new-btn"
           onClick={handleCreate}
           disabled={createConversation.isPending}
           aria-label="New conversation"
           data-haptic="light"
         >
           <PlusIcon />
-          {createConversation.isPending ? 'Creating…' : 'New conversation'}
+          {createConversation.isPending ? 'Creating…' : contextKind === 'project' ? 'New project room' : 'New chat'}
         </button>
       </div>
     </div>

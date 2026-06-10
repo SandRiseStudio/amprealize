@@ -3,11 +3,22 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { UnifiedConversationWindow } from '../components/conversations/UnifiedConversationWindow';
 
 vi.mock('../api/conversations', () => ({
+  isChatLoadBenchEnabled: vi.fn(() => false),
+  chatLoadBenchPhase: vi.fn(),
+  chatLoadBenchThreadFirstPaint: vi.fn(),
+  usePatchConversation: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
+  useArchiveConversation: vi.fn(() => ({
+    mutate: vi.fn(),
+    isPending: false,
+  })),
   useConversations: vi.fn(() => ({
     data: {
       items: [
@@ -76,7 +87,7 @@ describe('UnifiedConversationWindow', () => {
     vi.clearAllMocks();
   });
 
-  it('renders floating dialog with messages title region', () => {
+  it('renders floating dialog with project context title region', () => {
     render(
       <UnifiedConversationWindow
         projectId="p1"
@@ -86,7 +97,41 @@ describe('UnifiedConversationWindow', () => {
       />,
       { wrapper: createWrapper() },
     );
-    expect(screen.getByRole('dialog', { name: /messages/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /chat — this project/i })).toBeInTheDocument();
+    const header = screen.getByRole('toolbar', { name: /drag header to move/i });
+    expect(within(header).getByText('This project')).toBeInTheDocument();
+    expect(screen.getByTitle(/threads scoped to this project/i)).toBeInTheDocument();
+  });
+
+  it('renders global chat context when requested', () => {
+    render(
+      <UnifiedConversationWindow
+        projectId="p1"
+        contextKind="global"
+        contextLabel="Global home"
+        initialTarget={{ mode: 'conversation', conversationId: 'room-1' }}
+        initialTargetKey={1}
+        onClose={vi.fn()}
+      />,
+      { wrapper: createWrapper() },
+    );
+    expect(screen.getByRole('dialog', { name: /chat — global home/i })).toBeInTheDocument();
+    expect(screen.getByTitle(/threads across orgs/i)).toBeInTheDocument();
+  });
+
+  it('shows default workspace context pill when contextKind is global without contextLabel', () => {
+    render(
+      <UnifiedConversationWindow
+        projectId={null}
+        contextKind="global"
+        initialTarget={{ mode: 'conversation', conversationId: 'room-1' }}
+        initialTargetKey={1}
+        onClose={vi.fn()}
+      />,
+      { wrapper: createWrapper() },
+    );
+    expect(screen.getByText('Workspace')).toBeInTheDocument();
+    expect(screen.getByTitle(/threads across orgs/i)).toBeInTheDocument();
   });
 
   it('renders close control in header', () => {
@@ -99,6 +144,6 @@ describe('UnifiedConversationWindow', () => {
       />,
       { wrapper: createWrapper() },
     );
-    expect(screen.getByRole('button', { name: /close messages/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /close chat/i })).toBeInTheDocument();
   });
 });

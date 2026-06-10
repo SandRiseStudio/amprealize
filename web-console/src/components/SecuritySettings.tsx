@@ -13,7 +13,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import {
   useLinkedProviders,
@@ -28,6 +28,8 @@ import {
   useSendVerificationEmail,
 } from '../api/identity';
 import type { OAuthProvider, MfaDevice } from '../types/auth';
+import { UserLLMCredentialsSection } from './UserLLMCredentialsSection';
+import { CompactLoadingShimmer } from './loading';
 import './SecuritySettings.css';
 
 // ---------------------------------------------------------------------------
@@ -406,7 +408,6 @@ function PasswordModal({
 // ---------------------------------------------------------------------------
 
 export function SecuritySettings() {
-  const navigate = useNavigate();
   const { actor } = useAuth();
   const userId = actor?.id;
 
@@ -519,7 +520,11 @@ export function SecuritySettings() {
   }, [userId, sendVerificationMutation]);
 
   if (!userId) {
-    return <div className="security-settings loading">Loading...</div>;
+    return (
+      <div className="security-settings loading">
+        <CompactLoadingShimmer label="Loading security settings" />
+      </div>
+    );
   }
 
   return (
@@ -529,28 +534,29 @@ export function SecuritySettings() {
         <p>Manage your account security and connected services</p>
       </header>
 
-      {actor?.role === 'ADMIN' && (
-        <section className="settings-section">
-          <h2>Feature flags</h2>
-          <p className="section-description">
-            View and toggle server-side boolean flags (Postgres), similar in spirit to Firebase Remote Config.
-          </p>
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => navigate('/settings/feature-flags')}
-            data-haptic="light"
-          >
-            Open feature flags
-          </button>
-        </section>
-      )}
+      <section className="settings-section" aria-labelledby="settings-related-heading">
+        <h2 id="settings-related-heading">Related</h2>
+        <p className="section-description">
+          <Link to="/settings/profile" className="btn-link">
+            Agent workspace and local connector preferences
+          </Link>{' '}
+          live on your Profile (pairing shortcut:{' '}
+          <Link to="/settings/local-connector" className="btn-link">
+            Local connector pairing
+          </Link>
+          ).
+        </p>
+      </section>
+
+      <UserLLMCredentialsSection userId={userId} />
 
       {/* Email Verification Section */}
       <section className="settings-section">
         <h2>Email Verification</h2>
         {loadingEmail ? (
-          <div className="loading-state">Loading...</div>
+          <div className="loading-state">
+            <CompactLoadingShimmer label="Loading email verification" />
+          </div>
         ) : emailStatus ? (
           <div className="email-status">
             {emailStatus.email ? (
@@ -590,7 +596,9 @@ export function SecuritySettings() {
           Link your accounts for easier sign-in and additional features
         </p>
         {loadingProviders ? (
-          <div className="loading-state">Loading...</div>
+          <div className="loading-state">
+            <CompactLoadingShimmer label="Loading connected accounts" />
+          </div>
         ) : (
           <div className="providers-list">
             {(['github', 'google'] as OAuthProvider[]).map((provider) => {
@@ -623,7 +631,9 @@ export function SecuritySettings() {
           Add an extra layer of security to your account
         </p>
         {loadingMfa ? (
-          <div className="loading-state">Loading...</div>
+          <div className="loading-state">
+            <CompactLoadingShimmer label="Loading two-factor authentication" />
+          </div>
         ) : (
           <>
             <div className="mfa-status">

@@ -12,7 +12,7 @@
   border-radius: 1rem;
   padding: 1rem 1.1rem;
   border: 1px solid var(--border);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  border-top-color: rgba(255, 255, 255, 0.75);
   font-size: 0.96rem;
   line-height: 1.45;
   position: relative;

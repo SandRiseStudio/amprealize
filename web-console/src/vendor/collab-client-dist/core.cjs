@@ -25,6 +25,46 @@ var DocumentType = /* @__PURE__ */ ((DocumentType2) => {
   DocumentType2["Json"] = "json";
   return DocumentType2;
 })(DocumentType || {});
+var ConversationScope = /* @__PURE__ */ ((ConversationScope2) => {
+  ConversationScope2["GlobalUserHome"] = "global_user_home";
+  ConversationScope2["GlobalPersonalThread"] = "global_personal_thread";
+  ConversationScope2["ProjectSpace"] = "project_space";
+  ConversationScope2["ProjectRoom"] = "project_room";
+  ConversationScope2["Dm"] = "dm";
+  ConversationScope2["AgentDm"] = "agent_dm";
+  ConversationScope2["GroupChat"] = "group_chat";
+  ConversationScope2["WorkItemThread"] = "work_item_thread";
+  ConversationScope2["RunThread"] = "run_thread";
+  return ConversationScope2;
+})(ConversationScope || {});
+var ActorType = /* @__PURE__ */ ((ActorType2) => {
+  ActorType2["User"] = "user";
+  ActorType2["Agent"] = "agent";
+  ActorType2["System"] = "system";
+  return ActorType2;
+})(ActorType || {});
+var MessageType = /* @__PURE__ */ ((MessageType2) => {
+  MessageType2["Text"] = "text";
+  MessageType2["StatusCard"] = "status_card";
+  MessageType2["BlockerCard"] = "blocker_card";
+  MessageType2["ProgressCard"] = "progress_card";
+  MessageType2["CodeBlock"] = "code_block";
+  MessageType2["RunSummary"] = "run_summary";
+  MessageType2["System"] = "system";
+  return MessageType2;
+})(MessageType || {});
+var ParticipantRole = /* @__PURE__ */ ((ParticipantRole2) => {
+  ParticipantRole2["Owner"] = "owner";
+  ParticipantRole2["Admin"] = "admin";
+  ParticipantRole2["Member"] = "member";
+  return ParticipantRole2;
+})(ParticipantRole || {});
+var NotificationPreference = /* @__PURE__ */ ((NotificationPreference2) => {
+  NotificationPreference2["All"] = "all";
+  NotificationPreference2["Mentions"] = "mentions";
+  NotificationPreference2["None"] = "none";
+  return NotificationPreference2;
+})(NotificationPreference || {});
 
 // src/client.ts
 var DEFAULT_CONFIG = {
@@ -474,6 +514,9 @@ var ExecutionStreamClient = class extends TypedEventEmitter2 {
       this.log("WebSocket error");
     };
     this.ws.onclose = (event) => {
+      if (event.target !== this.ws) {
+        return;
+      }
       this.log("WebSocket closed", event.code, event.reason);
       this.clearTimers();
       this.ws = null;
@@ -587,7 +630,9 @@ var ExecutionStreamClient = class extends TypedEventEmitter2 {
   send(message) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
-      this.log("Sent:", message.type);
+      if (message.type !== "ping") {
+        this.log("Sent:", message.type);
+      }
     }
   }
   clearTimers() {
@@ -611,6 +656,345 @@ var ExecutionStreamClient = class extends TypedEventEmitter2 {
 };
 function createExecutionStreamClient(config) {
   return new ExecutionStreamClient(config);
+}
+
+// src/conversationClient.ts
+var DEFAULT_RECONNECT2 = {
+  enabled: true,
+  maxAttempts: 10,
+  baseDelayMs: 1e3,
+  maxDelayMs: 3e4
+};
+var DEFAULT_CONFIG3 = {
+  reconnect: DEFAULT_RECONNECT2,
+  heartbeatIntervalMs: 25e3,
+  debug: false
+};
+var TypedEventEmitter3 = class {
+  handlers = /* @__PURE__ */ new Map();
+  on(event, handler) {
+    if (!this.handlers.has(event)) {
+      this.handlers.set(event, /* @__PURE__ */ new Set());
+    }
+    this.handlers.get(event).add(handler);
+    return () => this.off(event, handler);
+  }
+  off(event, handler) {
+    this.handlers.get(event)?.delete(handler);
+  }
+  emit(event, ...args) {
+    this.handlers.get(event)?.forEach((handler) => {
+      try {
+        handler(...args);
+      } catch (err) {
+        console.error(`[ConversationStreamClient] Error in ${String(event)} handler:`, err);
+      }
+    });
+  }
+  removeAllListeners() {
+    this.handlers.clear();
+  }
+};
+var ConversationStreamClient = class extends TypedEventEmitter3 {
+  config;
+  ws = null;
+  conversationId = null;
+  connectionState = "disconnected" /* Disconnected */;
+  reconnectAttempts = 0;
+  reconnectTimeout = null;
+  heartbeatInterval = null;
+  authToken = null;
+  shouldReconnect = true;
+  constructor(config) {
+    super();
+    this.config = {
+      ...config,
+      reconnect: { ...DEFAULT_RECONNECT2, ...config.reconnect },
+      heartbeatIntervalMs: config.heartbeatIntervalMs ?? DEFAULT_CONFIG3.heartbeatIntervalMs,
+      debug: config.debug ?? DEFAULT_CONFIG3.debug
+    };
+    this.authToken = config.authToken ?? null;
+  }
+  // ---------------------------------------------------------------------------
+  // Auth Token Management
+  // ---------------------------------------------------------------------------
+  setAuthToken(token) {
+    this.authToken = token;
+    this.log("Auth token updated");
+  }
+  getAuthToken() {
+    return this.authToken;
+  }
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
+  get state() {
+    return this.connectionState;
+  }
+  get activeConversationId() {
+    return this.conversationId;
+  }
+  connect(conversationId) {
+    if (!conversationId) {
+      this.log("Skipping connect without conversationId");
+      return;
+    }
+    if (this.conversationId === conversationId && this.connectionState === "connected" /* Connected */) {
+      this.log("Already connected to conversation", conversationId);
+      return;
+    }
+    this.disconnect();
+    this.conversationId = conversationId;
+    this.shouldReconnect = true;
+    this.connectionState = "connecting" /* Connecting */;
+    this.reconnectAttempts = 0;
+    void this.openConnection(conversationId);
+  }
+  disconnect(reason = "manual_disconnect") {
+    this.shouldReconnect = false;
+    this.clearTimers();
+    if (this.ws) {
+      this.ws.close();
+    }
+    this.ws = null;
+    this.conversationId = null;
+    this.connectionState = "disconnected" /* Disconnected */;
+    this.emit("disconnected", reason);
+  }
+  // ---------------------------------------------------------------------------
+  // Client → Server Commands
+  // ---------------------------------------------------------------------------
+  sendMessage(options) {
+    this.send({
+      type: "message.send",
+      content: options.content,
+      message_type: options.message_type,
+      structured_payload: options.structured_payload,
+      parent_id: options.parent_id,
+      metadata: options.metadata
+    });
+  }
+  editMessage(messageId, content) {
+    this.send({ type: "message.edit", message_id: messageId, content });
+  }
+  deleteMessage(messageId) {
+    this.send({ type: "message.delete", message_id: messageId });
+  }
+  addReaction(messageId, emoji) {
+    this.send({ type: "reaction.add", message_id: messageId, emoji });
+  }
+  removeReaction(messageId, emoji) {
+    this.send({ type: "reaction.remove", message_id: messageId, emoji });
+  }
+  startTyping() {
+    this.send({ type: "typing.start" });
+  }
+  stopTyping() {
+    this.send({ type: "typing.stop" });
+  }
+  updateReadPosition(lastReadMessageId) {
+    this.send({ type: "read.update", last_read_message_id: lastReadMessageId });
+  }
+  // ---------------------------------------------------------------------------
+  // Connection Flow
+  // ---------------------------------------------------------------------------
+  async openConnection(requestedConversationId) {
+    const targetConversationId = requestedConversationId ?? this.conversationId;
+    if (!targetConversationId) {
+      this.log("Skipping openConnection without conversationId");
+      return;
+    }
+    const token = await this.resolveAuthToken();
+    if (this.conversationId !== targetConversationId || !this.shouldReconnect) {
+      this.log("Aborting stale openConnection", targetConversationId, this.conversationId);
+      return;
+    }
+    const url = this.buildWebSocketUrl(targetConversationId, token ?? void 0);
+    this.log("Connecting to", url);
+    this.ws = new WebSocket(url);
+    this.ws.onopen = () => {
+      this.log("WebSocket connected");
+      this.connectionState = "connected" /* Connected */;
+      this.reconnectAttempts = 0;
+      this.startHeartbeat();
+    };
+    this.ws.onmessage = (event) => {
+      this.handleMessage(event.data);
+    };
+    this.ws.onerror = () => {
+      this.log("WebSocket error");
+    };
+    this.ws.onclose = (event) => {
+      if (event.target !== this.ws) {
+        return;
+      }
+      this.log("WebSocket closed", event.code, event.reason);
+      this.clearTimers();
+      this.ws = null;
+      const reason = event.reason || "connection_closed";
+      if (this.shouldReconnect && this.config.reconnect.enabled) {
+        this.scheduleReconnect(reason);
+      } else {
+        this.connectionState = "disconnected" /* Disconnected */;
+        this.emit("disconnected", reason);
+      }
+    };
+  }
+  handleMessage(rawMessage) {
+    let message;
+    try {
+      message = JSON.parse(rawMessage);
+    } catch {
+      this.log("Invalid JSON message", rawMessage);
+      return;
+    }
+    if (this.config.debug && message.type && message.type !== "pong" && message.type !== "heartbeat") {
+      this.log("Recv:", message.type);
+    }
+    switch (message.type) {
+      case "conversation.ready":
+        this.emit("connected", message.payload);
+        break;
+      case "message.new":
+        this.emit("message.new", message.payload);
+        break;
+      case "message.updated":
+        this.emit("message.updated", message.payload);
+        break;
+      case "message.deleted":
+        this.emit("message.deleted", message.payload);
+        break;
+      case "reaction.added":
+        this.emit("reaction.added", message.payload);
+        break;
+      case "reaction.removed":
+        this.emit("reaction.removed", message.payload);
+        break;
+      case "typing.indicator":
+        this.emit("typing.indicator", message.payload);
+        break;
+      case "read.receipt":
+        this.emit("read.receipt", message.payload);
+        break;
+      case "participant.joined":
+        this.emit("participant.joined", message.payload);
+        break;
+      case "participant.left":
+        this.emit("participant.left", message.payload);
+        break;
+      case "pong":
+        break;
+      case "heartbeat":
+        break;
+      case "token":
+      case "reply.started":
+      case "reply.step":
+      case "reply.token":
+      case "structured_start":
+      case "structured_update":
+      case "reply.error":
+        break;
+      case "complete":
+      case "reply.complete":
+        this.emit("agent.reply.complete", message.payload ?? {});
+        break;
+      case "pin.updated":
+      case "system.announcement":
+        break;
+      case "error":
+        this.emit("error", message.code ?? "UNKNOWN", message.message ?? "Unknown error");
+        break;
+      default:
+        this.log("Unhandled message", message);
+    }
+  }
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+  async resolveAuthToken() {
+    if (this.config.getAuthToken) {
+      try {
+        const fresh = await this.config.getAuthToken();
+        if (fresh) {
+          this.authToken = fresh;
+        }
+      } catch {
+      }
+    }
+    return this.authToken;
+  }
+  buildWebSocketUrl(conversationId, token) {
+    const url = new URL(`/api/v1/conversations/${encodeURIComponent(conversationId)}/ws`, this.config.baseUrl);
+    url.searchParams.set("user_id", this.config.userId);
+    if (token) url.searchParams.set("token", token);
+    if (url.protocol === "https:" || url.protocol === "wss:") {
+      url.protocol = "wss:";
+    } else {
+      url.protocol = "ws:";
+    }
+    return url.toString();
+  }
+  scheduleReconnect(reason) {
+    this.connectionState = "reconnecting" /* Reconnecting */;
+    this.emit("disconnected", reason);
+    const maxAttempts = this.config.reconnect.maxAttempts ?? DEFAULT_CONFIG3.reconnect.maxAttempts;
+    if (this.reconnectAttempts >= maxAttempts) {
+      this.log("Max reconnect attempts reached");
+      this.connectionState = "disconnected" /* Disconnected */;
+      return;
+    }
+    const attempt = this.reconnectAttempts + 1;
+    const baseDelayMs = this.config.reconnect.baseDelayMs ?? DEFAULT_CONFIG3.reconnect.baseDelayMs;
+    const maxDelayMs = this.config.reconnect.maxDelayMs ?? DEFAULT_CONFIG3.reconnect.maxDelayMs;
+    const delay = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs);
+    this.reconnectAttempts = attempt;
+    this.reconnectTimeout = setTimeout(() => {
+      if (!this.conversationId) return;
+      this.log(`Reconnect attempt ${attempt}`);
+      void this.openConnection();
+    }, delay);
+  }
+  startHeartbeat() {
+    const heartbeatIntervalMs = this.config.heartbeatIntervalMs ?? DEFAULT_CONFIG3.heartbeatIntervalMs;
+    if (heartbeatIntervalMs <= 0) return;
+    this.heartbeatInterval = setInterval(() => {
+      this.send({ type: "ping" });
+    }, heartbeatIntervalMs);
+  }
+  send(command) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(command));
+      if (this.config.debug) {
+        if (command.type === "message.send") {
+          const meta = command.metadata;
+          this.log("Sent:", command.type, {
+            has_llm_model_id: Boolean(meta && typeof meta.llm_model_id === "string" && meta.llm_model_id),
+            content_len: typeof command.content === "string" ? command.content.length : 0
+          });
+        } else if (command.type !== "ping") {
+          this.log("Sent:", command.type);
+        }
+      }
+    }
+  }
+  clearTimers() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+  log(...args) {
+    if (this.config.debug) {
+      console.log("[ConversationStreamClient]", ...args);
+    }
+  }
+};
+function createConversationStreamClient(config) {
+  return new ConversationStreamClient(config);
 }
 
 // src/api.ts
@@ -744,16 +1128,23 @@ function createCollabApi(config) {
   return new CollabApi(config);
 }
 
+exports.ActorType = ActorType;
 exports.CollabApi = CollabApi;
 exports.CollabApiError = CollabApiError;
 exports.CollabClient = CollabClient;
 exports.CollaborationRole = CollaborationRole;
 exports.ConnectionState = ConnectionState;
+exports.ConversationScope = ConversationScope;
+exports.ConversationStreamClient = ConversationStreamClient;
 exports.DocumentType = DocumentType;
 exports.EditOperationType = EditOperationType;
 exports.ExecutionStreamClient = ExecutionStreamClient;
+exports.MessageType = MessageType;
+exports.NotificationPreference = NotificationPreference;
+exports.ParticipantRole = ParticipantRole;
 exports.createCollabApi = createCollabApi;
 exports.createCollabClient = createCollabClient;
+exports.createConversationStreamClient = createConversationStreamClient;
 exports.createExecutionStreamClient = createExecutionStreamClient;
 //# sourceMappingURL=core.cjs.map
 //# sourceMappingURL=core.cjs.map

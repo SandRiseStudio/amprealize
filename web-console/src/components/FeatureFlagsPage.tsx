@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { apiClient, ApiError } from '../api/client';
+import { CompactLoadingShimmer } from './loading';
 import './FeatureFlagsPage.css';
 
 interface PlatformFlagRow {
@@ -101,7 +102,11 @@ export function FeatureFlagsPage() {
         </button>
       </header>
 
-      {loading && <div className="feature-flags-status">Loading…</div>}
+      {loading && (
+        <div className="feature-flags-status">
+          <CompactLoadingShimmer label="Loading feature flags" />
+        </div>
+      )}
       {error && (
         <div className="feature-flags-error" role="alert">
           {error}

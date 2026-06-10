@@ -16,7 +16,7 @@ import { apiClient } from './client';
 
 export interface LLMCredential {
   id: string;
-  scope_type: 'org' | 'project';
+  scope_type: 'user' | 'org' | 'project';
   scope_id: string;
   provider: string;
   name: string;
@@ -105,9 +105,107 @@ export const LLM_PROVIDERS = [
     placeholder: 'sk-or-...',
     icon: '🔀',
   },
+  {
+    id: 'nvidia' as const,
+    name: 'NVIDIA NIM',
+    description: 'Free/open hosted models from build.nvidia.com',
+    placeholder: 'nvapi-...',
+    icon: '⚡',
+  },
+  {
+    id: 'together' as const,
+    name: 'Together AI',
+    description: 'Open and frontier models via Together',
+    placeholder: '...',
+    icon: '🧩',
+  },
+  {
+    id: 'groq' as const,
+    name: 'Groq',
+    description: 'Low-latency open model inference',
+    placeholder: 'gsk_...',
+    icon: '⚙️',
+  },
+  {
+    id: 'fireworks' as const,
+    name: 'Fireworks AI',
+    description: 'Open model and fine-tuned model inference',
+    placeholder: 'fw_...',
+    icon: '🔥',
+  },
 ] as const;
 
 export type LLMProvider = (typeof LLM_PROVIDERS)[number]['id'];
+
+// ---------------------------------------------------------------------------
+// User Credential Hooks
+// ---------------------------------------------------------------------------
+
+export function useUserCredentials(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['credentials', 'user', userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      const response = await apiClient.get<LLMCredential[] | { credentials: LLMCredential[] }>(
+        '/v1/users/me/credentials'
+      );
+      return Array.isArray(response) ? response : response.credentials ?? [];
+    },
+    enabled: !!userId,
+    staleTime: 30000,
+  });
+}
+
+export function useAddUserCredential(userId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (request: CreateCredentialRequest) => {
+      if (!userId) throw new Error('User ID required');
+      return apiClient.post<LLMCredential>(
+        '/v1/users/me/credentials',
+        { payload: request }
+      );
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['credentials', 'user', userId] });
+      void queryClient.invalidateQueries({ queryKey: ['llm-models'] });
+    },
+  });
+}
+
+export function useDeleteUserCredential(userId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (credentialId: string) => {
+      if (!userId) throw new Error('User ID required');
+      return apiClient.delete(`/v1/users/me/credentials/${credentialId}`);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['credentials', 'user', userId] });
+      void queryClient.invalidateQueries({ queryKey: ['llm-models'] });
+    },
+  });
+}
+
+export function useReEnableUserCredential(userId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ credentialId, apiKey }: { credentialId: string; apiKey: string }) => {
+      if (!userId) throw new Error('User ID required');
+      return apiClient.post<LLMCredential>(
+        `/v1/users/me/credentials/${credentialId}:re-enable`,
+        { payload: { api_key: apiKey } }
+      );
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['credentials', 'user', userId] });
+      void queryClient.invalidateQueries({ queryKey: ['llm-models'] });
+    },
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Project Credential Hooks

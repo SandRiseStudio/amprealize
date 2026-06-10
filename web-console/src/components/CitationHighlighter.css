@@ -7,7 +7,7 @@
   align-items: center;
   background: var(--color-accent, #2276d2);
   color: white;
-  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
   font-weight: 500;
   padding: 2px 8px;

@@ -16,6 +16,7 @@ import { PRODUCT_DISPLAY_NAME } from '../../config/branding';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useProject } from '../../api/dashboard';
 import { apiClient } from '../../api/client';
+import { type AvailableLLMModel, useProjectModels } from '../../api/conversations';
 import { razeLog } from '../../telemetry/raze';
 import { useAuth } from '../../auth';
 import {
@@ -38,6 +39,9 @@ interface ProjectSettings {
   local_project_path?: string;
   github_repo_url?: string;
   github_default_branch?: string;
+  agent_model_preferences?: {
+    default_model_id?: string | null;
+  };
   workflow?: Record<string, unknown>;
   agents?: Record<string, unknown>;
   branding?: Record<string, unknown>;
@@ -78,11 +82,17 @@ interface GitHubBranchListResponse {
 export function ProjectSettingsContent({ projectId }: { projectId: string }): React.JSX.Element {
   const { data: project, isLoading: projectLoading } = useProject(projectId);
   const { actor } = useAuth();
+  const { data: projectModels, isLoading: modelsLoading } = useProjectModels(projectId, {
+    orgId: project?.org_id ?? null,
+    userId: actor?.id,
+    preferUser: true,
+  });
 
   // Form state
   const [localPath, setLocalPath] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
+  const [defaultModelId, setDefaultModelId] = useState('');
 
   // GitHub validation state
   const [isValidatingGithub, setIsValidatingGithub] = useState(false);
@@ -190,6 +200,7 @@ export function ProjectSettingsContent({ projectId }: { projectId: string }): Re
       setLocalPath(settings.local_project_path ?? '');
       setGithubUrl(settings.github_repo_url ?? '');
       setSelectedBranch(settings.github_default_branch ?? '');
+      setDefaultModelId(settings.agent_model_preferences?.default_model_id ?? '');
 
       // Agent presence settings
       if (settings.agent_presence) {
@@ -220,6 +231,9 @@ export function ProjectSettingsContent({ projectId }: { projectId: string }): Re
         local_project_path: localPath.trim() || null,
         github_repo_url: githubUrl.trim() || null,
         github_default_branch: selectedBranch || null,
+        agent_model_preferences: {
+          default_model_id: defaultModelId || null,
+        },
         agent_presence: {
           enabled: presenceEnabled,
           poll_interval_s: presencePollInterval,
@@ -239,7 +253,7 @@ export function ProjectSettingsContent({ projectId }: { projectId: string }): Re
     } finally {
       setIsSaving(false);
     }
-  }, [projectId, localPath, githubUrl, selectedBranch, presenceEnabled, presencePollInterval, presenceShowOnBoard]);
+  }, [projectId, localPath, githubUrl, selectedBranch, defaultModelId, presenceEnabled, presencePollInterval, presenceShowOnBoard]);
 
   // Add credential
   const handleAddCredential = useCallback(async () => {
@@ -298,6 +312,14 @@ export function ProjectSettingsContent({ projectId }: { projectId: string }): Re
 
   // Validation status
   const isGithubValid = useMemo(() => githubValidation?.valid === true, [githubValidation]);
+  const availableModels = useMemo<AvailableLLMModel[]>(
+    () => projectModels?.models ?? [],
+    [projectModels?.models],
+  );
+  const selectedDefaultModel = useMemo(
+    () => availableModels.find((model) => model.model_id === defaultModelId) ?? null,
+    [availableModels, defaultModelId],
+  );
   const githubRepoLabel = useMemo(() => {
     if (githubValidation?.owner && githubValidation?.repo) {
       return `${githubValidation.owner}/${githubValidation.repo}`;
@@ -428,6 +450,42 @@ export function ProjectSettingsContent({ projectId }: { projectId: string }): Re
             {/* GitHub Connection (App or PAT) */}
             {projectId && (
               <GitHubAppConnection projectId={projectId} />
+            )}
+          </div>
+
+          {/* Agent Model Default */}
+          <div className="settings-section agent-model-section">
+            <h2 className="settings-section-title">Agent Model Default</h2>
+            <p className="settings-section-description">
+              Pick the provider and model agents should use for this project unless a work item overrides it.
+            </p>
+
+            <label className="field">
+              <span className="field-label">Default model</span>
+              <select
+                className="field-select"
+                value={defaultModelId}
+                onChange={(event) => setDefaultModelId(event.target.value)}
+                disabled={modelsLoading}
+              >
+                <option value="">Use agent policy default</option>
+                {availableModels.map((model) => (
+                  <option key={model.model_id} value={model.model_id}>
+                    {model.display_name} ({model.provider}/{model.credential_source})
+                  </option>
+                ))}
+              </select>
+              <span className="field-hint">
+                {selectedDefaultModel
+                  ? `${selectedDefaultModel.display_name} will be passed to agent execution when no work item model is selected.`
+                  : 'Leaving this blank keeps each agent on its configured model policy.'}
+              </span>
+            </label>
+
+            {!modelsLoading && availableModels.length === 0 && (
+              <div className="model-empty-state" role="status">
+                Add a project or user LLM key below to make provider models selectable.
+              </div>
             )}
           </div>
 

@@ -9,8 +9,10 @@
  * - behavior_use_raze_for_logging (Student)
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, ApiError } from './client';
+import { boardKeys, type Board } from './boards';
 import { getApiCapabilities } from './capabilities';
 
 // ---------------------------------------------------------------------------
@@ -131,6 +133,8 @@ export const dashboardKeys = {
   all: ['dashboard'] as const,
   stats: () => [...dashboardKeys.all, 'stats'] as const,
   organizations: () => [...dashboardKeys.all, 'organizations'] as const,
+  bootstrap: (orgId?: string) =>
+    [...dashboardKeys.all, 'bootstrap', orgId ?? 'personal'] as const,
   projects: (orgId?: string) => [...dashboardKeys.all, 'projects', orgId] as const,
   project: (projectId?: string) => [...dashboardKeys.all, 'project', projectId] as const,
   agents: (orgId?: string) => [...dashboardKeys.all, 'agents', orgId] as const,
@@ -163,7 +167,7 @@ const EMPTY_STATS: DashboardStats = {
   total_behaviors: 0,
 };
 
-export function useDashboardStats() {
+export function useDashboardStats(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: dashboardKeys.stats(),
     queryFn: async (): Promise<DashboardStats> => {
@@ -176,6 +180,7 @@ export function useDashboardStats() {
         return EMPTY_STATS;
       }
     },
+    enabled: options?.enabled ?? true,
     refetchInterval: POLLING_INTERVAL,
     staleTime: POLLING_INTERVAL / 2,
   });
@@ -225,6 +230,42 @@ export function useOrganizations() {
     },
     staleTime: 5 * 60 * 1000,
   });
+}
+
+/**
+ * Response from `GET /v1/console/dashboard-bootstrap` (home dashboard one-shot).
+ */
+export interface DashboardBootstrapResponse {
+  projects: Project[];
+  boards_by_project: Record<string, Board[]>;
+}
+
+/**
+ * Single round-trip for home dashboard: projects + all boards for those projects.
+ * Seeds React Query caches for `dashboardKeys.projects` and `boardKeys.list`.
+ */
+export function useDashboardBootstrap(orgId?: string) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: dashboardKeys.bootstrap(orgId),
+    queryFn: async (): Promise<DashboardBootstrapResponse> => {
+      const qs = orgId ? `?org_id=${encodeURIComponent(orgId)}` : '';
+      return apiClient.get<DashboardBootstrapResponse>(`/v1/console/dashboard-bootstrap${qs}`);
+    },
+    refetchInterval: POLLING_INTERVAL,
+    staleTime: POLLING_INTERVAL / 2,
+  });
+
+  useEffect(() => {
+    const data = query.data;
+    if (!data) return;
+    queryClient.setQueryData(dashboardKeys.projects(orgId), data.projects);
+    for (const [projectId, boards] of Object.entries(data.boards_by_project)) {
+      queryClient.setQueryData(boardKeys.list(projectId), boards);
+    }
+  }, [query.data, queryClient, orgId]);
+
+  return query;
 }
 
 /**
@@ -285,7 +326,7 @@ export function useProject(projectId?: string) {
 /**
  * Fetch recent runs
  */
-export function useRecentRuns(limit = 10) {
+export function useRecentRuns(limit = 10, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: dashboardKeys.recentRuns(limit),
     queryFn: async (): Promise<Run[]> => {
@@ -299,6 +340,7 @@ export function useRecentRuns(limit = 10) {
         throw error;
       }
     },
+    enabled: options?.enabled ?? true,
     refetchInterval: POLLING_INTERVAL,
     staleTime: POLLING_INTERVAL / 2,
   });

@@ -36,6 +36,8 @@ export interface InlineAssigneePopoverProps {
   onClose: () => void;
   /** Whether an assignment mutation is in flight */
   isPending?: boolean;
+  /** When false, option rows show name only (no subtitle line) */
+  showOptionSubtitle?: boolean;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -113,6 +115,7 @@ export const InlineAssigneePopover = memo(function InlineAssigneePopover({
   onUnassign,
   onClose,
   isPending,
+  showOptionSubtitle = true,
 }: InlineAssigneePopoverProps) {
   const [search, setSearch] = useState('');
   const [focusIndex, setFocusIndex] = useState(-1);
@@ -314,7 +317,9 @@ export const InlineAssigneePopover = memo(function InlineAssigneePopover({
                     </span>
                     <span className="iap-option-text">
                       <span className="iap-option-name">{profile.label}</span>
-                      {profile.subtitle && <span className="iap-option-subtitle">{profile.subtitle}</span>}
+                      {showOptionSubtitle && profile.subtitle && (
+                        <span className="iap-option-subtitle">{profile.subtitle}</span>
+                      )}
                     </span>
                     {profile.type === 'agent' && profile.presence && (
                       <span className={`iap-option-presence iap-option-presence-${profile.presence}`} />

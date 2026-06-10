@@ -3,6 +3,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { flattenWhiteboardVendorCssPlugin } from './vite-plugin-flatten-whiteboard-css';
 
 function normalizeModuleId(id: string): string {
   return id.replace(/\\/g, '/');
@@ -11,14 +12,31 @@ function normalizeModuleId(id: string): string {
 function manualChunkForId(id: string): string | undefined {
   const normalized = normalizeModuleId(id);
 
+  // Own chunk for React so tldraw never "owns" shared React copies in a route-only async chunk
+  // (avoids the entry graph importing tldraw's chunk for re-exports).
+  if (/\/node_modules\/(react|react-dom|scheduler)(\/|$)/.test(normalized)) {
+    return 'react-vendor';
+  }
+
+  // @tanstack/react-virtual is used by BoardPage (virtualizer hook) and also by tldraw; if it lives in
+  // whiteboard-vendor, Rollup puts shared helpers there and the entry chunk imports tldraw CSS + JS.
   if (
-    normalized.includes('/node_modules/tldraw/')
-    || normalized.includes('/node_modules/@tldraw/')
-    || normalized.includes('/node_modules/yjs/')
+    normalized.includes('/node_modules/@tanstack/react-virtual/')
+    || normalized.includes('/node_modules/@tanstack/virtual-core/')
+  ) {
+    return 'tanstack-virtual-vendor';
+  }
+
+  // tldraw / @tldraw are only reachable from lazy WhiteboardCanvas — do NOT manual-chunk them into
+  // `whiteboard-vendor`. A dedicated vendor chunk caused Rolldown/Vite to attach shared CSS/runtime
+  // wiring to that chunk so index.html + index.js eagerly imported tldraw CSS/bytes on every route.
+
+  if (
+    normalized.includes('/node_modules/yjs/')
     || normalized.includes('/node_modules/y-protocols/')
     || normalized.includes('/node_modules/lib0/')
   ) {
-    return 'whiteboard-vendor';
+    return 'yjs-vendor';
   }
 
   if (
@@ -46,9 +64,21 @@ function manualChunkForId(id: string): string | undefined {
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), flattenWhiteboardVendorCssPlugin()],
   build: {
-    chunkSizeWarningLimit: 2000, // whiteboard-vendor is ~1.8 MB but fully deferred + prefetch-aware
+    chunkSizeWarningLimit: 2000, // lazy WhiteboardCanvas chunk includes tldraw (~1.6 MB deferred until route)
+    // Do not modulepreload heavy route-owned vendors on first HTML paint — they load on navigation.
+    // (guideai-1158: dashboard usability before whiteboard/markdown chunks.)
+    modulePreload: {
+      resolveDependencies(_filename, deps) {
+        return deps.filter(
+          (dep) =>
+            !dep.includes('whiteboard-vendor')
+            && !dep.includes('markdown-vendor')
+            && !dep.includes('WhiteboardCanvas'),
+        );
+      },
+    },
     rollupOptions: {
       output: {
         manualChunks(id) {

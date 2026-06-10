@@ -1,0 +1,489 @@
+/* Execution progress stack — drawer execution UX (scoped tokens) */
+
+.execution-progress {
+  --execution-accent: rgba(34, 118, 210, 1);
+  --execution-accent-soft: rgba(34, 118, 210, 0.1);
+  --execution-danger: rgb(153, 27, 27);
+  --execution-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.execution-progress--embedded {
+  gap: 8px;
+}
+
+.execution-progress-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.execution-progress-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.execution-progress-title {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+}
+
+.execution-progress-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  margin-top: 4px;
+}
+
+.execution-progress-header-badges,
+.execution-progress-hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.execution-progress-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.execution-progress-loading,
+.execution-progress-idle {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  padding: 8px 0;
+}
+
+.execution-progress-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+/* Phase stepper */
+.execution-phase-stepper {
+  padding: 10px 12px;
+  border-radius: var(--execution-radius);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+  overflow-x: auto;
+}
+
+.execution-phase-stepper-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 10px;
+  min-width: min-content;
+}
+
+.execution-phase-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 72px;
+  text-align: center;
+}
+
+.execution-phase-step-track {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.execution-phase-step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.9);
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
+}
+
+.execution-phase-step--done .execution-phase-step-dot {
+  background: rgba(34, 197, 94, 0.95);
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+}
+
+.execution-phase-step--running .execution-phase-step-dot {
+  background: var(--execution-accent);
+  box-shadow: 0 0 0 3px rgba(34, 118, 210, 0.2);
+}
+
+.execution-phase-step--failed .execution-phase-step-dot {
+  background: rgba(239, 68, 68, 0.95);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+.execution-phase-step--skipped .execution-phase-step-dot {
+  background: rgba(203, 213, 225, 0.7);
+}
+
+.execution-phase-step-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  line-height: 1.2;
+}
+
+.execution-phase-step-duration {
+  font-size: 9px;
+  color: var(--color-text-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .execution-phase-step-dot {
+    transition: none;
+  }
+}
+
+/* Live strip */
+.execution-live-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(34, 118, 210, 0.12);
+  background: var(--execution-accent-soft);
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+}
+
+.execution-live-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(34, 118, 210, 0.25);
+  border-top-color: var(--execution-accent);
+  border-radius: 50%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .execution-live-spinner {
+    animation: execution-spin 0.85s linear infinite;
+  }
+}
+
+@keyframes execution-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.execution-live-strip-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+/* Connection pill */
+.execution-connection-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--color-text-secondary);
+}
+
+.execution-connection-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.95);
+}
+
+.execution-connection-pill--live .execution-connection-pill-dot {
+  background: rgba(34, 197, 94, 0.95);
+}
+
+.execution-connection-pill--poll .execution-connection-pill-dot {
+  background: rgba(234, 179, 8, 0.95);
+}
+
+.execution-connection-pill--off .execution-connection-pill-dot {
+  background: rgba(239, 68, 68, 0.75);
+}
+
+/* Failure card */
+.execution-failure-card {
+  padding: 14px 16px;
+  border-radius: var(--execution-radius);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  background: rgba(254, 242, 242, 0.85);
+  color: var(--color-text-primary);
+}
+
+.execution-failure-card-title {
+  margin: 0 0 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--execution-danger);
+}
+
+.execution-failure-phase {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.execution-failure-class {
+  margin-top: 8px;
+  font-size: var(--text-xs);
+}
+
+.execution-failure-class-label {
+  display: block;
+  color: var(--color-text-tertiary);
+  margin-bottom: 2px;
+}
+
+.execution-failure-class code {
+  font-size: var(--text-xs);
+}
+
+.execution-failure-message {
+  margin: 10px 0 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-text-primary);
+}
+
+.execution-failure-run {
+  margin-top: 10px;
+  font-size: var(--text-xs);
+}
+
+.execution-failure-run-id {
+  display: block;
+  margin-top: 4px;
+  word-break: break-all;
+  font-size: 11px;
+}
+
+.execution-failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.execution-failure-actions a.execution-action-ghost {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+.execution-failure-actions a.execution-action-ghost:focus-visible {
+  outline: 2px solid rgba(34, 118, 210, 0.45);
+  outline-offset: 2px;
+}
+
+/* Inline gate */
+.execution-inline-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.execution-clarification-panel {
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(234, 179, 8, 0.25);
+  background: rgba(254, 252, 232, 0.9);
+}
+
+.execution-strict-gate {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(34, 118, 210, 0.2);
+  background: rgba(239, 246, 255, 0.95);
+}
+
+.execution-strict-gate-copy {
+  margin: 0 0 10px;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+}
+
+/* Phase timeline */
+.execution-phase-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.execution-phase-timeline--empty {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  padding: 8px 4px;
+}
+
+.execution-phase-timeline-group {
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+  padding: 0 4px 4px;
+}
+
+.execution-phase-timeline-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px 8px;
+  font-weight: var(--font-semibold);
+  font-size: var(--text-xs);
+}
+
+.execution-phase-timeline-summary::-webkit-details-marker {
+  display: none;
+}
+
+.execution-phase-timeline-phase-name {
+  color: var(--color-text-primary);
+}
+
+.execution-phase-timeline-count {
+  color: var(--color-text-tertiary);
+  font-weight: 600;
+}
+
+.execution-phase-timeline-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.execution-phase-timeline-step {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.execution-phase-timeline-step-title {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-xs);
+}
+
+.execution-phase-timeline-step-meta {
+  color: var(--color-text-tertiary);
+  font-weight: 500;
+}
+
+.execution-phase-timeline-step-body {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 200px;
+  overflow: auto;
+  color: var(--color-text-secondary);
+}
+
+.execution-phase-timeline-step-error {
+  margin-top: 8px;
+  font-size: var(--text-xs);
+  color: var(--execution-danger);
+}
+
+.execution-progress .execution-action-button:focus-visible,
+.execution-failure-actions .execution-action-button:focus-visible {
+  outline: 2px solid rgba(34, 118, 210, 0.45);
+  outline-offset: 2px;
+}
+
+/* Knowledge retrieval receipt (trace_summary.knowledge_retrieval) */
+.execution-knowledge-receipt {
+  margin-top: 4px;
+}
+
+.execution-knowledge-receipt-details {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.9);
+  padding: 8px 10px;
+}
+
+.execution-knowledge-receipt-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-secondary);
+}
+
+.execution-knowledge-receipt-summary::-webkit-details-marker {
+  display: none;
+}
+
+.execution-knowledge-receipt-heading {
+  color: var(--color-text-primary);
+}
+
+.execution-knowledge-receipt-count {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+}
+
+.execution-knowledge-receipt-panel {
+  margin-top: 8px;
+}
+
+.execution-knowledge-receipt-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.execution-knowledge-receipt-item {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.execution-knowledge-receipt-title {
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+}
+
+.execution-knowledge-receipt-meta {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+}

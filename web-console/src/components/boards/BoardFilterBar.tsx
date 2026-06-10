@@ -25,6 +25,7 @@ const TYPE_OPTIONS: Array<{ label: string; value: WorkItemType; icon: string }> 
   { label: 'Feature', value: 'feature', icon: '◇' },
   { label: 'Task', value: 'task', icon: '•' },
   { label: 'Bug', value: 'bug', icon: '🐛' },
+  { label: 'Research', value: 'research', icon: 'R' },
 ];
 
 const PRIORITY_OPTIONS: Array<{ label: string; value: WorkItemPriority; cssClass: string }> = [

@@ -141,6 +141,7 @@
 
 .auth-stage-panel-title {
   margin: 0;
+  font-family: var(--font-display);
   font-size: clamp(1.28rem, 2.1vw, 1.56rem);
   line-height: 1.12;
   letter-spacing: -0.038em;

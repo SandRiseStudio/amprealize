@@ -11,6 +11,9 @@
  * - /agents: Agent registry (protected)
  * - /bci: BCI Query panel (protected)
  * - /extraction: Behavior extraction (protected)
+ * - /settings: Settings hub (profile, security, connector, flags)
+ * - /settings/profile: User profile + agent workspace preferences
+ * - /settings/security: Security settings (MFA, OAuth, etc.)
  *
  * Following:
  * - behavior_validate_accessibility (Student)
@@ -25,6 +28,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { AppLayout } from './components/workspace/AppLayout';
 import { useModules } from './api/modules';
 import type { ReflectionCandidate } from './api/reflection';
+import { RouteMainColumnSkeleton } from './components/loading';
 import './styles/design-system.css';
 import './App.css';
 
@@ -35,6 +39,15 @@ const BCIResponsePanel = lazy(() => import('./components/BCIResponsePanel').then
 const ExtractionCandidates = lazy(() => import('./components/ExtractionCandidates').then((module) => ({ default: module.ExtractionCandidates })));
 const NotFoundPage = lazy(() => import('./components/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
 const SecuritySettings = lazy(() => import('./components/SecuritySettings').then((module) => ({ default: module.SecuritySettings })));
+const SettingsHubPage = lazy(() =>
+  import('./components/profile/SettingsHubPage').then((module) => ({ default: module.SettingsHubPage }))
+);
+const UserProfilePage = lazy(() =>
+  import('./components/profile/UserProfilePage').then((module) => ({ default: module.UserProfilePage }))
+);
+const LocalConnectorPairingPage = lazy(() =>
+  import('./components/LocalConnectorPairingPage').then((module) => ({ default: module.LocalConnectorPairingPage }))
+);
 const FeatureFlagsPage = lazy(() => import('./components/FeatureFlagsPage').then((module) => ({ default: module.FeatureFlagsPage })));
 const ProjectsPage = lazy(() => import('./components/projects/ProjectsPage').then((module) => ({ default: module.ProjectsPage })));
 const NewProjectPage = lazy(() => import('./components/projects/NewProjectPage').then((module) => ({ default: module.NewProjectPage })));
@@ -46,9 +59,12 @@ const AgentsPage = lazy(() => import('./components/agents/AgentsPage').then((mod
 const GitHubAppCallbackPage = lazy(() => import('./pages/GitHubAppCallbackPage').then((module) => ({ default: module.GitHubAppCallbackPage })));
 const WikiPage = lazy(() => import('./components/wiki/WikiPage').then((module) => ({ default: module.WikiPage })));
 const WhiteboardPage = lazy(() => import('./components/whiteboard/WhiteboardPage').then((module) => ({ default: module.WhiteboardPage })));
+const TraceExplorerPage = lazy(() =>
+  import('./components/observability/TraceExplorerPage').then((module) => ({ default: module.TraceExplorerPage }))
+);
 
 function RouteFallback() {
-  return <div className="app-route-fallback animate-fade-in-up">Loading…</div>;
+  return <RouteMainColumnSkeleton />;
 }
 
 // Create a client
@@ -143,8 +159,11 @@ function AnimatedRoutes() {
                 {isModuleEnabled('behaviors') && (
                   <Route path="/bci/*" element={<BCILayout />} />
                 )}
-                <Route path="/settings" element={<SecuritySettings />} />
+                <Route path="/settings/profile" element={<UserProfilePage />} />
+                <Route path="/settings/security" element={<SecuritySettings />} />
+                <Route path="/settings/local-connector" element={<LocalConnectorPairingPage />} />
                 <Route path="/settings/feature-flags" element={<FeatureFlagsPage />} />
+                <Route path="/settings" element={<SettingsHubPage />} />
                 <Route path="/orgs" element={<OrganizationsPage />} />
                 {isModuleEnabled('agents') && (
                   <Route path="/agents" element={<AgentsPage />}>
@@ -155,6 +174,8 @@ function AnimatedRoutes() {
                 <Route path="/projects" element={<ProjectsPage />} />
                 <Route path="/projects/new" element={<NewProjectPage />} />
                 <Route path="/projects/:projectId" element={<ProjectPage />} />
+                <Route path="/projects/:projectId/traces" element={<TraceExplorerPage />} />
+                <Route path="/projects/:projectId/traces/:traceId" element={<TraceExplorerPage />} />
                 <Route path="/projects/:projectId/settings" element={<ProjectSettingsPage />} />
                 <Route path="/projects/:projectId/boards/:boardId" element={<BoardPage />} />
                 <Route path="/projects/:projectId/boards/:boardId/items/:itemId" element={<BoardPage />} />

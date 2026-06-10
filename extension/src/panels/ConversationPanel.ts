@@ -22,6 +22,21 @@ export interface ConversationPanelConfig {
 	authToken?: string;
 }
 
+const DEFAULT_CHAT_MODELS = [
+	{
+		label: 'DeepSeek V4 Flash (NVIDIA)',
+		llm_model_id: 'nvidia-deepseek-v4-flash',
+		llm_provider: 'nvidia',
+		credential_scope: 'platform'
+	},
+	{
+		label: 'MiniMax M2.7 (NVIDIA)',
+		llm_model_id: 'nvidia-minimax-m2-7',
+		llm_provider: 'nvidia',
+		credential_scope: 'platform'
+	}
+] as const;
+
 // ============================================
 // Panel Implementation
 // ============================================
@@ -174,6 +189,9 @@ export class ConversationPanel {
 
 	private _getHtmlForWebview(): string {
 		const nonce = crypto.randomBytes(16).toString('base64');
+		const modelOptions = DEFAULT_CHAT_MODELS.map((model) => (
+			`<option value="${escapeHtmlAttr(model.llm_model_id)}" data-provider="${escapeHtmlAttr(model.llm_provider)}" data-scope="${escapeHtmlAttr(model.credential_scope)}">${escapeHtml(model.label)}</option>`
+		)).join('');
 
 		return `<!DOCTYPE html>
 <html lang="en">
@@ -269,6 +287,17 @@ export class ConversationPanel {
 			border-top: 1px solid var(--vscode-panel-border);
 			flex-shrink: 0;
 		}
+		.model-select {
+			width: 210px;
+			padding: 8px 10px;
+			border: 1px solid var(--vscode-input-border);
+			border-radius: 4px;
+			background: var(--vscode-input-background);
+			color: var(--vscode-input-foreground);
+			font: inherit;
+			font-size: 12px;
+			flex-shrink: 0;
+		}
 		.composer textarea {
 			flex: 1;
 			resize: none;
@@ -317,6 +346,9 @@ export class ConversationPanel {
 	<div class="messages" id="messages"></div>
 
 	<div class="composer">
+		<select id="model-select" class="model-select" aria-label="Choose chat model">
+			${modelOptions}
+		</select>
 		<textarea id="composer-input" placeholder="Type a message… (Cmd+Enter or Ctrl+Enter to send)" rows="1"></textarea>
 		<button id="send-btn" disabled>Send</button>
 	</div>
@@ -329,6 +361,7 @@ export class ConversationPanel {
 
 			const messagesEl = document.getElementById('messages');
 			const composerInput = document.getElementById('composer-input');
+			const modelSelect = document.getElementById('model-select');
 			const sendBtn = document.getElementById('send-btn');
 			const statusDot = document.getElementById('status-dot');
 			const headerTitle = document.getElementById('header-title');
@@ -480,13 +513,19 @@ export class ConversationPanel {
 			function sendMessage() {
 				const content = composerInput.value.trim();
 				if (!content) { return; }
+				const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+				const metadata = {
+					llm_model_id: modelSelect.value,
+					llm_provider: selectedOption.dataset.provider,
+					credential_scope: selectedOption.dataset.scope
+				};
 
 				// Notify extension host
-				vscode.postMessage({ type: 'sendMessage', content: content });
+				vscode.postMessage({ type: 'sendMessage', content: content, metadata: metadata });
 
 				// Send over WebSocket
 				if (ws && ws.readyState === WebSocket.OPEN) {
-					ws.send(JSON.stringify({ type: 'message.send', content: content }));
+					ws.send(JSON.stringify({ type: 'message.send', content: content, metadata: metadata }));
 				}
 
 				composerInput.value = '';

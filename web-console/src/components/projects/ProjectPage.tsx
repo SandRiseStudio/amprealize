@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
 import { useShellTitle } from '../workspace/useShell';
 import { useProject } from '../../api/dashboard';
 import { useBoards, useCreateBoard } from '../../api/boards';
@@ -16,6 +16,7 @@ import { useProjectAgents } from '../../api/agentRegistry';
 import { useAgentPresence } from '../../hooks/useAgentPresence';
 import { ProjectAgentPresenceSummary } from './ProjectAgentPresenceSummary';
 import { ProjectSettingsContent } from './ProjectSettingsPage';
+import { ProjectBoardCardGridSkeleton } from '../loading';
 import './ProjectPage.css';
 
 function getRelativeTime(dateString?: string): string {
@@ -245,6 +246,15 @@ export function ProjectPage(): React.JSX.Element {
           </div>
 
           <div className="project-header-right">
+            {activeTab === 'overview' && (
+              <Link
+                className="project-traces-link pressable"
+                to={`/projects/${projectId}/traces`}
+                data-haptic="light"
+              >
+                Traces
+              </Link>
+            )}
             {activeTab === 'overview' && primaryBoardId && (
               <button
                 type="button"
@@ -301,52 +311,52 @@ export function ProjectPage(): React.JSX.Element {
                 </p>
               </div>
 
-          <div className="boards-grid" role="list">
-            {boardsLoading ? (
-              <>
-                <div className="board-card skeleton animate-shimmer" />
-                <div className="board-card skeleton animate-shimmer" />
-                <div className="board-card skeleton animate-shimmer" />
-              </>
-            ) : sortedBoards.length > 0 ? (
-              sortedBoards.map((board) => (
-                <button
-                  key={board.board_id}
-                  type="button"
-                  className="board-card pressable animate-fade-in-up"
-                  onClick={() => navigate(`/projects/${projectId}/boards/${board.board_id}`)}
-                  data-haptic="light"
-                  role="listitem"
-                  aria-label={`Open board ${board.name}`}
-                >
-                  <div className="board-card-top">
-                    <h3 className="board-card-title">{board.name}</h3>
-                    {board.is_default && <span className="board-pill">Default</span>}
-                  </div>
-                  {board.description && <p className="board-card-description">{board.description}</p>}
-                  <div className="board-card-meta">
-                    <span className="board-meta">Updated {getRelativeTime(board.updated_at)}</span>
-                    <span className="board-meta-id">{board.board_id.replace('brd-', '#')}</span>
-                  </div>
-                </button>
-              ))
-            ) : (
-              <div className="boards-empty animate-fade-in-up" role="listitem">
-                <h3 className="boards-empty-title">No boards yet</h3>
-                <p className="boards-empty-description">
-                  Create your first board to organize work with ready-made sprint columns.
-                </p>
-                <button
-                  type="button"
-                  className="project-new-board pressable"
-                  onClick={openCreate}
-                  data-haptic="medium"
-                >
-                  Create your first board
-                </button>
-              </div>
-            )}
-          </div>
+          {boardsLoading ? (
+            <div className="boards-grid" role="status" aria-busy="true" aria-label="Loading boards">
+              <ProjectBoardCardGridSkeleton count={3} />
+            </div>
+          ) : (
+            <div className="boards-grid" role="list">
+              {sortedBoards.length > 0 ? (
+                sortedBoards.map((board) => (
+                  <button
+                    key={board.board_id}
+                    type="button"
+                    className="board-card pressable animate-fade-in-up"
+                    onClick={() => navigate(`/projects/${projectId}/boards/${board.board_id}`)}
+                    data-haptic="light"
+                    role="listitem"
+                    aria-label={`Open board ${board.name}`}
+                  >
+                    <div className="board-card-top">
+                      <h3 className="board-card-title">{board.name}</h3>
+                      {board.is_default && <span className="board-pill">Default</span>}
+                    </div>
+                    {board.description && <p className="board-card-description">{board.description}</p>}
+                    <div className="board-card-meta">
+                      <span className="board-meta">Updated {getRelativeTime(board.updated_at)}</span>
+                      <span className="board-meta-id">{board.board_id.replace('brd-', '#')}</span>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="boards-empty animate-fade-in-up" role="listitem">
+                  <h3 className="boards-empty-title">No boards yet</h3>
+                  <p className="boards-empty-description">
+                    Create your first board to organize work with ready-made sprint columns.
+                  </p>
+                  <button
+                    type="button"
+                    className="project-new-board pressable"
+                    onClick={openCreate}
+                    data-haptic="medium"
+                  >
+                    Create your first board
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         {createOpen && (

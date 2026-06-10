@@ -50,6 +50,7 @@
 }
 
 .dashboard-title {
+  font-family: var(--font-display);
   font-size: clamp(1.1rem, 1.3vw, 1.28rem);
   font-weight: var(--font-semibold);
   letter-spacing: -0.04em;
@@ -96,6 +97,7 @@
 
 .dashboard-focus-title {
   margin: 0;
+  font-family: var(--font-display);
   font-size: clamp(1rem, 1.2vw, 1.18rem);
   line-height: 0.98;
   letter-spacing: -0.045em;

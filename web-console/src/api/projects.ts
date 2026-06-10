@@ -110,6 +110,7 @@ export function useCreateProject() {
       createProject(input.orgId, input.payload),
     onSuccess: async (_created, variables) => {
       await queryClient.invalidateQueries({ queryKey: dashboardKeys.projects(variables.orgId) });
+      await queryClient.invalidateQueries({ queryKey: dashboardKeys.bootstrap(variables.orgId) });
       await queryClient.invalidateQueries({ queryKey: dashboardKeys.stats() });
     },
   });

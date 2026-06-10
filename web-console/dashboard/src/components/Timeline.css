@@ -19,13 +19,13 @@
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 0.75rem;
-  background: linear-gradient(135deg, var(--accent), var(--accent-secondary));
+  background: var(--accent);
   color: white;
   display: grid;
   place-items: center;
   font-weight: 700;
   font-size: 0.95rem;
-  box-shadow: 0 14px 25px rgba(124, 92, 255, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.25);
 }
 
 .timeline__entry:not(:last-child)::after {
@@ -35,7 +35,7 @@
   top: 3rem;
   width: 2px;
   height: calc(100% - 2.5rem);
-  background: linear-gradient(180deg, rgba(124, 92, 255, 0.4), rgba(76, 133, 255, 0));
+  background: rgba(124, 92, 255, 0.35);
 }
 
 .timeline__content {
@@ -43,7 +43,7 @@
   border-radius: 1rem;
   padding: 1.1rem 1.25rem;
   border: 1px solid var(--border);
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+  border-top-color: rgba(255, 255, 255, 0.75);
 }
 
 body.dark .timeline__content {

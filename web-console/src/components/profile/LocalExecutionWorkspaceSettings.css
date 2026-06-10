@@ -1,0 +1,74 @@
+/* Local execution / workspace block — uses design tokens from SecuritySettings parent import */
+
+.lec-workspace-settings .lec-workspace-intro {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.lec-workspace-settings .lec-workspace-intro strong {
+  color: var(--color-text-primary);
+}
+
+.lec-workspace-settings .checkbox-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.lec-workspace-settings .checkbox-row input {
+  margin-top: 0.2rem;
+}
+
+.lec-workspace-settings .local-workspace-opt-in {
+  margin-top: var(--space-4);
+}
+
+.lec-workspace-settings .lec-connect-verify-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.lec-workspace-settings .lec-connect-verify-intro {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.lec-workspace-settings .lec-connect-verify-hint {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted, #6b7280);
+}
+
+.lec-workspace-settings .lec-connect-status {
+  margin-top: var(--space-3);
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.lec-workspace-settings .lec-connect-status code {
+  font-size: 0.85em;
+}
+
+.lec-workspace-settings .lec-connect-status--ok {
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.lec-workspace-settings .lec-connect-status--warn {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.lec-workspace-settings .lec-connect-status--error {
+  background: #fef2f2;
+  color: #991b1b;
+}

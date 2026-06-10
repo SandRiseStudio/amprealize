@@ -220,7 +220,7 @@ export const ProfileMenu = memo(function ProfileMenu({
             role="menuitem"
             onClick={() => {
               closeMenu();
-              navigate('/settings');
+              navigate('/settings/profile');
             }}
           >
             Profile

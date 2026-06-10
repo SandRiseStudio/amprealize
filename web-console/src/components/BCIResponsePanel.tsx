@@ -2,7 +2,8 @@
  * BCIResponsePanel - Query input and behavior retrieval display
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useBCIRetrieve, useBCIStatus, type BehaviorMatch } from '../api/bci';
 import { CitationHighlighter } from './CitationHighlighter';
 import './BCIResponsePanel.css';
@@ -12,11 +13,25 @@ interface BCIResponsePanelProps {
 }
 
 export function BCIResponsePanel({ onBehaviorSelect }: BCIResponsePanelProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const [topK, setTopK] = useState(5);
 
   const { data: status } = useBCIStatus();
   const retrieveMutation = useBCIRetrieve();
+
+  /** Deep-link from chat artifact chips: `/bci?behavior=<id>` */
+  useEffect(() => {
+    const focus = searchParams.get('behavior') ?? searchParams.get('behaviorId');
+    if (!focus?.trim()) return;
+    const q = focus.trim();
+    setQuery(q);
+    retrieveMutation.mutate({ query: q, top_k: topK });
+    const next = new URLSearchParams(searchParams);
+    next.delete('behavior');
+    next.delete('behaviorId');
+    setSearchParams(next, { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- run once on mount for deep-link
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

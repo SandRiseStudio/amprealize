@@ -16,13 +16,45 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { apiClient, ApiError } from './client';
-import { razeLog } from '../telemetry/raze';
+import { perfMark, razeLog } from '../telemetry/raze';
+
+// ---------------------------------------------------------------------------
+// Opt-in board load timing (baseline before/after perf work)
+// Enable: localStorage.setItem('amprealize.boardLoadBench', '1') then reload.
+// Disable: localStorage.removeItem('amprealize.boardLoadBench')
+// Emits console [boardLoadBench] lines + performance.mark('perf:board:…').
+// ---------------------------------------------------------------------------
+
+const BOARD_LOAD_BENCH_LS_KEY = 'amprealize.boardLoadBench';
+
+/** True when client-side board/work-item load benchmarking is enabled. */
+export function isBoardLoadBenchEnabled(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(BOARD_LOAD_BENCH_LS_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function boardLoadBench(phase: string, detail: Record<string, unknown>): void {
+  if (!isBoardLoadBenchEnabled()) return;
+  console.info('[boardLoadBench]', { phase, ...detail });
+}
+
+function boardLoadBenchMark(name: string, detail: Record<string, unknown> = {}): void {
+  if (!isBoardLoadBenchEnabled()) return;
+  try {
+    perfMark(`board:${name}`, detail);
+  } catch {
+    /* perf API missing in test env */
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types (mirrors amprealize.multi_tenant.board_contracts)
 // ---------------------------------------------------------------------------
 
-export type WorkItemType = 'goal' | 'feature' | 'task' | 'bug';
+export type WorkItemType = 'goal' | 'feature' | 'task' | 'bug' | 'research';
 
 /** Map legacy API type names to current names (pre-migration compat). */
 const ITEM_TYPE_ALIASES: Record<string, WorkItemType> = {
@@ -216,6 +248,8 @@ export interface CreateWorkItemRequest {
   title: string;
   description?: string;
   priority?: WorkItemPriority;
+  research_url?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface UpdateWorkItemRequest {
@@ -235,6 +269,7 @@ export interface UpdateWorkItemRequest {
   due_date?: string | null;
   behavior_id?: string | null;
   run_id?: string | null;
+  research_url?: string | null;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -467,8 +502,10 @@ export function useBoard(boardId?: string, options?: { enabled?: boolean }) {
    ───────────────────────────────────────────────────────────────────────────── */
 
 /** Must stay ≤ the deployed API's `GET /v1/work-items` `limit` max (see board_api_v2, le=250). */
+/** Default list page size; board page uses {@link MAX_ITEMS_PAGE_SIZE} for fewer hydration round-trips. */
 const DEFAULT_ITEMS_PAGE_SIZE = 100;
-const MAX_ITEMS_PAGE_SIZE = 250;
+/** Matches `GET /v1/work-items` max `limit` (board_api_v2). */
+export const MAX_ITEMS_PAGE_SIZE = 250;
 
 /** Stable empty array to avoid reference changes when data is null */
 const EMPTY_ITEMS: WorkItem[] = [];
@@ -476,6 +513,12 @@ interface WorkItemsMeta {
   total: number;
   loadedCount: number;
   isPartial: boolean;
+  /**
+   * When true, `useBoardBootstrap` just seeded items + meta; `useWorkItems`
+   * must not treat warm partial cache as an invalidation merge (avoids serial
+   * `fetchAllWorkItemsPaged`). Cleared on first `useWorkItems` queryFn run.
+   */
+  seededFromBootstrap?: boolean;
 }
 
 const EMPTY_WORK_ITEMS_META: WorkItemsMeta = {
@@ -483,6 +526,22 @@ const EMPTY_WORK_ITEMS_META: WorkItemsMeta = {
   loadedCount: 0,
   isPartial: false,
 };
+
+/**
+ * Exported for unit tests. True when warm cache should run `fetchAllWorkItemsPaged`
+ * (invalidate / resync path), not the bootstrap first-paint path.
+ */
+export function shouldResyncAllWorkItemPages(prevItemsLength: number, prevMeta: WorkItemsMeta): boolean {
+  const warmItems = prevItemsLength > 0;
+  const isFreshManualReset =
+    prevMeta.total === 0 && !prevMeta.isPartial && prevMeta.loadedCount === 0;
+  return (
+    warmItems
+    && !isFreshManualReset
+    && !prevMeta.seededFromBootstrap
+    && (prevMeta.isPartial || (prevMeta.total > 0 && !prevMeta.isPartial))
+  );
+}
 
 interface WorkItemsResult {
   /** All work items for the board */
@@ -556,7 +615,11 @@ function normalizeWorkItemQuery(query?: BoardWorkItemQuery): BoardWorkItemQuery 
   const normalized: BoardWorkItemQuery = {};
 
   if (query.titleSearch?.trim()) normalized.titleSearch = query.titleSearch.trim();
-  if (query.itemTypes?.length) normalized.itemTypes = [...new Set(query.itemTypes)];
+  if (query.itemTypes?.length) {
+    // Mirror BoardService: when narrowing by type, include research in the fetch/filter key.
+    const merged: WorkItemType[] = [...query.itemTypes, 'research'];
+    normalized.itemTypes = [...new Set(merged)];
+  }
   if (query.priorities?.length) normalized.priorities = [...new Set(query.priorities)];
   if (query.assigneeId) normalized.assigneeId = query.assigneeId;
   if (query.assigneeType) normalized.assigneeType = query.assigneeType;
@@ -639,6 +702,8 @@ interface WorkItemsPageResponse {
   items: WorkItem[];
   total: number;
   hasMore: boolean;
+  /** Set for batch / parallel fetches (stable merge / logging). */
+  offset?: number;
 }
 
 async function fetchWorkItemsPage(
@@ -676,12 +741,133 @@ async function fetchWorkItemsPage(
   };
 }
 
+/** One window from POST /v1/work-items/batch-pages (snake_case from API). */
+interface WorkItemsBatchPageRaw {
+  offset: number;
+  items: WorkItem[];
+  has_more?: boolean;
+}
+
+/**
+ * Fetch several board pages in one HTTP request when there are no active board
+ * filters (server batch-pages matches unfiltered list_work_items).
+ *
+ * @param knownTotal When > 0 (e.g. from bootstrap), omit `include_total` on the batch
+ *   request so the lead query skips `COUNT(*) OVER()`; per-chunk `hasMore` is derived
+ *   as `offset + itemCount < knownTotal`.
+ */
+async function fetchWorkItemsPagesBatch(
+  boardId: string,
+  pageSize: number,
+  offsets: number[],
+  query?: BoardWorkItemQuery,
+  knownTotal?: number,
+): Promise<WorkItemsPageResponse[]> {
+  if (hasActiveBoardFilters(query)) {
+    return Promise.all(
+      offsets.map((off) =>
+        fetchWorkItemsPage(boardId, pageSize, off, false, query).then((page) => ({
+          ...page,
+          offset: off,
+        })),
+      ),
+    );
+  }
+  const useKnownTotal = typeof knownTotal === 'number' && knownTotal > 0;
+  // When total is unknown, ask the batch handler for COUNT(*) OVER() on the smallest
+  // offset so has_more is exact for windows like [100,200,300,400].
+  const includeTotal = !useKnownTotal;
+  for (let attempt = 0; attempt <= WORK_ITEMS_429_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const response = await apiClient.post<{
+        pages?: WorkItemsBatchPageRaw[];
+        total?: number;
+      }>('/v1/work-items/batch-pages', {
+        board_id: boardId,
+        page_size: pageSize,
+        offsets,
+        include_total: includeTotal,
+      });
+      const sharedTotal = useKnownTotal ? knownTotal : (response.total ?? 0);
+      return (response.pages ?? []).map((p) => {
+        const items = normalizePageItems(p.items ?? []);
+        const off = typeof p.offset === 'number' ? p.offset : 0;
+        const hasMore =
+          useKnownTotal && knownTotal > 0
+            ? off + items.length < knownTotal
+            : p.has_more === true;
+        return {
+          items,
+          total: sharedTotal,
+          hasMore,
+          offset: off,
+        };
+      });
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 429 || attempt === WORK_ITEMS_429_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+      await sleep(WORK_ITEMS_429_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  return offsets.map((off) => ({ items: [], total: 0, hasMore: false, offset: off }));
+}
+
 function normalizePageItems(items: WorkItem[]): WorkItem[] {
   return items.map((item) => ({
     ...item,
     item_type: normalizeItemType(item.item_type),
     points: item.points ?? item.story_points ?? null,
   }));
+}
+
+function workItemHasAssignee(item: WorkItem): boolean {
+  return Boolean(item.assignee_id && item.assignee_type);
+}
+
+/**
+ * Prefer the work item row with the newer `updated_at` when reconciling list cache
+ * with freshly fetched pages. Avoids brief UI flicker (e.g. assignee snapping back
+ * to unassigned) when list reads hit a lagging read replica right after a mutation
+ * applied on the primary.
+ *
+ * When timestamps tie, prefer the row that still has an assignee pair — optimistic
+ * assign patches do not bump `updated_at`, so a stale list row can otherwise win.
+ */
+function preferNewerWorkItem(previous: WorkItem, incoming: WorkItem): WorkItem {
+  const prevTs = Date.parse(previous.updated_at);
+  const nextTs = Date.parse(incoming.updated_at);
+  if (Number.isFinite(prevTs) && Number.isFinite(nextTs)) {
+    if (prevTs > nextTs) return previous;
+    if (prevTs < nextTs) return incoming;
+  }
+  const prevA = workItemHasAssignee(previous);
+  const incA = workItemHasAssignee(incoming);
+  if (prevA && !incA) return previous;
+  if (!prevA && incA) return incoming;
+  return incoming;
+}
+
+/** If assign response omits assignee fields, merge from the mutation input (assign-only). */
+function mergeAssignResponseWithVariables(
+  updated: WorkItem,
+  variables: { assigneeId: string; assigneeType: 'user' | 'agent' },
+): WorkItem {
+  if (workItemHasAssignee(updated)) return updated;
+  return { ...updated, assignee_id: variables.assigneeId, assignee_type: variables.assigneeType };
+}
+
+/** Per-item merge following {@link preferNewerWorkItem}; order follows `incoming`. */
+function reconcileVisibleWorkItems(
+  previous: WorkItem[] | undefined,
+  incoming: WorkItem[],
+): WorkItem[] {
+  const prevById = new Map((previous ?? []).map((item) => [item.item_id, item]));
+  return incoming.map((inc) => {
+    const prev = prevById.get(inc.item_id);
+    if (!prev) return inc;
+    return preferNewerWorkItem(prev, inc);
+  });
 }
 
 export function useBoardBootstrap(
@@ -695,8 +881,9 @@ export function useBoardBootstrap(
     queryKey: boardKeys.bootstrap(boardId),
     queryFn: async (): Promise<BoardBootstrapResponse | null> => {
       if (!boardId) return null;
+      const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
       const response = await apiClient.get<BoardBootstrapResponse>(
-        `/v1/boards/${boardId}/bootstrap?limit=${pageSize}&offset=0`
+        `/v1/boards/${boardId}/bootstrap?limit=${pageSize}&offset=0&include_rollups=false`
       );
       const items = normalizePageItems(response.items ?? []);
       const payload: BoardBootstrapResponse = {
@@ -705,17 +892,35 @@ export function useBoardBootstrap(
         rollups: response.rollups ?? [],
       };
 
+      const elapsedMs =
+        typeof performance !== 'undefined' ? Math.round(performance.now() - t0) : 0;
+      boardLoadBench('bootstrap_complete', {
+        board_id: boardId,
+        duration_ms: elapsedMs,
+        page_size: pageSize,
+        item_count: items.length,
+        total: payload.total,
+        has_more: payload.has_more,
+        rollup_count: payload.rollups?.length ?? 0,
+      });
+      boardLoadBenchMark('bootstrap_complete', {
+        board_id: boardId,
+        duration_ms: elapsedMs,
+        item_count: items.length,
+        total: payload.total,
+      });
+
       queryClient.setQueryData(boardKeys.board(boardId), payload.board);
       queryClient.setQueryData<WorkItem[]>(boardKeys.items(boardId, undefined), items);
       queryClient.setQueryData<WorkItemsMeta>(boardKeys.itemsMeta(boardId, undefined), {
         total: payload.total,
         loadedCount: items.length,
         isPartial: payload.has_more && items.length < payload.total,
+        seededFromBootstrap: true,
       });
-      queryClient.setQueryData(
-        boardKeys.rollups(boardId, undefined, false),
-        payload.rollups,
-      );
+      // Never seed rollups as []: that satisfies useBoardAllRollups with staleTime and
+      // suppresses GET /progress-rollups (goal/feature chips lose progress coloring).
+      queryClient.removeQueries({ queryKey: [...boardKeys.all, 'rollups', boardId] });
       return payload;
     },
     enabled: Boolean(boardId) && (options?.enabled ?? true),
@@ -789,12 +994,15 @@ async function fetchAllWorkItemsPaged(
   pageSize: number,
   query?: BoardWorkItemQuery,
 ): Promise<{ serverMerged: WorkItem[]; total: number }> {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
   let offset = 0;
   let serverMerged: WorkItem[] = [];
   let total = 0;
+  let pageFetches = 0;
   for (let guard = 0; guard < 500; guard += 1) {
     const includeTotal = guard === 0;
     const page = await fetchWorkItemsPage(boardId, pageSize, offset, includeTotal, query);
+    pageFetches += 1;
     if (includeTotal || total === 0) {
       total = page.total;
     }
@@ -804,8 +1012,111 @@ async function fetchAllWorkItemsPaged(
     }
     offset += page.items.length;
   }
+  const elapsedMs = typeof performance !== 'undefined' ? Math.round(performance.now() - t0) : 0;
+  boardLoadBench('fetch_all_work_items_paged', {
+    board_id: boardId,
+    duration_ms: elapsedMs,
+    page_fetches: pageFetches,
+    item_count: serverMerged.length,
+    total,
+  });
+  boardLoadBenchMark('fetch_all_pages', {
+    board_id: boardId,
+    duration_ms: elapsedMs,
+    page_fetches: pageFetches,
+  });
   return { serverMerged, total };
 }
+
+/** Matches batch-pages fan-out in `useWorkItems` background hydration. */
+const BOARD_HYDRATION_PARALLELISM = 8;
+
+type HydrationWaveState = {
+  serverMerged: WorkItem[];
+  total: number;
+  isPartial: boolean;
+  /** Next server `offset` for GET / batch-pages (matches `WorkItemsMeta.loadedCount` for normal boards). */
+  nextOffset: number;
+};
+
+function readBoardHydrateSleepMs(): number {
+  try {
+    const raw = typeof window !== 'undefined' ? window.localStorage?.getItem('amprealize.hydrateSleepMs') : null;
+    if (raw === null || raw === undefined) return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * One hydration wave: either one serial page or up to BOARD_HYDRATION_PARALLELISM
+ * parallel windows (batch or parallel GET when filtered).
+ */
+async function runSingleHydrationWave(
+  boardId: string,
+  pageSize: number,
+  normalizedQuery: BoardWorkItemQuery | undefined,
+  state: HydrationWaveState,
+): Promise<HydrationWaveState> {
+  if (!state.isPartial) return state;
+
+  const offsets: number[] = [];
+  if (state.total > 0) {
+    let cursor = state.nextOffset;
+    for (let i = 0; i < BOARD_HYDRATION_PARALLELISM && cursor < state.total; i += 1) {
+      offsets.push(cursor);
+      cursor += pageSize;
+    }
+  }
+
+  if (offsets.length <= 1) {
+    const nextPage = await fetchWorkItemsPage(boardId, pageSize, state.nextOffset, false, normalizedQuery);
+    const mergedServerItems = mergeUniqueWorkItems([...state.serverMerged, ...nextPage.items]);
+    const total = state.total > 0 ? state.total : nextPage.total;
+    const isPartial = nextPage.hasMore && mergedServerItems.length < total;
+    return { serverMerged: mergedServerItems, total, isPartial, nextOffset: mergedServerItems.length };
+  }
+
+  const pages = await fetchWorkItemsPagesBatch(
+    boardId,
+    pageSize,
+    offsets,
+    normalizedQuery,
+    state.total > 0 ? state.total : undefined,
+  );
+
+  const newServerItems = pages.flatMap((p) => p.items);
+  const mergedServerItems = mergeUniqueWorkItems([...state.serverMerged, ...newServerItems]);
+  const resolvedTotal = state.total > 0 ? state.total : (pages[pages.length - 1]?.total ?? 0);
+  const anyPageHasMore = pages.some((p) => p.hasMore);
+  const isPartial = anyPageHasMore && mergedServerItems.length < resolvedTotal;
+
+  return { serverMerged: mergedServerItems, total: resolvedTotal, isPartial, nextOffset: mergedServerItems.length };
+}
+
+/** Full in-memory hydration (no React Query writes); used for optional `progressive: false`. */
+async function hydrateAllRemainingWorkItemsInMemory(
+  boardId: string,
+  pageSize: number,
+  normalizedQuery: BoardWorkItemQuery | undefined,
+  initial: HydrationWaveState,
+): Promise<HydrationWaveState> {
+  let state = initial;
+  while (state.isPartial) {
+    state = await runSingleHydrationWave(boardId, pageSize, normalizedQuery, state);
+    const hydrateSleepMs = readBoardHydrateSleepMs();
+    if (hydrateSleepMs > 0) await sleep(hydrateSleepMs);
+  }
+  return state;
+}
+
+/**
+ * `useWorkItems` `placeholderData` while the items `queryKey` changes (filters / sort).
+ * Regression-tested (GuideAI-1256); do not swap without re-validating progressive hydration.
+ */
+export const WORK_ITEMS_LIST_PLACEHOLDER_DATA = keepPreviousData;
 
 export function useWorkItems(
   boardId?: string,
@@ -856,42 +1167,181 @@ export function useWorkItems(
     queryFn: async (): Promise<WorkItem[]> => {
       if (!boardId) return EMPTY_ITEMS;
 
+      const queryT0 = typeof performance !== 'undefined' ? performance.now() : 0;
       const prevItems = queryClient.getQueryData<WorkItem[]>(itemsKey) ?? EMPTY_ITEMS;
       const prevMeta = queryClient.getQueryData<WorkItemsMeta>(itemsMetaKey) ?? EMPTY_WORK_ITEMS_META;
 
-      const warmItems = prevItems.length > 0;
-      const isFreshManualReset =
-        prevMeta.total === 0 && !prevMeta.isPartial && prevMeta.loadedCount === 0;
-      const shouldResyncAllPages =
-        warmItems
-        && !isFreshManualReset
-        && (prevMeta.isPartial || (prevMeta.total > 0 && !prevMeta.isPartial));
+      // Bootstrap already fetched the first page; avoid duplicate GET and
+      // skip shouldResyncAllPages (warm partial would otherwise serial-fetch every page).
+      if (prevMeta.seededFromBootstrap && prevItems.length > 0) {
+        const baseServerItems = hasActiveBoardFilters(normalizedQuery)
+          ? prevItems.filter((item) => matchesBoardWorkItemQuery(item, normalizedQuery))
+          : [...prevItems];
+
+        if (!progressive && prevMeta.isPartial) {
+          const tAtomic0 = typeof performance !== 'undefined' ? performance.now() : 0;
+          const finalState = await hydrateAllRemainingWorkItemsInMemory(boardId, pageSize, normalizedQuery, {
+            serverMerged: mergeUniqueWorkItems(baseServerItems),
+            total: prevMeta.total,
+            isPartial: prevMeta.isPartial,
+            nextOffset: prevMeta.loadedCount,
+          });
+          const visibleItems = await buildVisibleWorkItems(finalState.serverMerged, normalizedQuery);
+          queryClient.setQueryData<WorkItemsMeta>(itemsMetaKey, {
+            total: finalState.total,
+            loadedCount: finalState.serverMerged.length,
+            isPartial: false,
+            seededFromBootstrap: false,
+          });
+          const totalMs = typeof performance !== 'undefined' ? Math.round(performance.now() - tAtomic0) : 0;
+          boardLoadBench('work_items_query_bootstrap_atomic', {
+            board_id: boardId,
+            path: 'bootstrap_atomic',
+            duration_ms: totalMs,
+            item_count: finalState.serverMerged.length,
+            total: finalState.total,
+          });
+          boardLoadBenchMark('work_items_bootstrap_atomic', {
+            board_id: boardId,
+            duration_ms: totalMs,
+            item_count: finalState.serverMerged.length,
+          });
+          return reconcileVisibleWorkItems(prevItems, visibleItems);
+        }
+
+        const tBuild0 = typeof performance !== 'undefined' ? performance.now() : 0;
+        const visibleItems = await buildVisibleWorkItems(prevItems, normalizedQuery);
+        const buildMs = typeof performance !== 'undefined' ? Math.round(performance.now() - tBuild0) : 0;
+        queryClient.setQueryData<WorkItemsMeta>(itemsMetaKey, {
+          total: prevMeta.total,
+          loadedCount: prevMeta.loadedCount,
+          isPartial: prevMeta.isPartial,
+        });
+        const totalMs = typeof performance !== 'undefined' ? Math.round(performance.now() - queryT0) : 0;
+        boardLoadBench('work_items_query_bootstrap_seed', {
+          board_id: boardId,
+          path: 'bootstrap_seed',
+          duration_ms: totalMs,
+          build_visible_ms: buildMs,
+          loaded: prevMeta.loadedCount,
+          total: prevMeta.total,
+          is_partial: prevMeta.isPartial,
+        });
+        boardLoadBenchMark('work_items_bootstrap_seed', {
+          board_id: boardId,
+          duration_ms: totalMs,
+          loaded: prevMeta.loadedCount,
+        });
+        return visibleItems;
+      }
+
+      const shouldResyncAllPages = shouldResyncAllWorkItemPages(prevItems.length, prevMeta);
 
       if (shouldResyncAllPages) {
+        const tFetch0 = typeof performance !== 'undefined' ? performance.now() : 0;
         const { serverMerged, total } = await fetchAllWorkItemsPaged(boardId, pageSize, normalizedQuery);
+        const fetchMs = typeof performance !== 'undefined' ? Math.round(performance.now() - tFetch0) : 0;
+        const tBuild0 = typeof performance !== 'undefined' ? performance.now() : 0;
         const visibleItems = await buildVisibleWorkItems(serverMerged, normalizedQuery);
+        const buildMs = typeof performance !== 'undefined' ? Math.round(performance.now() - tBuild0) : 0;
         queryClient.setQueryData<WorkItemsMeta>(itemsMetaKey, {
           total,
           loadedCount: serverMerged.length,
           isPartial: false,
         });
-        return visibleItems;
+        const totalMs = typeof performance !== 'undefined' ? Math.round(performance.now() - queryT0) : 0;
+        boardLoadBench('work_items_query_full_resync', {
+          board_id: boardId,
+          path: 'full_resync',
+          duration_ms: totalMs,
+          fetch_all_pages_ms: fetchMs,
+          build_visible_ms: buildMs,
+          item_count: serverMerged.length,
+          total,
+        });
+        boardLoadBenchMark('work_items_full_resync', {
+          board_id: boardId,
+          duration_ms: totalMs,
+          item_count: serverMerged.length,
+        });
+        return reconcileVisibleWorkItems(prevItems, visibleItems);
       }
 
+      const tFirst0 = typeof performance !== 'undefined' ? performance.now() : 0;
       const firstPage = await fetchWorkItemsPage(boardId, pageSize, 0, true, normalizedQuery);
+      const firstFetchMs = typeof performance !== 'undefined' ? Math.round(performance.now() - tFirst0) : 0;
+      const tBuild0 = typeof performance !== 'undefined' ? performance.now() : 0;
+      const visibleFirst = await buildVisibleWorkItems(firstPage.items, normalizedQuery);
+      const buildMs = typeof performance !== 'undefined' ? Math.round(performance.now() - tBuild0) : 0;
       queryClient.setQueryData<WorkItemsMeta>(itemsMetaKey, {
         total: firstPage.total,
         loadedCount: firstPage.items.length,
         isPartial: firstPage.hasMore && firstPage.items.length < firstPage.total,
       });
-      return buildVisibleWorkItems(firstPage.items, normalizedQuery);
+      const totalMs = typeof performance !== 'undefined' ? Math.round(performance.now() - queryT0) : 0;
+      boardLoadBench('work_items_query_first_page', {
+        board_id: boardId,
+        path: 'first_page',
+        duration_ms: totalMs,
+        first_page_fetch_ms: firstFetchMs,
+        build_visible_ms: buildMs,
+        item_count: firstPage.items.length,
+        total: firstPage.total,
+        has_more: firstPage.hasMore,
+      });
+      boardLoadBenchMark('work_items_first_page', {
+        board_id: boardId,
+        duration_ms: totalMs,
+        item_count: firstPage.items.length,
+      });
+
+      if (
+        !progressive
+        && firstPage.hasMore
+        && firstPage.items.length < firstPage.total
+      ) {
+        const tAtomic0 = typeof performance !== 'undefined' ? performance.now() : 0;
+        const finalState = await hydrateAllRemainingWorkItemsInMemory(boardId, pageSize, normalizedQuery, {
+          serverMerged: mergeUniqueWorkItems(firstPage.items),
+          total: firstPage.total,
+          isPartial: true,
+          nextOffset: firstPage.items.length,
+        });
+        const visibleAll = await buildVisibleWorkItems(finalState.serverMerged, normalizedQuery);
+        queryClient.setQueryData<WorkItemsMeta>(itemsMetaKey, {
+          total: finalState.total,
+          loadedCount: finalState.serverMerged.length,
+          isPartial: false,
+        });
+        const atomicMs = typeof performance !== 'undefined' ? Math.round(performance.now() - tAtomic0) : 0;
+        boardLoadBench('work_items_query_first_page_atomic', {
+          board_id: boardId,
+          path: 'first_page_atomic',
+          duration_ms: atomicMs,
+          item_count: finalState.serverMerged.length,
+          total: finalState.total,
+        });
+        boardLoadBenchMark('work_items_first_page_atomic', {
+          board_id: boardId,
+          duration_ms: atomicMs,
+          item_count: finalState.serverMerged.length,
+        });
+        return reconcileVisibleWorkItems(prevItems, visibleAll);
+      }
+
+      return reconcileVisibleWorkItems(prevItems, visibleFirst);
     },
     enabled: Boolean(boardId) && enabled,
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
     refetchOnWindowFocus: false,
     refetchInterval: false,
-    placeholderData: keepPreviousData,
+    // Filter / sort changes use a new `queryKey` (`boardKeys.items` embeds `normalizedQuery`).
+    // `keepPreviousData` shows the *previous key's* cached list as placeholder while the new
+    // key fetches, avoiding an empty board flash. It does not bypass `queryFn` — bootstrap
+    // seeding, meta (`itemsMetaKey`), and progressive hydration still run per key; do not remove
+    // without retesting filter transitions and `useWorkItems` background hydration (GuideAI-1256).
+    placeholderData: WORK_ITEMS_LIST_PLACEHOLDER_DATA,
   });
 
   const appendNextPage = React.useCallback(async () => {
@@ -905,15 +1355,36 @@ export function useWorkItems(
       ? currentItems.filter((item) => matchesBoardWorkItemQuery(item, normalizedQuery))
       : currentItems;
 
+    const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
     const nextPage = await fetchWorkItemsPage(boardId, pageSize, currentMeta.loadedCount, false, normalizedQuery);
+    const fetchMs = typeof performance !== 'undefined' ? Math.round(performance.now() - t0) : 0;
+    const tBuild = typeof performance !== 'undefined' ? performance.now() : 0;
     const mergedServerItems = mergeUniqueWorkItems([...currentServerItems, ...nextPage.items]);
     const visibleItems = await buildVisibleWorkItems(mergedServerItems, normalizedQuery);
+    const buildMs = typeof performance !== 'undefined' ? Math.round(performance.now() - tBuild) : 0;
 
-    queryClient.setQueryData<WorkItem[]>(itemsKey, visibleItems);
-    queryClient.setQueryData<WorkItemsMeta>(itemsMetaKey, {
+    React.startTransition(() => {
+      queryClient.setQueryData<WorkItem[]>(itemsKey, (current) =>
+        reconcileVisibleWorkItems(current ?? EMPTY_ITEMS, visibleItems),
+      );
+      queryClient.setQueryData<WorkItemsMeta>(itemsMetaKey, {
+        total: currentMeta.total > 0 ? currentMeta.total : nextPage.total,
+        loadedCount: mergedServerItems.length,
+        isPartial: nextPage.hasMore
+          && mergedServerItems.length < (currentMeta.total > 0 ? currentMeta.total : nextPage.total),
+      });
+    });
+    boardLoadBench('hydrate_append_page', {
+      board_id: boardId,
+      path: 'serial_single',
+      offset: currentMeta.loadedCount,
+      fetch_ms: fetchMs,
+      build_visible_ms: buildMs,
+      duration_ms: typeof performance !== 'undefined' ? Math.round(performance.now() - t0) : 0,
+      page_item_count: nextPage.items.length,
+      loaded_after: mergedServerItems.length,
       total: currentMeta.total > 0 ? currentMeta.total : nextPage.total,
-      loadedCount: mergedServerItems.length,
-      isPartial: nextPage.hasMore
+      still_partial: nextPage.hasMore
         && mergedServerItems.length < (currentMeta.total > 0 ? currentMeta.total : nextPage.total),
     });
   }, [boardId, itemsKey, itemsMetaKey, normalizedQuery, pageSize, queryClient]);
@@ -940,91 +1411,110 @@ export function useWorkItems(
     setIsBackgroundHydrating(true);
 
     void (async () => {
-      // Background hydration: after the first page lands, fan out the
-      // remaining pages in waves so we overlap handler time across API
-      // workers instead of walking one-page-at-a-time. With workers=4 and
-      // ~500-700ms per handler on Neon, a serial walk of 9 pages took
-      // ~5-7s of pure request time; four in parallel collapses that to
-      // ceil(9/4)=3 waves.
-      const PARALLELISM = 4;
-      // Read per-wave backoff from localStorage (kept for the perf harness
-      // A/B). Default is 0 now that the sleep's only purpose — letting
-      // a single worker drain before the next page — is obsolete under
-      // workers>=2.
-      const readHydrateSleepMs = (): number => {
-        try {
-          const raw = window.localStorage?.getItem('amprealize.hydrateSleepMs');
-          if (raw === null || raw === undefined) return 0;
-          const n = Number(raw);
-          return Number.isFinite(n) && n >= 0 ? n : 0;
-        } catch {
-          return 0;
-        }
-      };
+      const loopT0 = typeof performance !== 'undefined' ? performance.now() : 0;
+      let hydrateWave = 0;
+      boardLoadBench('hydrate_loop_start', { board_id: boardId, page_size: pageSize });
+      boardLoadBenchMark('hydrate_loop_start', { board_id: boardId });
 
       try {
         while (!cancelled) {
+          hydrateWave += 1;
+          const waveT0 = typeof performance !== 'undefined' ? performance.now() : 0;
           const currentMeta = queryClient.getQueryData<WorkItemsMeta>(itemsMetaKey) ?? EMPTY_WORK_ITEMS_META;
           if (!currentMeta.isPartial) break;
 
-          // Precompute up to PARALLELISM offsets for this wave. We rely on
-          // `total` being populated by the first page (includeTotal:true);
-          // if something went wrong and total is 0, fall back to a single
-          // serial append so we can't spin on an unknown page count.
-          const offsets: number[] = [];
+          if (cancelled) break;
+
+          const currentItems = queryClient.getQueryData<WorkItem[]>(itemsKey) ?? EMPTY_ITEMS;
+          const currentServerItems = hasActiveBoardFilters(normalizedQuery)
+            ? currentItems.filter((item) => matchesBoardWorkItemQuery(item, normalizedQuery))
+            : currentItems;
+
+          const waveOffsets: number[] = [];
           if (currentMeta.total > 0) {
             let cursor = currentMeta.loadedCount;
-            for (let i = 0; i < PARALLELISM && cursor < currentMeta.total; i += 1) {
-              offsets.push(cursor);
+            for (let i = 0; i < BOARD_HYDRATION_PARALLELISM && cursor < currentMeta.total; i += 1) {
+              waveOffsets.push(cursor);
               cursor += pageSize;
             }
           }
+          const path = waveOffsets.length <= 1 ? 'serial' : hasActiveBoardFilters(normalizedQuery) ? 'parallel_get' : 'batch_pages';
+          const transport = waveOffsets.length <= 1 ? 'get' : hasActiveBoardFilters(normalizedQuery) ? 'parallel_get' : 'batch_post';
 
-          // Tight cancellation gate right before any network work: if the
-          // effect was cancelled during the last wave's state merge we want
-          // to bail out HERE, not after firing another wave of fetches.
+          const state: HydrationWaveState = {
+            serverMerged: mergeUniqueWorkItems(currentServerItems),
+            total: currentMeta.total,
+            isPartial: currentMeta.isPartial,
+            nextOffset: currentMeta.loadedCount,
+          };
+
+          const tFetch = typeof performance !== 'undefined' ? performance.now() : 0;
+          const nextState = await runSingleHydrationWave(boardId, pageSize, normalizedQuery, state);
+          const fetchMs = typeof performance !== 'undefined' ? Math.round(performance.now() - tFetch) : 0;
           if (cancelled) break;
 
-          if (offsets.length <= 1) {
-            await appendNextPage();
-          } else {
-            const currentItems = queryClient.getQueryData<WorkItem[]>(itemsKey) ?? EMPTY_ITEMS;
-            const currentServerItems = hasActiveBoardFilters(normalizedQuery)
-              ? currentItems.filter((item) => matchesBoardWorkItemQuery(item, normalizedQuery))
-              : currentItems;
+          const tBuild = typeof performance !== 'undefined' ? performance.now() : 0;
+          const visibleItems = await buildVisibleWorkItems(nextState.serverMerged, normalizedQuery);
+          const buildMs = typeof performance !== 'undefined' ? Math.round(performance.now() - tBuild) : 0;
+          if (cancelled) break;
 
-            const pages = await Promise.all(
-              offsets.map((off) =>
-                fetchWorkItemsPage(boardId, pageSize, off, false, normalizedQuery),
-              ),
+          React.startTransition(() => {
+            queryClient.setQueryData<WorkItem[]>(itemsKey, (current) =>
+              reconcileVisibleWorkItems(current ?? EMPTY_ITEMS, visibleItems),
             );
-            if (cancelled) break;
-
-            const newServerItems = pages.flatMap((p) => p.items);
-            const mergedServerItems = mergeUniqueWorkItems([
-              ...currentServerItems,
-              ...newServerItems,
-            ]);
-            const visibleItems = await buildVisibleWorkItems(mergedServerItems, normalizedQuery);
-            if (cancelled) break;
-
-            const resolvedTotal = currentMeta.total > 0
-              ? currentMeta.total
-              : (pages[pages.length - 1]?.total ?? 0);
-            const anyPageHasMore = pages.some((p) => p.hasMore);
-
-            queryClient.setQueryData<WorkItem[]>(itemsKey, visibleItems);
             queryClient.setQueryData<WorkItemsMeta>(itemsMetaKey, {
-              total: resolvedTotal,
-              loadedCount: mergedServerItems.length,
-              isPartial: anyPageHasMore && mergedServerItems.length < resolvedTotal,
+              total: nextState.total,
+              loadedCount: nextState.serverMerged.length,
+              isPartial: nextState.isPartial,
+            });
+          });
+
+          const waveMs = typeof performance !== 'undefined' ? Math.round(performance.now() - waveT0) : 0;
+          const newItemsThisWave = nextState.serverMerged.length - state.serverMerged.length;
+          boardLoadBench('hydrate_wave', {
+            board_id: boardId,
+            wave: hydrateWave,
+            path,
+            transport,
+            parallel_offsets: waveOffsets.length,
+            offsets: waveOffsets,
+            duration_ms: waveMs,
+            fetch_parallel_ms: fetchMs,
+            build_visible_ms: buildMs,
+            new_items_this_wave: newItemsThisWave,
+            loaded_after: nextState.serverMerged.length,
+            total: nextState.total,
+            is_partial: nextState.isPartial,
+          });
+          if (path === 'serial') {
+            boardLoadBenchMark('hydrate_wave_serial', { board_id: boardId, wave: hydrateWave, duration_ms: waveMs });
+          } else {
+            boardLoadBenchMark('hydrate_wave_parallel', {
+              board_id: boardId,
+              wave: hydrateWave,
+              duration_ms: waveMs,
+              parallel_requests: waveOffsets.length,
             });
           }
 
-          const hydrateSleepMs = readHydrateSleepMs();
+          const hydrateSleepMs = readBoardHydrateSleepMs();
           if (hydrateSleepMs > 0) await sleep(hydrateSleepMs);
         }
       } finally {
+        if (isBoardLoadBenchEnabled()) {
+          const loopMs = typeof performance !== 'undefined' ? Math.round(performance.now() - loopT0) : 0;
+          const finalMeta = queryClient.getQueryData<WorkItemsMeta>(itemsMetaKey) ?? EMPTY_WORK_ITEMS_META;
+          boardLoadBench('hydrate_loop_done', {
+            board_id: boardId,
+            cancelled,
+            waves: hydrateWave,
+            duration_ms: loopMs,
+            loaded: finalMeta.loadedCount,
+            total: finalMeta.total,
+            is_partial: finalMeta.isPartial,
+          });
+          boardLoadBenchMark('hydrate_loop_done', { board_id: boardId, duration_ms: loopMs, waves: hydrateWave });
+        }
         if (!cancelled && backgroundHydrationRunRef.current === runId) {
           setIsBackgroundHydrating(false);
         }
@@ -1052,7 +1542,6 @@ export function useWorkItems(
     // EMPTY_WORK_ITEMS_META (isPartial=false), and first-page completion
     // flips isPartial back to true — the isPartial toggle is the real
     // trigger we care about, not fetch-boundary churn.
-    appendNextPage,
     boardId,
     itemsKey,
     itemsMetaKey,
@@ -1253,7 +1742,7 @@ export function useCreateWorkItem() {
       const response = await apiClient.post<{ item: WorkItem }>('/v1/work-items', {
         ...payload,
         priority: payload.priority ?? 'medium',
-        metadata: {},
+        metadata: payload.metadata ?? {},
         labels: [],
         acceptance_criteria: [],
         checklist: [],
@@ -1287,6 +1776,16 @@ export function useCreateWorkItem() {
         org_id: null,
       };
 
+      const targetColumnId = payload.column_id ?? null;
+      const bumpColumnPositions = (list: WorkItem[]): WorkItem[] => {
+        if (!targetColumnId) return list;
+        return list.map((item) =>
+          item.column_id === targetColumnId
+            ? { ...item, position: (item.position ?? 0) + 1 }
+            : item,
+        );
+      };
+
       const itemCaches = queryClient.getQueriesData<WorkItem[]>({
         predicate: (q) => isBoardWorkItemsQueryKey(q.queryKey, payload.board_id),
       });
@@ -1294,8 +1793,11 @@ export function useCreateWorkItem() {
         queryClient.setQueryData<WorkItem[]>(key, (old) => {
           const list = old ?? [];
           const subq = boardWorkItemQueryFromKey(key as readonly unknown[]);
-          if (subq && !matchesBoardWorkItemQuery(optimistic, subq)) return list;
-          return [optimistic, ...list];
+          const bumped = bumpColumnPositions(list);
+          if (subq && !matchesBoardWorkItemQuery(optimistic, subq)) {
+            return bumped;
+          }
+          return [optimistic, ...bumped];
         });
       }
       return { previousEntries, optimisticId };
@@ -1320,7 +1822,7 @@ export function useCreateWorkItem() {
           const list = old ?? [];
           const subq = boardWorkItemQueryFromKey(key as readonly unknown[]);
           if (subq && !matchesBoardWorkItemQuery(created, subq)) {
-            return list.map((i) => (i.item_id === context?.optimisticId ? created : i));
+            return list.filter((i) => i.item_id !== context?.optimisticId);
           }
           const replaced = list.map((i) => (i.item_id === context?.optimisticId ? created : i));
           return replaced.some((i) => i.item_id === created.item_id) ? replaced : [created, ...replaced];
@@ -1720,23 +2222,24 @@ export function useAssignWorkItem(boardId?: string) {
         error: error instanceof Error ? error.message : String(error),
       });
     },
-    onSuccess: async (updated) => {
-      queryClient.setQueryData<WorkItem | null>(boardKeys.item(updated.item_id), updated);
+    onSuccess: async (updated, variables) => {
+      const merged = mergeAssignResponseWithVariables(updated, variables);
+      queryClient.setQueryData<WorkItem | null>(boardKeys.item(merged.item_id), merged);
       if (boardId) {
         queryClient.setQueriesData<WorkItem[]>(
           { predicate: (q) => isBoardWorkItemsQueryKey(q.queryKey, boardId) },
           (current) => {
             const list = current ?? [];
-            if (!list.some((item) => item.item_id === updated.item_id)) return list;
-            return list.map((item) => (item.item_id === updated.item_id ? updated : item));
+            if (!list.some((item) => item.item_id === merged.item_id)) return list;
+            return list.map((item) => (item.item_id === merged.item_id ? merged : item));
           },
         );
       }
       await razeLog('INFO', 'Work item assigned', {
         board_id: boardId ?? null,
-        item_id: updated.item_id,
-        assignee_id: updated.assignee_id ?? null,
-        assignee_type: updated.assignee_type ?? null,
+        item_id: merged.item_id,
+        assignee_id: merged.assignee_id ?? null,
+        assignee_type: merged.assignee_type ?? null,
       });
     },
   });

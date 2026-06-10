@@ -23,6 +23,7 @@ import {
   type WorkItem,
   type WorkItemPriority,
   type WorkItemType,
+  MAX_ITEMS_PAGE_SIZE,
   useAssignWorkItem,
   useUnassignWorkItem,
   useBoard,
@@ -35,6 +36,8 @@ import {
   useUpdateWorkItem,
   useWorkItems,
 } from '../../api/boards';
+import { ApiError } from '../../api/client';
+import { RollupProgressInline } from './RollupProgressInline';
 import {
   useCancelWorkItemExecution,
   useExecuteWorkItem,
@@ -49,18 +52,11 @@ import { copyTextToClipboard, formatWorkItemDisplayId } from './workItemId';
 import { filtersToQueryParams, useBoardFilters, useFilteredItems, sortItems } from './useBoardFilters';
 import { BoardFilterBar } from './BoardFilterBar';
 import { ColumnSummaryStrip } from './ColumnSummaryStrip';
-import { AgentPresenceDrawer } from './AgentPresenceDrawer';
-import { ChatHub } from './ChatHub';
 import { AgentAssignmentDrawer } from './AgentAssignmentDrawer';
 import { useAgentPresence } from '../../hooks/useAgentPresence';
-import { type BoardParticipant } from './boardParticipants';
 // import { useCollabStore } from '../../store/collabStore';
 import { InlineAssigneePopover } from './InlineAssigneePopover';
-import {
-  UnifiedConversationWindow,
-  type UnifiedConversationInitialTarget,
-} from '../conversations/UnifiedConversationWindow';
-import { useGetOrCreateDirectConversation } from '../../api/conversations';
+import { buildExecutionControlModel } from '../../lib/executionControls';
 import { razeLog, perfMark } from '../../telemetry/raze';
 import './BoardPage.css';
 
@@ -139,6 +135,98 @@ function sortByPosition<T extends { position?: number; updated_at?: string }>(it
   });
 }
 
+type FlattenedHierarchyRow = {
+  item: WorkItem;
+  depth: 0 | 1 | 2;
+  hint?: string;
+  options?: {
+    isExpandable?: boolean;
+    isCollapsed?: boolean;
+    hierarchyCountLabel?: string;
+    summarized?: boolean;
+  };
+};
+
+function buildPositionOrderedRows(
+  orderedItems: WorkItem[],
+  collapsed: Set<string>,
+  counts?: {
+    featureCountByGoal?: Map<string, number>;
+    taskCountByGoal?: Map<string, number>;
+    childTaskCountByParent?: Map<string, number>;
+  },
+): FlattenedHierarchyRow[] {
+  const itemById = new Map(orderedItems.map((item) => [item.item_id, item]));
+  const childrenByParent = new Map<string, WorkItem[]>();
+
+  for (const item of orderedItems) {
+    if (!item.parent_id || !itemById.has(item.parent_id)) continue;
+    const bucket = childrenByParent.get(item.parent_id) ?? [];
+    bucket.push(item);
+    childrenByParent.set(item.parent_id, bucket);
+  }
+
+  const isHiddenByCollapsedAncestor = (item: WorkItem): boolean => {
+    let parentId = item.parent_id;
+    const seen = new Set<string>();
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId);
+      if (collapsed.has(parentId)) return true;
+      parentId = itemById.get(parentId)?.parent_id;
+    }
+    return false;
+  };
+
+  return orderedItems
+    .filter((item) => !isHiddenByCollapsedAncestor(item))
+    .map((item): FlattenedHierarchyRow => {
+      const parent = item.parent_id ? itemById.get(item.parent_id) : undefined;
+      const childCount = childrenByParent.get(item.item_id)?.length ?? 0;
+      const isExpandable = childCount > 0;
+      const options: FlattenedHierarchyRow["options"] = isExpandable
+        ? { isExpandable: true, isCollapsed: collapsed.has(item.item_id) }
+        : undefined;
+
+      if (item.item_type === 'goal') {
+        const globalFeatureCount = counts?.featureCountByGoal?.get(item.item_id) ?? 0;
+        const globalTaskCount =
+          (counts?.taskCountByGoal?.get(item.item_id) ?? 0) +
+          (counts?.childTaskCountByParent?.get(item.item_id) ?? 0);
+        const goalCountParts: string[] = [];
+        if (globalFeatureCount > 0) goalCountParts.push(`${globalFeatureCount} ${globalFeatureCount === 1 ? 'feature' : 'features'}`);
+        if (globalTaskCount > 0) goalCountParts.push(`${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}`);
+        return {
+          item,
+          depth: 0,
+          options: {
+            ...options,
+            hierarchyCountLabel: goalCountParts.length > 0 ? goalCountParts.join(' · ') : undefined,
+            summarized: true,
+          },
+        };
+      }
+
+      if (item.item_type === 'feature') {
+        const globalTaskCount = counts?.childTaskCountByParent?.get(item.item_id) ?? 0;
+        return {
+          item,
+          depth: parent?.item_type === 'goal' ? 1 : 0,
+          hint: parent?.item_type === 'goal' ? `Rolls up to goal: ${parent.title}` : item.parent_id ? 'Parent goal is in another column' : undefined,
+          options: {
+            ...options,
+            hierarchyCountLabel: globalTaskCount > 0 ? `${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}` : undefined,
+          },
+        };
+      }
+
+      return {
+        item,
+        depth: parent?.item_type === 'feature' ? 2 : 0,
+        hint: parent?.item_type === 'feature' ? `Rolls up to feature: ${parent.title}` : item.parent_id ? 'Parent feature is in another column' : undefined,
+      };
+    });
+}
+
 type DragPayload = { itemId: string };
 
 function parseDragPayload(event: React.DragEvent): DragPayload | null {
@@ -157,28 +245,8 @@ function typeIcon(itemType: WorkItemType): string {
   if (itemType === 'goal') return '◆';
   if (itemType === 'feature') return '◇';
   if (itemType === 'bug') return '🐛';
+  if (itemType === 'research') return 'R';
   return '•';
-}
-
-function formatProgressPercent(value: number): string {
-  if (!Number.isFinite(value)) return '0%';
-  return `${Math.round(value)}%`;
-}
-
-function getRollupProgressFillWidth(progressPercentValue: number): string {
-  // Keep a visible seed fill for empty rollups without implying meaningful progress.
-  return progressPercentValue <= 0 ? '4px' : `${progressPercentValue}%`;
-}
-
-function formatRemainingSummary(rollup: WorkItemProgressRollup): string {
-  const parts: string[] = [`${rollup.remaining.items_remaining} left`];
-  if (rollup.remaining.estimated_hours_remaining != null) {
-    parts.push(`${rollup.remaining.estimated_hours_remaining.toFixed(1)}h`);
-  }
-  if (rollup.remaining.points_remaining != null) {
-    parts.push(`${rollup.remaining.points_remaining} pts`);
-  }
-  return parts.join(' • ');
 }
 
 function isAvatarImage(value?: string | null): boolean {
@@ -280,8 +348,8 @@ function BoardSkeleton({ columnCount = 4 }: { columnCount?: number }): React.JSX
 type ItemDiffState = 'added' | 'updated' | 'moved' | null;
 type ItemDiffMap = Map<string, ItemDiffState>;
 
-/** Animation duration before clearing diff state (ms) */
-const DIFF_ANIMATION_DURATION = 400;
+/** Animation duration before clearing diff state (ms) — keep in sync with `.work-item-card-added` CSS */
+const DIFF_ANIMATION_DURATION = 560;
 
 /** Stable empty map to avoid unnecessary re-renders when diff state clears */
 const EMPTY_DIFF_MAP: ItemDiffMap = new Map();
@@ -452,7 +520,15 @@ const WorkItemCard = memo(function WorkItemCard({
   onUnassign,
   isAssignPending,
 }: WorkItemCardProps) {
-  const label = item.item_type === 'task' ? 'Task' : item.item_type === 'feature' ? 'Feature' : item.item_type === 'bug' ? 'Bug' : 'Goal';
+  const label = item.item_type === 'task'
+    ? 'Task'
+    : item.item_type === 'feature'
+      ? 'Feature'
+      : item.item_type === 'bug'
+        ? 'Bug'
+        : item.item_type === 'research'
+          ? 'Research'
+          : 'Goal';
   const labelIcon = typeIcon(item.item_type);
   const draggingRef = React.useRef(false);
   const [compactIdCopied, setCompactIdCopied] = React.useState(false);
@@ -545,38 +621,28 @@ const WorkItemCard = memo(function WorkItemCard({
     if (!execution?.state) return null;
     return String(execution.state).toLowerCase();
   }, [execution]);
-  const showExecutionBadge = executionState === 'running';
-  const isActiveExecution =
-    executionState === 'running' || executionState === 'paused' || executionState === 'pending';
   const hasAgentAssignment = Boolean(item.assignee_id && item.assignee_type === 'agent');
   // Orphaned assignment: work item references an agent that no longer exists
   const isOrphanedAssignment = hasAgentAssignment && !assignee;
-  const canStartExecution = Boolean(executionAvailable && hasAgentAssignment && !isActiveExecution && !isOrphanedAssignment);
-  const canCancelExecution = Boolean(executionAvailable && isActiveExecution);
-  const showExecutionRow = showExecutionBadge || hasAgentAssignment || isActiveExecution;
-  const startButtonTitle = isOrphanedAssignment
-    ? 'Assigned agent no longer exists. Please re-assign.'
-    : !executionAvailable
-      ? 'Execution is unavailable in this deployment'
-    : !hasAgentAssignment
-      ? 'Assign an agent to enable execution'
-      : isActiveExecution
-        ? 'Execution already running'
-        : 'Start execution';
+  const executionControls = useMemo(
+    () => buildExecutionControlModel({
+      rawState: executionState,
+      hasExecution: Boolean(execution),
+      hasAgentAssignment,
+      isOrphanedAssignment,
+      executionAvailable,
+    }),
+    [execution, executionAvailable, executionState, hasAgentAssignment, isOrphanedAssignment]
+  );
+  const showExecutionBadge = Boolean(execution || executionControls.state === 'missing_agent' || executionControls.state === 'ready');
+  const showExecutionRow = showExecutionBadge || hasAgentAssignment || executionControls.isActive;
   const showChildCount = item.item_type === 'feature' && childTaskCount > 0;
   const childCountLabel = `${childTaskCount} task${childTaskCount === 1 ? '' : 's'}`;
   const countLabel = hierarchyCountLabel ?? (showChildCount ? childCountLabel : undefined);
-  const countSegments = useMemo(() => (countLabel ? countLabel.split(' · ').filter(Boolean) : []), [countLabel]);
   const hasRolledUpChildren = Boolean(progressRollup && progressRollup.buckets.total > 0);
   const hasProgressRollup =
     Boolean(progressRollup && hasRolledUpChildren && (item.item_type === 'goal' || item.item_type === 'feature'));
   const showRollupChip = Boolean(countLabel || hasProgressRollup);
-  const progressPercentValue = hasProgressRollup && progressRollup
-    ? Math.min(100, Math.max(0, progressRollup.completion_percent))
-    : 0;
-  const progressFillWidth = hasProgressRollup
-    ? getRollupProgressFillWidth(progressPercentValue)
-    : undefined;
   const displayItemId = useMemo(() => formatWorkItemDisplayId(item, projectSlug), [item, projectSlug]);
 
   const handleOpen = useCallback(() => {
@@ -618,19 +684,19 @@ const WorkItemCard = memo(function WorkItemCard({
   const handleStartClick = useCallback(
     (event: React.MouseEvent) => {
       event.stopPropagation();
-      if (!canStartExecution) return;
+      if (!executionControls.canStart) return;
       onStartExecution(item.item_id);
     },
-    [canStartExecution, item.item_id, onStartExecution]
+    [executionControls.canStart, item.item_id, onStartExecution]
   );
 
   const handleCancelClick = useCallback(
     (event: React.MouseEvent) => {
       event.stopPropagation();
-      if (!canCancelExecution) return;
+      if (!executionControls.canCancel) return;
       onCancelExecution(item.item_id);
     },
-    [canCancelExecution, item.item_id, onCancelExecution]
+    [executionControls.canCancel, item.item_id, onCancelExecution]
   );
 
   const handleToggleCollapse = useCallback(
@@ -683,10 +749,11 @@ const WorkItemCard = memo(function WorkItemCard({
   // animation (translateY + opacity fade) which looks like a stutter on
   // a card the user already placed intentionally.
   const diffClass = diffState && !isJustDropped ? `work-item-card-${diffState}` : '';
+  const useEntranceFade = !isJustDropped && diffState !== 'added';
 
   return (
     <div
-      className={`work-item-card work-item-card-${item.item_type} ${selected ? 'work-item-card-selected' : ''} ${isDimmed ? 'work-item-dimmed' : ''} ${summarized ? 'work-item-card-summarized' : ''} ${isBeingDragged ? 'work-item-card-dragging' : ''} ${isJustDropped ? 'work-item-card-drop-impact' : ''} ${diffClass} pressable${isJustDropped ? '' : ' animate-fade-in-up'}`}
+      className={`work-item-card work-item-card-${item.item_type} ${selected ? 'work-item-card-selected' : ''} ${isDimmed ? 'work-item-dimmed' : ''} ${summarized ? 'work-item-card-summarized' : ''} ${isBeingDragged ? 'work-item-card-dragging' : ''} ${isJustDropped ? 'work-item-card-drop-impact' : ''} ${diffClass} pressable${useEntranceFade ? ' animate-fade-in-up' : ''}`}
       draggable
       onDragStart={handleDragStartInternal}
       onDragEnd={handleDragEndInternal}
@@ -708,46 +775,12 @@ const WorkItemCard = memo(function WorkItemCard({
             {label}
           </span>
           {showRollupChip && (
-            <span
-              className={`work-item-rollup-chip-inline${hasProgressRollup ? ' work-item-rollup-chip-inline-progress' : ''}`}
-              style={
-                hasProgressRollup && progressRollup
-                  ? ({
-                    ['--rollup-progress' as string]: `${progressPercentValue}%`,
-                    ['--rollup-progress-visual' as string]: progressFillWidth,
-                  } as React.CSSProperties)
-                  : undefined
-              }
-              aria-label={
-                hasProgressRollup && progressRollup
-                  ? `${countLabel ? `${countLabel}. ` : ''}${formatProgressPercent(progressRollup.completion_percent)} complete. ${formatRemainingSummary(progressRollup)}`
-                  : countLabel
-                    ? `${countLabel} roll up under this ${label.toLowerCase()}`
-                    : undefined
-              }
-            >
-              {countSegments.length > 0 && (
-                <span className="work-item-rollup-chip-inline-count">
-                  {countSegments.map((segment) => (
-                    <span
-                      key={segment}
-                      className={`work-item-rollup-chip-inline-segment ${
-                        segment.includes('feature')
-                          ? 'work-item-rollup-chip-inline-segment-feature'
-                          : segment.includes('task')
-                            ? 'work-item-rollup-chip-inline-segment-task'
-                            : ''
-                      }`}
-                    >
-                      {segment}
-                    </span>
-                  ))}
-                </span>
-              )}
-              {hasProgressRollup && progressRollup && (
-                <span className="work-item-rollup-chip-inline-percent">{formatProgressPercent(progressRollup.completion_percent)}</span>
-              )}
-            </span>
+            <RollupProgressInline
+              progressRollup={progressRollup ?? null}
+              countLabel={countLabel}
+              showProgress={hasProgressRollup}
+              rollupContextNoun={label.toLowerCase()}
+            />
           )}
         </div>
         {isExpandable && (
@@ -770,9 +803,9 @@ const WorkItemCard = memo(function WorkItemCard({
         <div className="work-item-execution">
           {showExecutionBadge && (
             <ExecutionStatusBadge
-              state={executionState ?? 'unknown'}
+              state={executionState ?? executionControls.state}
               phase={execution?.phase ?? null}
-              statusLabel={execution ? undefined : isOrphanedAssignment ? 'Invalid' : hasAgentAssignment ? 'Ready' : undefined}
+              statusLabel={execution ? undefined : executionControls.statusLabel}
               showPhase={Boolean(execution?.phase)}
               showProgress={false}
               progressPct={execution?.progressPct ?? null}
@@ -785,23 +818,23 @@ const WorkItemCard = memo(function WorkItemCard({
                 className="work-item-execution-button pressable"
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={handleStartClick}
-                disabled={!canStartExecution || isStartPending}
-                title={startButtonTitle}
+                disabled={!executionControls.canStart || isStartPending}
+                title={executionControls.startTitle}
                 data-haptic="light"
               >
-                {isStartPending ? 'Starting...' : 'Start'}
+                {isStartPending ? 'Starting...' : executionControls.startLabel}
               </button>
             )}
-            {isActiveExecution && (
+            {executionControls.isActive && (
               <button
                 type="button"
                 className="work-item-execution-button work-item-execution-cancel pressable"
                 onMouseDown={(event) => event.stopPropagation()}
                 onClick={handleCancelClick}
-                disabled={!canCancelExecution || isCancelPending}
+                disabled={!executionControls.canCancel || isCancelPending}
                 data-haptic="light"
               >
-                {isCancelPending ? 'Cancelling...' : 'Cancel'}
+                {isCancelPending ? 'Cancelling...' : executionControls.cancelLabel}
               </button>
             )}
           </div>
@@ -952,7 +985,7 @@ interface ColumnLaneHeaderProps {
     columnId: string,
     title: string,
     itemType: WorkItemType,
-    options?: { priority?: WorkItemPriority },
+    options?: { priority?: WorkItemPriority; researchUrl?: string },
     onCreated?: (itemId: string) => void,
   ) => void;
   hasExpandableItems: boolean;
@@ -980,6 +1013,9 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
   const [draft, setDraft] = useState('');
   const [itemType, setItemType] = useState<WorkItemType>('task');
   const [priorityDraft, setPriorityDraft] = useState<WorkItemPriority>('medium');
+  const [researchUrlDraft, setResearchUrlDraft] = useState('');
+  const [researchUrlError, setResearchUrlError] = useState<string | null>(null);
+  const researchUrlInputRef = useRef<HTMLInputElement>(null);
   const [composing, setComposing] = useState(false);
   const [autoOpenAfterCreate, setAutoOpenAfterCreate] = useState(false);
   const [pendingDueDate, setPendingDueDate] = useState<QuickDueDateOption | null>(null);
@@ -1017,11 +1053,30 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
   const handleSubmit = useCallback(() => {
     const title = draft.trim();
     if (!title) return;
+    const researchUrl = researchUrlDraft.trim();
+    if (itemType === 'research') {
+      if (!researchUrl) {
+        setResearchUrlError('Enter a research URL (paper, article, or documentation link).');
+        queueMicrotask(() => researchUrlInputRef.current?.focus());
+        return;
+      }
+      setResearchUrlError(null);
+    } else {
+      setResearchUrlError(null);
+    }
     dismissQuickActions();
     const preAssignment = pendingAssignment;
     const preDueDate = pendingDueDate;
     const shouldAutoOpen = autoOpenAfterCreate;
-    onCreate(column.column_id, title, itemType, { priority: priorityDraft }, (createdId) => {
+    onCreate(
+      column.column_id,
+      title,
+      itemType,
+      {
+        priority: priorityDraft,
+        researchUrl: itemType === 'research' ? researchUrl : undefined,
+      },
+      (createdId) => {
       // Auto-assign if user pre-selected an assignee
       if (preAssignment) {
         assignItem.mutate({
@@ -1051,6 +1106,7 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
       }, 12_000);
     });
     setDraft('');
+    setResearchUrlDraft('');
     setPriorityDraft('medium');
     setPendingDueDate(null);
     setAutoOpenAfterCreate(false);
@@ -1066,6 +1122,7 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
     pendingAssignment,
     pendingDueDate,
     priorityDraft,
+    researchUrlDraft,
     updateItem,
   ]);
 
@@ -1143,6 +1200,8 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
       if (!next) {
         dismissQuickActions();
         setDraft('');
+        setResearchUrlDraft('');
+        setResearchUrlError(null);
         setPendingAssignment(null);
         setPendingDueDate(null);
         setPriorityDraft('medium');
@@ -1183,6 +1242,8 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
         } else {
           setComposing(false);
           setDraft('');
+          setResearchUrlDraft('');
+          setResearchUrlError(null);
           setPendingAssignment(null);
           setPendingDueDate(null);
           setPriorityDraft('medium');
@@ -1256,6 +1317,7 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
         <span className="hierarchy-legend-chip hierarchy-legend-goal">◆ Goal</span>
         <span className="hierarchy-legend-chip hierarchy-legend-feature">◇ Feature</span>
         <span className="hierarchy-legend-chip hierarchy-legend-task">• Task</span>
+        <span className="hierarchy-legend-chip hierarchy-legend-research">R Research</span>
       </div>
       {composing && (
       <div className={`board-column-compose board-column-compose-${itemType}`} onKeyDown={onKeyDown}>
@@ -1265,13 +1327,17 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
           <select
             className="board-compose-type"
             value={itemType}
-            onChange={(e) => setItemType(e.target.value as WorkItemType)}
+            onChange={(e) => {
+              setItemType(e.target.value as WorkItemType);
+              setResearchUrlError(null);
+            }}
             aria-label="Work item type"
           >
             <option value="task">Task</option>
             <option value="feature">Feature</option>
             <option value="goal">Goal</option>
             <option value="bug">Bug</option>
+            <option value="research">Research</option>
           </select>
           <input
             ref={composeInputRef}
@@ -1283,6 +1349,31 @@ const ColumnLaneHeader = memo(function ColumnLaneHeader({
             autoComplete="off"
           />
         </div>
+        {itemType === 'research' && (
+          <>
+            <input
+              ref={researchUrlInputRef}
+              id="board-compose-research-url"
+              className={`board-compose-input${researchUrlError ? ' board-compose-input-invalid' : ''}`}
+              type="url"
+              value={researchUrlDraft}
+              onChange={(e) => {
+                setResearchUrlDraft(e.target.value);
+                setResearchUrlError(null);
+              }}
+              placeholder="Research URL (required)"
+              aria-label="Research URL"
+              aria-invalid={researchUrlError ? true : undefined}
+              aria-describedby={researchUrlError ? 'board-compose-research-url-error' : undefined}
+              autoComplete="url"
+            />
+            {researchUrlError && (
+              <div id="board-compose-research-url-error" className="board-compose-field-error" role="alert">
+                {researchUrlError}
+              </div>
+            )}
+          </>
+        )}
         <div className="board-compose-hint">⌘/Ctrl + Enter to launch · Esc to close</div>
 
         {/* Quick-action strip — always visible when composing */}
@@ -1545,7 +1636,7 @@ interface ColumnLaneProps {
     columnId: string,
     title: string,
     itemType: WorkItemType,
-    options?: { priority?: WorkItemPriority },
+    options?: { priority?: WorkItemPriority; researchUrl?: string },
     onCreated?: (itemId: string) => void,
   ) => void;
   onOpen: (itemId: string) => void;
@@ -2139,163 +2230,12 @@ const ColumnLane = memo(function ColumnLane({
     [clearShiftedCards, column.column_id, items, onDropToColumn, onMoveToPosition, onReorderColumn]
   );
 
-  const hierarchyView = useMemo(() => {
-    const goalRoots: WorkItem[] = [];
-    const rootFeatures: WorkItem[] = [];
-    const rootTasks: WorkItem[] = [];
-    const featuresByGoal = new Map<string, WorkItem[]>();
-    const tasksByFeature = new Map<string, WorkItem[]>();
-    const itemById = new Map(renderItems.map((item) => [item.item_id, item]));
-
-    for (const item of renderItems) {
-      if (item.parent_id && !itemById.has(item.parent_id)) {
-        continue;
-      }
-
-      if (item.item_type === 'goal') {
-        goalRoots.push(item);
-        continue;
-      }
-
-      if (item.item_type === 'feature') {
-        const parent = item.parent_id ? itemById.get(item.parent_id) : undefined;
-        if (parent?.item_type === 'goal') {
-          const bucket = featuresByGoal.get(parent.item_id) ?? [];
-          bucket.push(item);
-          featuresByGoal.set(parent.item_id, bucket);
-          continue;
-        }
-        rootFeatures.push(item);
-        continue;
-      }
-
-      const parent = item.parent_id ? itemById.get(item.parent_id) : undefined;
-      if (parent?.item_type === 'feature') {
-        const bucket = tasksByFeature.get(parent.item_id) ?? [];
-        bucket.push(item);
-        tasksByFeature.set(parent.item_id, bucket);
-        continue;
-      }
-      rootTasks.push(item);
-    }
-
-    const sortBucketMap = (source: Map<string, WorkItem[]>) => {
-      const sorted = new Map<string, WorkItem[]>();
-      source.forEach((bucket, key) => {
-        sorted.set(key, sortByPosition(bucket));
-      });
-      return sorted;
-    };
-
-    return {
-      goalRoots: sortByPosition(goalRoots),
-      rootFeatures: sortByPosition(rootFeatures),
-      rootTasks: sortByPosition(rootTasks),
-      featuresByGoal: sortBucketMap(featuresByGoal),
-      tasksByFeature: sortBucketMap(tasksByFeature),
-    };
-  }, [renderItems]);
-
-  type FlattenedHierarchyRow = {
-    item: WorkItem;
-    depth: 0 | 1 | 2;
-    hint?: string;
-    options?: {
-      isExpandable?: boolean;
-      isCollapsed?: boolean;
-      hierarchyCountLabel?: string;
-      summarized?: boolean;
-    };
-  };
-
   const visibleRows = useMemo<FlattenedHierarchyRow[]>(() => {
-    const rows: FlattenedHierarchyRow[] = [];
-
-    for (const goal of hierarchyView.goalRoots) {
-      const features = hierarchyView.featuresByGoal.get(goal.item_id) ?? [];
-      const goalCollapsed = collapsed.has(goal.item_id);
-      const globalFeatureCount = featureCountByGoal.get(goal.item_id) ?? 0;
-      const globalTaskCount = (taskCountByGoal.get(goal.item_id) ?? 0) + (childTaskCountByParent.get(goal.item_id) ?? 0);
-      const goalCountParts: string[] = [];
-      if (globalFeatureCount > 0) goalCountParts.push(`${globalFeatureCount} ${globalFeatureCount === 1 ? 'feature' : 'features'}`);
-      if (globalTaskCount > 0) goalCountParts.push(`${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}`);
-
-      rows.push({
-        item: goal,
-        depth: 0,
-        options: {
-          isExpandable: features.length > 0,
-          isCollapsed: goalCollapsed,
-          hierarchyCountLabel: goalCountParts.length > 0 ? goalCountParts.join(' · ') : undefined,
-          summarized: true,
-        },
-      });
-
-      if (goalCollapsed) continue;
-
-      for (const feature of features) {
-        const tasks = hierarchyView.tasksByFeature.get(feature.item_id) ?? [];
-        const featureCollapsed = collapsed.has(feature.item_id);
-        const globalTaskCount = childTaskCountByParent.get(feature.item_id) ?? 0;
-
-        rows.push({
-          item: feature,
-          depth: 1,
-          hint: `Rolls up to goal: ${goal.title}`,
-          options: {
-            isExpandable: tasks.length > 0,
-            isCollapsed: featureCollapsed,
-            hierarchyCountLabel: globalTaskCount > 0 ? `${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}` : undefined,
-          },
-        });
-
-        if (featureCollapsed) continue;
-
-        for (const task of tasks) {
-          rows.push({
-            item: task,
-            depth: 2,
-            hint: `Rolls up to feature: ${feature.title}`,
-          });
-        }
-      }
-    }
-
-    for (const feature of hierarchyView.rootFeatures) {
-      const tasks = hierarchyView.tasksByFeature.get(feature.item_id) ?? [];
-      const featureCollapsed = collapsed.has(feature.item_id);
-      const globalTaskCount = childTaskCountByParent.get(feature.item_id) ?? 0;
-
-      rows.push({
-        item: feature,
-        depth: 0,
-        hint: feature.parent_id ? 'Parent goal is in another column' : undefined,
-        options: {
-          isExpandable: tasks.length > 0,
-          isCollapsed: featureCollapsed,
-          hierarchyCountLabel: globalTaskCount > 0 ? `${globalTaskCount} ${globalTaskCount === 1 ? 'task' : 'tasks'}` : undefined,
-        },
-      });
-
-      if (featureCollapsed) continue;
-
-      for (const task of tasks) {
-        rows.push({
-          item: task,
-          depth: 1,
-          hint: `Rolls up to feature: ${feature.title}`,
-        });
-      }
-    }
-
-    for (const task of hierarchyView.rootTasks) {
-      rows.push({
-        item: task,
-        depth: 0,
-        hint: task.parent_id ? 'Parent feature is in another column' : undefined,
-      });
-    }
-
+    const rows = buildPositionOrderedRows(sortByPosition(renderItems), collapsed, {
+      featureCountByGoal,
+      taskCountByGoal,
+      childTaskCountByParent,
+    });
     const seenIds = new Set<string>();
     return rows.filter((row) => {
       if (seenIds.has(row.item.item_id)) return false;
@@ -2306,7 +2246,7 @@ const ColumnLane = memo(function ColumnLane({
     childTaskCountByParent,
     collapsed,
     featureCountByGoal,
-    hierarchyView,
+    renderItems,
     taskCountByGoal,
   ]);
 
@@ -2519,6 +2459,7 @@ const TYPE_ICON: Record<WorkItemType, string> = {
   feature: '📖',
   task: '☑',
   bug: '🐛',
+  research: 'R',
 };
 
 const PRIORITY_LABEL: Record<string, string> = {
@@ -2594,56 +2535,18 @@ const OutlineView = memo(function OutlineView({
       }
     }
 
-    // Build hierarchy per column
     type ColHierarchy = {
-      goalRoots: WorkItem[];
-      rootFeatures: WorkItem[];
-      rootTasks: WorkItem[];
-      featuresByGoal: Map<string, WorkItem[]>;
-      tasksByFeature: Map<string, WorkItem[]>;
+      rows: FlattenedHierarchyRow[];
       totalCount: number;
     };
 
     const buildHierarchy = (colItems: WorkItem[]): ColHierarchy => {
-      const goalRoots: WorkItem[] = [];
-      const rootFeatures: WorkItem[] = [];
-      const rootTasks: WorkItem[] = [];
-      const featuresByGoal = new Map<string, WorkItem[]>();
-      const tasksByFeature = new Map<string, WorkItem[]>();
-
-      for (const item of colItems) {
-        if (item.item_type === 'goal') {
-          goalRoots.push(item);
-          continue;
-        }
-        if (item.item_type === 'feature') {
-          const parent = item.parent_id ? itemById.get(item.parent_id) : undefined;
-          if (parent?.item_type === 'goal') {
-            const bucket = featuresByGoal.get(parent.item_id) ?? [];
-            bucket.push(item);
-            featuresByGoal.set(parent.item_id, bucket);
-            continue;
-          }
-          rootFeatures.push(item);
-          continue;
-        }
-        // task or bug
-        const parent = item.parent_id ? itemById.get(item.parent_id) : undefined;
-        if (parent?.item_type === 'feature') {
-          const bucket = tasksByFeature.get(parent.item_id) ?? [];
-          bucket.push(item);
-          tasksByFeature.set(parent.item_id, bucket);
-          continue;
-        }
-        rootTasks.push(item);
-      }
-
       return {
-        goalRoots: sortByPosition(goalRoots),
-        rootFeatures: sortByPosition(rootFeatures),
-        rootTasks: sortByPosition(rootTasks),
-        featuresByGoal,
-        tasksByFeature,
+        rows: buildPositionOrderedRows(sortByPosition(colItems), collapsed, {
+          featureCountByGoal,
+          taskCountByGoal,
+          childTaskCountByParent,
+        }),
         totalCount: colItems.length,
       };
     };
@@ -2661,7 +2564,7 @@ const OutlineView = memo(function OutlineView({
     }
 
     return result;
-  }, [columns, itemsByColumnId, itemById]);
+  }, [childTaskCountByParent, collapsed, columns, featureCountByGoal, itemsByColumnId, itemById, taskCountByGoal]);
 
   const columnNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -2739,44 +2642,8 @@ const OutlineView = memo(function OutlineView({
   );
 
   const renderHierarchy = useCallback(
-    (h: { goalRoots: WorkItem[]; rootFeatures: WorkItem[]; rootTasks: WorkItem[]; featuresByGoal: Map<string, WorkItem[]>; tasksByFeature: Map<string, WorkItem[]> }) => {
-      const rows: React.ReactNode[] = [];
-
-      for (const goal of h.goalRoots) {
-        rows.push(renderRow(goal, 0));
-        if (!collapsed.has(goal.item_id)) {
-          const features = h.featuresByGoal.get(goal.item_id) ?? [];
-          for (const feature of features) {
-            rows.push(renderRow(feature, 1));
-            if (!collapsed.has(feature.item_id)) {
-              const tasks = h.tasksByFeature.get(feature.item_id) ?? [];
-              for (const task of tasks) {
-                rows.push(renderRow(task, 2));
-              }
-            }
-          }
-        }
-      }
-
-      // Orphan features (no goal parent in this column)
-      for (const feature of h.rootFeatures) {
-        rows.push(renderRow(feature, 0));
-        if (!collapsed.has(feature.item_id)) {
-          const tasks = h.tasksByFeature.get(feature.item_id) ?? [];
-          for (const task of tasks) {
-            rows.push(renderRow(task, 1));
-          }
-        }
-      }
-
-      // Orphan tasks/bugs (no parent feature in this column)
-      for (const task of h.rootTasks) {
-        rows.push(renderRow(task, 0));
-      }
-
-      return rows;
-    },
-    [collapsed, renderRow]
+    (h: { rows: FlattenedHierarchyRow[] }) => h.rows.map((row) => renderRow(row.item, row.depth)),
+    [renderRow]
   );
 
   return (
@@ -2860,10 +2727,12 @@ export function BoardPage(): React.JSX.Element {
   }, [boardId]);
 
   const { data: project } = useProject(projectId);
-  const bootstrapQuery = useBoardBootstrap(boardId, { enabled: bootstrapEnabled, pageSize: 100 });
+  const bootstrapQuery = useBoardBootstrap(boardId, { enabled: bootstrapEnabled, pageSize: MAX_ITEMS_PAGE_SIZE });
   const waitingForBootstrap = bootstrapEnabled && bootstrapQuery.isLoading && !bootstrapQuery.error;
+  // Fetch board in parallel with bootstrap so columns/title can paint before
+  // the heavier bootstrap round-trip (items + rollups) completes.
   const { data: board, isLoading: boardLoading } = useBoard(boardId, {
-    enabled: !waitingForBootstrap,
+    enabled: Boolean(boardId),
   });
   const {
     data: workItems,
@@ -2875,14 +2744,19 @@ export function BoardPage(): React.JSX.Element {
     isRefreshing,
     error: itemsError,
     refetch: refetchItems,
-    loadMore,
     lastSyncedAt,
   } = useWorkItems(boardId, {
     query: workItemQuery,
-    pageSize: 100,
+    pageSize: MAX_ITEMS_PAGE_SIZE,
     progressive: true,
     enabled: !waitingForBootstrap,
   });
+
+  /** Prefer TanStack cache from ``useBoard``; fall back to bootstrap payload for first paint (guideai-1155). */
+  const shellBoard = board ?? bootstrapQuery.data?.board ?? null;
+  const showBoardStructureLoading =
+    !shellBoard &&
+    (bootstrapEnabled ? bootstrapQuery.isLoading || boardLoading : boardLoading);
 
   const deleteItem = useDeleteWorkItem(boardId);
   const deleteCommitTimerRef = useRef<number | null>(null);
@@ -2912,61 +2786,7 @@ export function BoardPage(): React.JSX.Element {
   const participantsError = participantsQuery.error;
   const projectAgentsError = assignmentDrawerOpen ? projectAgentsQuery.error : null;
 
-  // Agent presence rail state
-  const [membersSheetOpen, setMembersSheetOpen] = useState(false);
   const { presences: agentPresences } = useAgentPresence(projectAgents, projectId ?? undefined);
-
-  const collabDockLauncherRef = useRef<HTMLButtonElement>(null);
-
-  const [unifiedChat, setUnifiedChat] = useState<{
-    initialTarget: UnifiedConversationInitialTarget;
-    key: number;
-    dmParticipantId?: string;
-  } | null>(null);
-  const getOrCreateDM = useGetOrCreateDirectConversation();
-
-  const [hydrationNoticeDismissed, setHydrationNoticeDismissed] = useState(false);
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      setHydrationNoticeDismissed(false);
-      if (typeof sessionStorage !== 'undefined' && boardId) {
-        setHydrationNoticeDismissed(sessionStorage.getItem(`board-hydration-dismiss:${boardId}`) === '1');
-      }
-    });
-  }, [boardId]);
-
-  const dismissHydrationNotice = useCallback(() => {
-    if (boardId && typeof sessionStorage !== 'undefined') {
-      sessionStorage.setItem(`board-hydration-dismiss:${boardId}`, '1');
-    }
-    setHydrationNoticeDismissed(true);
-  }, [boardId]);
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      setMembersSheetOpen(false);
-      setUnifiedChat(null);
-    });
-  }, [boardId, projectId]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || !e.shiftKey) return;
-      if (e.key.toLowerCase() !== 'm') return;
-      e.preventDefault();
-      setUnifiedChat((prev) =>
-        prev
-          ? null
-          : {
-              initialTarget: { mode: 'firstProjectRoom' },
-              key: Date.now(),
-            },
-      );
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
 
   const createItem = useCreateWorkItem();
   const moveItem = useMoveWorkItem(boardId);
@@ -2983,7 +2803,15 @@ export function BoardPage(): React.JSX.Element {
   });
   const executeWorkItem = useExecuteWorkItem();
   const cancelExecution = useCancelWorkItemExecution();
-  const shouldLoadRollups = Boolean(boardId) && !waitingForBootstrap && !itemsLoading && loadedCount > 0;
+  const bootstrapRollupGateDone =
+    !bootstrapEnabled ||
+    bootstrapQuery.isSuccess ||
+    Boolean(bootstrapQuery.error);
+  const shouldLoadRollups =
+    Boolean(boardId) &&
+    !waitingForBootstrap &&
+    bootstrapRollupGateDone &&
+    (bootstrapEnabled || loadedCount > 0);
   const goalRollupsQuery = useBoardProgressRollups(boardId, {
     itemType: 'goal',
     enabled: shouldLoadRollups,
@@ -3093,54 +2921,6 @@ export function BoardPage(): React.JSX.Element {
     });
   }, [participantRecords]);
 
-  const boardParticipants = useMemo<BoardParticipant[]>(() => {
-    const humans: BoardParticipant[] = assignableHumans.map((profile) => ({
-      id: assigneeKey(profile.type, profile.id),
-      kind: 'human',
-      actor: profile.actor ?? toActorViewModel(
-        {
-          user_id: profile.id,
-          display_name: profile.label,
-          status: 'idle',
-        },
-        {
-          subtitle: profile.subtitle,
-          presenceState: 'available',
-          isCurrentUser: false,
-        },
-      ),
-      subtitle: profile.subtitle,
-      roleLabel: profile.subtitle,
-      statusLine: profile.subtitle,
-      isCurrentUser: Boolean(profile.actor?.isCurrentUser),
-    }));
-
-    const agents: BoardParticipant[] = assignableAgents.map((profile) => ({
-      id: assigneeKey(profile.type, profile.id),
-      kind: 'agent',
-      actor: profile.actor ?? toActorViewModel(
-        {
-          id: profile.id,
-          name: profile.label,
-          agent_type: profile.subtitle ?? 'Agent',
-          status: (profile.status ?? 'active') as AgentStatus,
-          config: {},
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        {
-          presenceState: profile.presence ?? 'available',
-          subtitle: profile.subtitle,
-        },
-      ),
-      subtitle: profile.subtitle,
-      roleLabel: profile.subtitle,
-      statusLine: profile.presenceLabel ?? profile.subtitle,
-    }));
-
-    return [...humans, ...agents];
-  }, [assignableAgents, assignableHumans]);
-
   const assigneeIndex = useMemo(() => {
     const index = new Map<string, AssigneeProfile>();
     assignableHumans.forEach((profile) => {
@@ -3167,9 +2947,9 @@ export function BoardPage(): React.JSX.Element {
   }, [items]);
 
   const columns = useMemo(() => {
-    const cols = board?.columns ?? [];
+    const cols = shellBoard?.columns ?? [];
     return sortByPosition(cols);
-  }, [board?.columns]);
+  }, [shellBoard?.columns]);
 
   const itemsByColumnId = useMemo(() => {
     const next: Record<string, WorkItem[]> = {};
@@ -3613,7 +3393,7 @@ export function BoardPage(): React.JSX.Element {
       columnId: string,
       title: string,
       itemType: WorkItemType,
-      options?: { priority?: WorkItemPriority },
+      options?: { priority?: WorkItemPriority; researchUrl?: string },
       onCreated?: (itemId: string) => void,
     ) => {
       if (!projectId || !boardId) return;
@@ -3625,32 +3405,45 @@ export function BoardPage(): React.JSX.Element {
           column_id: columnId,
           title,
           priority: options?.priority ?? 'medium',
+          ...(options?.researchUrl ? { research_url: options.researchUrl } : {}),
         },
         {
           onSuccess: (created) => {
+            const label = created.title.length > 48 ? `${created.title.slice(0, 48)}…` : created.title;
+            showCopyToast(`Work item created: “${label}”`);
             onCreated?.(created.item_id);
+          },
+          onError: (error) => {
+            const msg =
+              error instanceof ApiError
+                ? error.message
+                : error instanceof Error
+                  ? error.message
+                  : 'Could not create work item';
+            showCopyToast(msg, 'error');
           },
         }
       );
     },
-    [boardId, createItem, projectId]
+    [boardId, createItem, projectId, showCopyToast]
   );
 
   const pageTitle = useMemo(() => {
-    if (boardLoading) return 'Board';
-    return board?.name ? board.name : 'Board';
-  }, [board, boardLoading]);
+    if (showBoardStructureLoading) return 'Board';
+    return shellBoard?.name ? shellBoard.name : 'Board';
+  }, [shellBoard?.name, showBoardStructureLoading]);
 
   const projectTitle = useMemo(() => project?.name ?? 'Project', [project?.name]);
   const supplementarySettled = !participantsQuery.isFetching && !projectAgentsQuery.isFetching;
   const hasSupplementaryDataError = supplementarySettled && Boolean(participantsError || projectAgentsError);
   const hasWorkItemsLoadError = Boolean(itemsError);
   const showBlockingItemsError = hasWorkItemsLoadError && !itemsLoading && items.length === 0;
-  const showPartialHydrationNotice = !showBlockingItemsError && (isPartial || isBackgroundHydrating) && totalItemCount > 0;
-  const showHydrationAttention = showPartialHydrationNotice && !hydrationNoticeDismissed;
+  const showBoardItemsBootstrap =
+    !showBoardStructureLoading &&
+    Boolean(shellBoard && columns.length > 0 && itemsLoading && items.length === 0);
 
   useEffect(() => {
-    if (!boardId || boardLoading || !board) return;
+    if (!boardId || showBoardStructureLoading || !shellBoard) return;
     if (boardPerfFlagsRef.current.shell === boardId) return;
     boardPerfFlagsRef.current.shell = boardId;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -3663,7 +3456,7 @@ export function BoardPage(): React.JSX.Element {
     };
     perfMark('board.shell_ready', payload);
     void razeLog('INFO', 'board.shell_ready', payload);
-  }, [board, boardId, boardLoading, hasActiveFilters, projectId]);
+  }, [shellBoard, boardId, showBoardStructureLoading, hasActiveFilters, projectId]);
 
   useEffect(() => {
     if (!boardId || itemsLoading || items.length === 0) return;
@@ -3717,40 +3510,6 @@ export function BoardPage(): React.JSX.Element {
   // ── Column Summary Strip helpers ──────────────────────────────────────────
   const currentUserId = useMemo(() => (actor?.type === 'human' ? actor.id : null), [actor?.id, actor?.type]);
 
-  // ── Unified messages — DM from avatar / members sheet ─────────────────────
-  const handleParticipantClick = useCallback(
-    (participant: BoardParticipant) => {
-      if (!projectId) return;
-      if (unifiedChat?.dmParticipantId === participant.id) {
-        return;
-      }
-      getOrCreateDM.mutate(
-        {
-          projectId,
-          targetParticipantId: participant.id,
-          actorType: participant.kind === 'agent' ? 'agent' : 'user',
-        },
-        {
-          onSuccess: (result) => {
-            setUnifiedChat({
-              initialTarget: { mode: 'conversation', conversationId: result.conversation.id },
-              key: Date.now(),
-              dmParticipantId: participant.id,
-            });
-          },
-        },
-      );
-    },
-    [projectId, unifiedChat?.dmParticipantId, getOrCreateDM],
-  );
-
-  const openProjectRoomChat = useCallback(() => {
-    setUnifiedChat({
-      initialTarget: { mode: 'firstProjectRoom' },
-      key: Date.now(),
-    });
-  }, []);
-
   const isMyWorkActive = useMemo(
     () => Boolean(currentUserId && filters.assigneeId === currentUserId && filters.assigneeType === 'user'),
     [currentUserId, filters.assigneeId, filters.assigneeType]
@@ -3790,11 +3549,20 @@ export function BoardPage(): React.JSX.Element {
       <div
         ref={pageRef}
         className={`board-page board-page-density-compact${draggedItemId || dropSettling ? ' board-page-dragging' : ''}`}
+        aria-busy={
+          !showBoardStructureLoading &&
+          Boolean(shellBoard && columns.length > 0 && (isPartial || isBackgroundHydrating) && totalItemCount > 0)
+        }
       >
         <div className="board-sticky-chrome">
+        {(showBoardStructureLoading || showBoardItemsBootstrap) && (
+          <div className="board-page-loading-status" role="status" aria-live="polite">
+            {showBoardStructureLoading ? 'Loading board…' : 'Loading work items…'}
+          </div>
+        )}
 
         {/* Unified toolbar: title + filters + density + settings */}
-        {!boardLoading && board && columns.length > 0 && (
+        {!showBoardStructureLoading && shellBoard && columns.length > 0 && (
           <BoardFilterBar
             filterState={filterState}
             assignableHumans={assignableHumans}
@@ -3819,65 +3587,18 @@ export function BoardPage(): React.JSX.Element {
         )}
         </div>{/* end board-sticky-chrome */}
 
-        {/* Collaboration dock — fixed bottom-center */}
-        {boardParticipants && boardParticipants.length > 0 && (
-          <div
-            className={`board-collab-dock-wrap${draggedItemId ? ' board-collab-dock-wrap--passive' : ''}`}
-          >
-            <div
-              className={`board-chathub-card${draggedItemId ? '' : ' board-chathub-card--floaty'}${membersSheetOpen || Boolean(unifiedChat) ? ' board-chathub-card--active' : ''}`}
-            >
-              <ChatHub
-                participants={boardParticipants ?? []}
-                memberCount={boardParticipants.length}
-                onOpenMembersSheet={() => setMembersSheetOpen(true)}
-                onParticipantClick={handleParticipantClick}
-                membersLauncherRef={collabDockLauncherRef}
-                active={membersSheetOpen || Boolean(unifiedChat)}
-              />
-            </div>
-          </div>
-        )}
-
-        {!boardLoading && board && columns.length > 0 && hasSupplementaryDataError && (
+        {!showBoardStructureLoading && shellBoard && columns.length > 0 && hasSupplementaryDataError && (
           <div className="board-warning animate-fade-in-up" role="status" aria-live="polite">
             Some project-side data is unavailable right now. Work items can still load, but agent assignments or member details may be incomplete.
           </div>
         )}
 
-        {!boardLoading && board && columns.length > 0 && showHydrationAttention && (
-          <div className="board-hydration-hint" role="status" aria-live="polite">
-            <span className="board-hydration-hint-text">
-              Loading board… {loadedCount} / {totalItemCount} items
-            </span>
-            {isPartial && (
-              <button
-                type="button"
-                className="board-hydration-hint-action pressable"
-                onClick={() => void loadMore()}
-                data-haptic="light"
-              >
-                Load more
-              </button>
-            )}
-            <button
-              type="button"
-              className="board-hydration-hint-dismiss pressable"
-              aria-label="Dismiss loading notice"
-              onClick={dismissHydrationNotice}
-              data-haptic="light"
-            >
-              ×
-            </button>
-          </div>
-        )}
-
-        {/* Phase 1: Show skeleton immediately while board structure loads */}
-        {boardLoading && (
+        {/* Phase 1: Show skeleton immediately while board structure loads (incl. bootstrap in flight). */}
+        {showBoardStructureLoading && (
           <BoardSkeleton columnCount={5} />
         )}
 
-        {!boardLoading && board && columns.length === 0 && (
+        {!showBoardStructureLoading && shellBoard && columns.length === 0 && (
           <div className="board-empty animate-fade-in-up" role="status">
             <h2 className="board-empty-title">No columns</h2>
             <p className="board-empty-description">Create the board with default columns to get the full flow.</p>
@@ -3887,7 +3608,7 @@ export function BoardPage(): React.JSX.Element {
           </div>
         )}
 
-        {!boardLoading && board && columns.length > 0 && showBlockingItemsError && (
+        {!showBoardStructureLoading && shellBoard && columns.length > 0 && showBlockingItemsError && (
           <div className="board-error animate-fade-in-up" role="alert">
             <h2 className="board-error-title">Could not load work items</h2>
             <p className="board-error-description">
@@ -3904,7 +3625,7 @@ export function BoardPage(): React.JSX.Element {
           </div>
         )}
 
-        {!boardLoading && board && columns.length > 0 && !showBlockingItemsError && viewMode === 'board' && (
+        {!showBoardStructureLoading && shellBoard && columns.length > 0 && !showBlockingItemsError && viewMode === 'board' && (
           <>
           <ColumnSummaryStrip
             columns={columns}
@@ -3962,7 +3683,7 @@ export function BoardPage(): React.JSX.Element {
           </>
         )}
 
-        {!boardLoading && board && columns.length > 0 && !showBlockingItemsError && viewMode === 'outline' && (
+        {!showBoardStructureLoading && shellBoard && columns.length > 0 && !showBlockingItemsError && viewMode === 'outline' && (
           <OutlineView
             items={items}
             columns={columns}
@@ -4040,25 +3761,9 @@ export function BoardPage(): React.JSX.Element {
             onCopyWorkItemId={handleCopyWorkItemId}
             onNotify={showCopyToast}
             onRequestClose={onCloseDrawer}
+            onOpenItem={onOpen}
           />
         )}
-
-        {/* ChatHub presence card rendered above, after board-sticky-chrome */}
-
-        <AgentPresenceDrawer
-          participants={boardParticipants}
-          open={membersSheetOpen}
-          onClose={() => setMembersSheetOpen(false)}
-          onProjectRoom={openProjectRoomChat}
-          onParticipantClick={(p) => {
-            setMembersSheetOpen(false);
-            handleParticipantClick(p);
-          }}
-          onManage={() => {
-            setMembersSheetOpen(false);
-            setAssignmentDrawerOpen(true);
-          }}
-        />
 
         <AgentAssignmentDrawer
           presences={agentPresences}
@@ -4067,21 +3772,6 @@ export function BoardPage(): React.JSX.Element {
           open={assignmentDrawerOpen}
           onClose={() => setAssignmentDrawerOpen(false)}
         />
-
-        {unifiedChat && (
-          <div
-            className={`board-collab-chat-anchor${draggedItemId ? ' board-collab-chat-anchor--passive' : ''}`}
-          >
-            <UnifiedConversationWindow
-              projectId={projectId ?? ''}
-              orgId={project?.org_id ?? null}
-              currentUserId={currentUserId ?? undefined}
-              initialTarget={unifiedChat.initialTarget}
-              initialTargetKey={unifiedChat.key}
-              onClose={() => setUnifiedChat(null)}
-            />
-          </div>
-        )}
 
         {copyToast && (
           <div className={`board-copy-toast board-copy-toast-${copyToast.variant}`} role="status" aria-live="polite">

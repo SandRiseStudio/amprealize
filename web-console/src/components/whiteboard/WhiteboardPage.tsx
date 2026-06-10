@@ -97,11 +97,16 @@ function SnapshotCard({ snapshot, index }: { snapshot: WhiteboardSnapshot; index
   );
 }
 
-function LoadingSkeleton() {
+function LoadingSkeleton({ label }: { label: string }) {
   return (
-    <div className="whiteboard-skeleton-grid">
+    <div
+      className="whiteboard-skeleton-grid"
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+    >
       {[0, 1, 2].map((i) => (
-        <div key={i} className="whiteboard-skeleton" style={{ animationDelay: `${i * 150}ms` }} />
+        <div key={i} className="whiteboard-skeleton" style={{ animationDelay: `${i * 150}ms` }} aria-hidden />
       ))}
     </div>
   );
@@ -198,7 +203,7 @@ export function WhiteboardPage() {
         </div>
 
         {isLoading ? (
-          <LoadingSkeleton />
+          <LoadingSkeleton label="Loading live whiteboard sessions" />
         ) : activeRooms.length === 0 ? (
           <EmptyLive />
         ) : (
@@ -216,7 +221,7 @@ export function WhiteboardPage() {
         </div>
 
         {snapshotsLoading ? (
-          <LoadingSkeleton />
+          <LoadingSkeleton label="Loading whiteboard archive" />
         ) : snapshots.length === 0 ? (
           <EmptyArchive />
         ) : (

@@ -75,7 +75,7 @@ export const WikiSidebar = memo(function WikiSidebar({
 
   if (isLoading) {
     return (
-      <div className="wiki-sidebar">
+      <div className="wiki-sidebar" role="status" aria-busy="true" aria-label="Loading wiki navigation">
         <div className="wiki-sidebar-hero">
           <div className="wiki-skeleton wiki-skeleton-title" />
           <div className="wiki-skeleton wiki-skeleton-line wide" />

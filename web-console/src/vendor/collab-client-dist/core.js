@@ -24,8 +24,15 @@ var DocumentType = /* @__PURE__ */ ((DocumentType2) => {
   return DocumentType2;
 })(DocumentType || {});
 var ConversationScope = /* @__PURE__ */ ((ConversationScope2) => {
+  ConversationScope2["GlobalUserHome"] = "global_user_home";
+  ConversationScope2["GlobalPersonalThread"] = "global_personal_thread";
+  ConversationScope2["ProjectSpace"] = "project_space";
   ConversationScope2["ProjectRoom"] = "project_room";
+  ConversationScope2["Dm"] = "dm";
   ConversationScope2["AgentDm"] = "agent_dm";
+  ConversationScope2["GroupChat"] = "group_chat";
+  ConversationScope2["WorkItemThread"] = "work_item_thread";
+  ConversationScope2["RunThread"] = "run_thread";
   return ConversationScope2;
 })(ConversationScope || {});
 var ActorType = /* @__PURE__ */ ((ActorType2) => {
@@ -505,6 +512,9 @@ var ExecutionStreamClient = class extends TypedEventEmitter2 {
       this.log("WebSocket error");
     };
     this.ws.onclose = (event) => {
+      if (event.target !== this.ws) {
+        return;
+      }
       this.log("WebSocket closed", event.code, event.reason);
       this.clearTimers();
       this.ws = null;
@@ -618,7 +628,9 @@ var ExecutionStreamClient = class extends TypedEventEmitter2 {
   send(message) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
-      this.log("Sent:", message.type);
+      if (message.type !== "ping") {
+        this.log("Sent:", message.type);
+      }
     }
   }
   clearTimers() {
@@ -756,7 +768,8 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       content: options.content,
       message_type: options.message_type,
       structured_payload: options.structured_payload,
-      parent_id: options.parent_id
+      parent_id: options.parent_id,
+      metadata: options.metadata
     });
   }
   editMessage(messageId, content) {
@@ -810,6 +823,9 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       this.log("WebSocket error");
     };
     this.ws.onclose = (event) => {
+      if (event.target !== this.ws) {
+        return;
+      }
       this.log("WebSocket closed", event.code, event.reason);
       this.clearTimers();
       this.ws = null;
@@ -830,6 +846,9 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       this.log("Invalid JSON message", rawMessage);
       return;
     }
+    if (this.config.debug && message.type && message.type !== "pong" && message.type !== "heartbeat") {
+      this.log("Recv:", message.type);
+    }
     switch (message.type) {
       case "conversation.ready":
         this.emit("connected", message.payload);
@@ -849,7 +868,7 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
       case "reaction.removed":
         this.emit("reaction.removed", message.payload);
         break;
-      case "typing":
+      case "typing.indicator":
         this.emit("typing.indicator", message.payload);
         break;
       case "read.receipt":
@@ -862,6 +881,23 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
         this.emit("participant.left", message.payload);
         break;
       case "pong":
+        break;
+      case "heartbeat":
+        break;
+      case "token":
+      case "reply.started":
+      case "reply.step":
+      case "reply.token":
+      case "structured_start":
+      case "structured_update":
+      case "reply.error":
+        break;
+      case "complete":
+      case "reply.complete":
+        this.emit("agent.reply.complete", message.payload ?? {});
+        break;
+      case "pin.updated":
+      case "system.announcement":
         break;
       case "error":
         this.emit("error", message.code ?? "UNKNOWN", message.message ?? "Unknown error");
@@ -926,7 +962,17 @@ var ConversationStreamClient = class extends TypedEventEmitter3 {
   send(command) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(command));
-      this.log("Sent:", command.type);
+      if (this.config.debug) {
+        if (command.type === "message.send") {
+          const meta = command.metadata;
+          this.log("Sent:", command.type, {
+            has_llm_model_id: Boolean(meta && typeof meta.llm_model_id === "string" && meta.llm_model_id),
+            content_len: typeof command.content === "string" ? command.content.length : 0
+          });
+        } else if (command.type !== "ping") {
+          this.log("Sent:", command.type);
+        }
+      }
     }
   }
   clearTimers() {

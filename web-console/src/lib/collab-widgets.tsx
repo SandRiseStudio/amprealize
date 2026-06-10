@@ -1,5 +1,7 @@
 import React, { memo, useState } from 'react';
 import type { ExecutionState, ExecutionStatus } from '../vendor/collab-client-dist/index.js';
+import { KnowledgeRetrievalSummary } from '../components/boards/execution/KnowledgeRetrievalSummary';
+import { CompactLoadingShimmer } from '../components/loading';
 
 export interface ExecutionStatusBadgeProps {
   state?: ExecutionState | string | null;
@@ -44,6 +46,8 @@ export interface ExecutionStatusCardProps {
   actions?: React.ReactNode;
   emptyLabel?: string;
   className?: string;
+  /** Dense layout: status + optional subtitle + actions, no title/phase stack */
+  variant?: 'default' | 'embedded';
 }
 
 export const ExecutionStatusCard = memo(function ExecutionStatusCard({
@@ -54,8 +58,37 @@ export const ExecutionStatusCard = memo(function ExecutionStatusCard({
   actions,
   emptyLabel = 'No execution yet',
   className,
+  variant = 'default',
 }: ExecutionStatusCardProps): React.JSX.Element {
   const statusText = status?.state ? toTitleLabel(status.state) : emptyLabel;
+  const rootClass = [className ?? 'execution-status-card', variant === 'embedded' ? 'execution-status-card--embedded' : '']
+    .filter(Boolean)
+    .join(' ');
+  const trace = status?.traceSummary && typeof status.traceSummary === 'object' && !Array.isArray(status.traceSummary)
+    ? (status.traceSummary as Record<string, unknown>)
+    : null;
+  const krRaw = trace?.knowledge_retrieval;
+  const knowledgeSlice =
+    krRaw && typeof krRaw === 'object' && !Array.isArray(krRaw) ? (krRaw as Record<string, unknown>) : null;
+
+  if (variant === 'embedded') {
+    return (
+      <div className={rootClass}>
+        <div className="execution-status-embedded-body">
+          <div className="execution-status-primary">{statusText}</div>
+          {subtitle ? <div className="execution-status-sub">{subtitle}</div> : null}
+        </div>
+        <KnowledgeRetrievalSummary data={knowledgeSlice} />
+        {isLoading ? (
+          <div className="execution-status-loading">
+            <CompactLoadingShimmer label="Loading execution status" />
+          </div>
+        ) : null}
+        {actions ? <div className="execution-status-actions">{actions}</div> : null}
+      </div>
+    );
+  }
+
   return (
     <div className={className ?? 'execution-status-card'}>
       <div>
@@ -63,8 +96,13 @@ export const ExecutionStatusCard = memo(function ExecutionStatusCard({
         <div>{statusText}</div>
         {subtitle ? <div>{subtitle}</div> : null}
         {status?.phase ? <div>{toTitleLabel(status.phase)}</div> : null}
+        <KnowledgeRetrievalSummary data={knowledgeSlice} />
       </div>
-      {isLoading ? <div>Loading…</div> : null}
+      {isLoading ? (
+        <div className="execution-status-loading">
+          <CompactLoadingShimmer label="Loading execution status" />
+        </div>
+      ) : null}
       {actions ? <div>{actions}</div> : null}
     </div>
   );

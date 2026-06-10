@@ -13,6 +13,9 @@ import { ConversationPanel } from '../components/conversations/ConversationPanel
 
 // Mock the API module (ConversationSidebar imports from api/conversations)
 vi.mock('../api/conversations', () => ({
+  isChatLoadBenchEnabled: vi.fn(() => false),
+  chatLoadBenchPhase: vi.fn(),
+  chatLoadBenchThreadFirstPaint: vi.fn(),
   useConversations: vi.fn(() => ({
     data: {
       items: [

@@ -8,8 +8,7 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 1));
+  background: rgba(252, 253, 254, 1);
 }
 
 .wiki-header {
@@ -91,7 +90,7 @@
   color: var(--color-accent);
   background: rgba(255, 255, 255, 0.98);
   border-color: rgba(34, 118, 210, 0.16);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  border-top-color: rgba(255, 255, 255, 0.9);
 }
 
 .wiki-header-actions {
@@ -329,12 +328,10 @@
   padding: var(--space-8);
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 28px;
-  background:
-    radial-gradient(circle at top right, rgba(34, 118, 210, 0.08), transparent 32%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
-  box-shadow:
-    0 24px 60px rgba(15, 23, 42, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid rgba(255, 255, 255, 0.88);
+  outline: 1px solid rgba(15, 23, 42, 0.06);
+  outline-offset: -1px;
 }
 
 .wiki-domain-eyebrow {
@@ -408,7 +405,8 @@
   height: 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-accent) 80%, white);
-  box-shadow: 0 0 0 4px rgba(34, 118, 210, 0.08);
+  outline: 2px solid rgba(34, 118, 210, 0.12);
+  outline-offset: 2px;
 }
 
 .wiki-domain-note {
@@ -503,7 +501,7 @@
 .wiki-article-progress-fill {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--color-accent), color-mix(in srgb, var(--color-accent) 55%, #60a5fa));
+  background: var(--color-accent);
 }
 
 .wiki-article-meta {
@@ -547,6 +545,7 @@
 
 .wiki-article-title {
   margin: 0;
+  font-family: var(--font-display);
   color: var(--color-text-primary);
   font-size: clamp(1.45rem, 1.9vw, 2rem);
   line-height: 1.08;
@@ -865,7 +864,9 @@
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 28px;
   background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.16);
+  border-top: 1px solid rgba(255, 255, 255, 0.9);
+  outline: 1px solid rgba(15, 23, 42, 0.08);
+  outline-offset: -1px;
   display: flex;
   flex-direction: column;
 }
@@ -1222,7 +1223,9 @@
     width: min(340px, calc(100vw - 24px));
     transform: translateX(-102%);
     transition: transform var(--duration-normal) var(--ease-out-expo);
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+    border-right: 1px solid rgba(15, 23, 42, 0.1);
+    outline: 1px solid rgba(255, 255, 255, 0.5);
+    outline-offset: -1px;
   }
 
   .wiki-local-nav.open {

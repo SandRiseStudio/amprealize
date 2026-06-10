@@ -8,7 +8,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useInfiniteMessages } from '../../api/conversations';
+import { chatLoadBenchThreadFirstPaint, isChatLoadBenchEnabled, useInfiniteMessages } from '../../api/conversations';
 import type { ConversationMessage } from '../../lib/collab-client';
 import { MessageBubble } from './MessageBubble';
 import { StreamingMessage } from './StreamingMessage';
@@ -19,12 +19,32 @@ export interface MessageListProps {
   conversationId: string;
   currentUserId?: string;
   streamingMessageId?: string | null;
+  onStreamingComplete?: () => void;
   lastReadMessageId?: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const GROUPING_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
+/** REST returns newest-first pages; chat UI is oldest → newest (newest at bottom). */
+function sortMessagesChronological(messages: ConversationMessage[]): ConversationMessage[] {
+  return [...messages].sort((a, b) => {
+    const ta = new Date(a.created_at ?? 0).getTime();
+    const tb = new Date(b.created_at ?? 0).getTime();
+    if (ta !== tb) return ta - tb;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+export function isPersistedAssistantStreamMessage(
+  message: ConversationMessage,
+  streamingMessageId: string | null | undefined,
+): boolean {
+  if (!streamingMessageId || message.sender_type === 'user') return false;
+  const persistedStreamId = message.metadata?.stream_message_id;
+  return message.id === streamingMessageId || persistedStreamId === streamingMessageId;
+}
 
 interface MessageRow {
   kind: 'message';
@@ -118,11 +138,16 @@ export const MessageList = memo(function MessageList({
   conversationId,
   currentUserId,
   streamingMessageId,
+  onStreamingComplete,
   lastReadMessageId,
 }: MessageListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const wasAtBottomRef = useRef(true);
+  const threadBenchStartRef = useRef(0);
+  const threadFirstPaintLoggedRef = useRef<string | null>(null);
+  /** Blocks history prefetch while scrollTop is still at "top" before initial scroll-to-bottom. */
+  const suppressOlderPrefetchRef = useRef(true);
 
   const {
     data: infiniteData,
@@ -132,11 +157,55 @@ export const MessageList = memo(function MessageList({
     isFetchingNextPage,
   } = useInfiniteMessages({ conversationId });
 
+  useEffect(() => {
+    threadBenchStartRef.current = performance.now();
+    threadFirstPaintLoggedRef.current = null;
+    suppressOlderPrefetchRef.current = true;
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!isChatLoadBenchEnabled()) return;
+    if (isLoading) return;
+    if (threadFirstPaintLoggedRef.current === conversationId) return;
+    threadFirstPaintLoggedRef.current = conversationId;
+    const messageCount = (infiniteData?.pages ?? []).flatMap((p) => p.items).length;
+    chatLoadBenchThreadFirstPaint(conversationId, {
+      conversation_id: conversationId,
+      duration_ms: Number((performance.now() - threadBenchStartRef.current).toFixed(2)),
+      message_count: messageCount,
+      empty_thread: messageCount === 0,
+    });
+  }, [isLoading, conversationId, infiniteData]);
+
   const hasNextPage = hasNextPageRaw ?? false;
   const allMessages = useMemo(
-    () => infiniteData?.pages.flatMap((p) => p.items) ?? [],
+    () => sortMessagesChronological(infiniteData?.pages.flatMap((p) => p.items) ?? []),
     [infiniteData],
   );
+  const hasPersistedStreamingMessage = useMemo(() => {
+    if (!streamingMessageId) return false;
+    return allMessages.some((message) => isPersistedAssistantStreamMessage(message, streamingMessageId));
+  }, [allMessages, streamingMessageId]);
+
+  /** Fire `onStreamingComplete` once per `streamingMessageId` when the assistant row lands (avoids effect churn from unstable parent callbacks and transient cache flicker). */
+  const streamCompleteCursorRef = useRef<{ streamId: string | null | undefined; fired: boolean }>({
+    streamId: undefined,
+    fired: false,
+  });
+
+  useEffect(() => {
+    const sid = streamingMessageId;
+    if (sid !== streamCompleteCursorRef.current.streamId) {
+      streamCompleteCursorRef.current = { streamId: sid, fired: false };
+    }
+    if (!sid || !hasPersistedStreamingMessage || streamCompleteCursorRef.current.fired) {
+      return;
+    }
+    streamCompleteCursorRef.current.fired = true;
+    onStreamingComplete?.();
+  }, [hasPersistedStreamingMessage, streamingMessageId, onStreamingComplete]);
+
+  const visibleStreamingMessageId = hasPersistedStreamingMessage ? null : streamingMessageId;
 
   const rows = useMemo(
     () => buildRows(allMessages, lastReadMessageId),
@@ -145,9 +214,9 @@ export const MessageList = memo(function MessageList({
 
   // Add streaming placeholder at end
   const rowsWithStreaming = useMemo(() => {
-    if (!streamingMessageId) return rows;
-    return [...rows, { kind: 'streaming' as const, messageId: streamingMessageId }];
-  }, [rows, streamingMessageId]);
+    if (!visibleStreamingMessageId) return rows;
+    return [...rows, { kind: 'streaming' as const, messageId: visibleStreamingMessageId }];
+  }, [rows, visibleStreamingMessageId]);
 
   type RowItem = VirtualRow | { kind: 'streaming'; messageId: string };
 
@@ -165,11 +234,25 @@ export const MessageList = memo(function MessageList({
     overscan: 8,
   });
 
-  // Scroll to bottom on new messages (if already at bottom)
+  // Scroll to bottom on new messages (if already at bottom); then allow "load older" scroll handling.
   useEffect(() => {
-    if (wasAtBottomRef.current && rowsWithStreaming.length > 0) {
+    if (rowsWithStreaming.length === 0) {
+      suppressOlderPrefetchRef.current = false;
+      return;
+    }
+    if (wasAtBottomRef.current) {
       virtualizer.scrollToIndex(rowsWithStreaming.length - 1, { align: 'end', behavior: 'smooth' });
     }
+    let innerFrame = 0;
+    const outerFrame = requestAnimationFrame(() => {
+      innerFrame = requestAnimationFrame(() => {
+        suppressOlderPrefetchRef.current = false;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outerFrame);
+      cancelAnimationFrame(innerFrame);
+    };
   }, [rowsWithStreaming.length, virtualizer]);
 
   // Track scroll position
@@ -181,7 +264,8 @@ export const MessageList = memo(function MessageList({
     setIsAtBottom(atBottom);
     wasAtBottomRef.current = atBottom;
 
-    // Load more on scroll to top
+    // Load more on scroll to top (skip until initial scroll-to-bottom has settled)
+    if (suppressOlderPrefetchRef.current) return;
     if (el.scrollTop < 60 && hasNextPage && !isFetchingNextPage) {
       fetchNextPage();
     }
@@ -193,13 +277,18 @@ export const MessageList = memo(function MessageList({
 
   if (isLoading) {
     return (
-      <div className="msg-list-loading">
-        <div className="msg-list-spinner" />
+      <div
+        className="msg-list-loading"
+        role="status"
+        aria-busy="true"
+        aria-label="Loading messages"
+      >
+        <div className="msg-list-spinner" aria-hidden />
       </div>
     );
   }
 
-  if (allMessages.length === 0) {
+  if (allMessages.length === 0 && !visibleStreamingMessageId) {
     return (
       <div className="msg-list-empty">
         <span className="msg-list-empty-label">No messages yet</span>

@@ -16,9 +16,9 @@
   border: 1px solid rgba(15, 23, 42, 0.08);
   background: rgba(244, 250, 253, 0.92);
   backdrop-filter: blur(20px) saturate(140%);
-  box-shadow:
-    0 4px 16px rgba(15, 23, 42, 0.08),
-    0 1px 4px rgba(15, 23, 42, 0.04);
+  border-top: 1px solid rgba(255, 255, 255, 0.72);
+  outline: 1px solid rgba(15, 23, 42, 0.06);
+  outline-offset: -1px;
   overflow: hidden;
   margin-top: 6px;
   transform-origin: top center;
@@ -260,13 +260,13 @@
 .iap-option-presence-idle,
 .iap-option-presence-finished_recently {
   background: rgb(34, 197, 94);
-  box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.85);
 }
 
 .iap-option-presence-working,
 .iap-option-presence-executing {
   background: rgb(245, 158, 11);
-  box-shadow: 0 0 4px rgba(245, 158, 11, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.85);
 }
 
 .iap-option-presence-offline,
@@ -357,7 +357,7 @@
     border-color var(--duration-fast) var(--ease-out-quart),
     background var(--duration-fast) var(--ease-out-quart),
     transform var(--duration-fast) var(--ease-spring),
-    box-shadow var(--duration-fast) var(--ease-out-quart);
+    outline-color var(--duration-fast) var(--ease-out-quart);
 }
 
 .work-item-assignee-pill.assignee-pill-interactive:hover {
@@ -365,29 +365,26 @@
 }
 
 .work-item-assignee-pill.assignee-pill-user.assignee-pill-interactive:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.16) 0%,
-    rgba(99, 102, 241, 0.12) 100%
-  );
+  background: rgba(59, 130, 246, 0.16);
   border-color: rgba(59, 130, 246, 0.42);
-  box-shadow: 0 3px 8px rgba(59, 130, 246, 0.18), inset 0 1px 0 rgba(255,255,255,0.55);
+  border-top-color: rgba(255, 255, 255, 0.55);
+  outline: 1px solid rgba(59, 130, 246, 0.2);
+  outline-offset: -1px;
 }
 
 .work-item-assignee-pill.assignee-pill-agent.assignee-pill-interactive:hover {
-  background: linear-gradient(
-    135deg,
-    rgba(16, 185, 129, 0.16) 0%,
-    rgba(5, 150, 105, 0.10) 100%
-  );
+  background: rgba(16, 185, 129, 0.16);
   border-color: rgba(16, 185, 129, 0.42);
-  box-shadow: 0 3px 8px rgba(16, 185, 129, 0.18), inset 0 1px 0 rgba(255,255,255,0.55);
+  border-top-color: rgba(255, 255, 255, 0.55);
+  outline: 1px solid rgba(16, 185, 129, 0.22);
+  outline-offset: -1px;
 }
 
 .work-item-assignee-pill.assignee-pill-unassigned.assignee-pill-interactive:hover {
   border-color: rgba(15, 23, 42, 0.28);
   background: rgba(15, 23, 42, 0.06);
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+  outline: 1px solid rgba(15, 23, 42, 0.08);
+  outline-offset: -1px;
 }
 
 .work-item-assignee-pill.assignee-pill-interactive:active {
@@ -396,28 +393,23 @@
 
 /* Open state */
 .work-item-assignee-pill.assignee-pill-user.assignee-pill-open {
-  background: linear-gradient(
-    135deg,
-    rgba(59, 130, 246, 0.18) 0%,
-    rgba(99, 102, 241, 0.13) 100%
-  );
+  background: rgba(59, 130, 246, 0.2);
   border-color: rgba(59, 130, 246, 0.48);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12), 0 3px 8px rgba(59, 130, 246, 0.16);
+  outline: 2px solid rgba(59, 130, 246, 0.28);
+  outline-offset: 1px;
 }
 
 .work-item-assignee-pill.assignee-pill-agent.assignee-pill-open {
-  background: linear-gradient(
-    135deg,
-    rgba(16, 185, 129, 0.18) 0%,
-    rgba(5, 150, 105, 0.13) 100%
-  );
+  background: rgba(16, 185, 129, 0.2);
   border-color: rgba(16, 185, 129, 0.48);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12), 0 3px 8px rgba(16, 185, 129, 0.16);
+  outline: 2px solid rgba(16, 185, 129, 0.28);
+  outline-offset: 1px;
 }
 
 .work-item-assignee-pill.assignee-pill-unassigned.assignee-pill-open {
   border-color: rgba(15, 23, 42, 0.32);
-  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.07);
+  outline: 2px solid rgba(15, 23, 42, 0.12);
+  outline-offset: 1px;
 }
 
 /* Unassigned + pulse hint on the plus avatar */
@@ -445,22 +437,26 @@
 
 @keyframes iap-assign-flash {
   0% {
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.45);
+    outline: 2px solid rgba(59, 130, 246, 0.45);
+    outline-offset: 0;
     transform: scale(1.04);
   }
   100% {
-    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.0);
+    outline: 2px solid transparent;
+    outline-offset: 4px;
     transform: scale(1);
   }
 }
 
 @keyframes iap-assign-flash-green {
   0% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45);
+    outline: 2px solid rgba(16, 185, 129, 0.45);
+    outline-offset: 0;
     transform: scale(1.04);
   }
   100% {
-    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.0);
+    outline: 2px solid transparent;
+    outline-offset: 4px;
     transform: scale(1);
   }
 }
@@ -473,7 +469,7 @@
     background var(--duration-fast) var(--ease-out-quart),
     border-color var(--duration-fast) var(--ease-out-quart),
     transform var(--duration-fast) var(--ease-spring),
-    box-shadow var(--duration-fast) var(--ease-out-quart);
+    outline-color var(--duration-fast) var(--ease-out-quart);
 }
 
 .compact-meta-assignee.compact-meta-assignee-interactive:hover {

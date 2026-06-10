@@ -34,8 +34,10 @@
   background: rgba(247, 251, 254, 0.96);
   backdrop-filter: blur(24px) saturate(140%);
   border: 1px solid rgba(15, 23, 42, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.65);
   border-radius: var(--radius-xl, 20px) var(--radius-xl, 20px) 0 0;
-  box-shadow: 0 -12px 48px -16px rgba(15, 23, 42, 0.18);
+  outline: 1px solid rgba(15, 23, 42, 0.06);
+  outline-offset: -1px;
   animation: presence-drawer-sheet-in var(--collab-motion-sheet-enter, 280ms) var(--ease-out-expo) both;
   overflow: hidden;
 }

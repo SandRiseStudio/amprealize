@@ -31,9 +31,31 @@ interface ChatMessage {
 	toolName?: string;
 	toolArgs?: Record<string, unknown>;
 	toolResult?: unknown;
+	metadata?: ChatModelMetadata;
 	isError?: boolean;
 	isStreaming?: boolean;
 }
+
+interface ChatModelMetadata {
+	llm_model_id: string;
+	llm_provider: string;
+	credential_scope: string;
+}
+
+const DEFAULT_CHAT_MODELS: Array<ChatModelMetadata & { label: string }> = [
+	{
+		label: 'DeepSeek V4 Flash (NVIDIA)',
+		llm_model_id: 'nvidia-deepseek-v4-flash',
+		llm_provider: 'nvidia',
+		credential_scope: 'platform'
+	},
+	{
+		label: 'MiniMax M2.7 (NVIDIA)',
+		llm_model_id: 'nvidia-minimax-m2-7',
+		llm_provider: 'nvidia',
+		credential_scope: 'platform'
+	}
+];
 
 interface ToolGroup {
 	id: string;
@@ -84,7 +106,7 @@ export class AmprealizeChatPanel {
 			async (message) => {
 				switch (message.type) {
 					case 'sendMessage':
-						await this._handleUserMessage(message.text);
+						await this._handleUserMessage(message.text, message.metadata);
 						break;
 					case 'callTool':
 						await this._handleToolCall(message.toolName, message.args);
@@ -214,12 +236,13 @@ export class AmprealizeChatPanel {
 	// Message Handling
 	// ============================================
 
-	private async _handleUserMessage(text: string) {
+	private async _handleUserMessage(text: string, metadata?: ChatModelMetadata) {
 		const userMessage: ChatMessage = {
 			id: generateId(),
 			role: 'user',
 			content: text,
-			timestamp: new Date()
+			timestamp: new Date(),
+			metadata
 		};
 		this._messages.push(userMessage);
 		this._postMessage({ type: 'message', message: userMessage });
@@ -240,7 +263,7 @@ export class AmprealizeChatPanel {
 		}
 
 		// Default: Try to intelligently route the message
-		await this._handleNaturalLanguage(text);
+		await this._handleNaturalLanguage(text, metadata);
 	}
 
 	private async _handleSlashCommand(text: string) {
@@ -253,10 +276,12 @@ export class AmprealizeChatPanel {
 				break;
 			case 'groups':
 				await this._loadToolGroups();
-				const groupList = this._toolGroups.map(g =>
-					`${g.is_active ? '✓' : '○'} ${g.id} (${g.available_tools} tools)`
-				).join('\n');
-				this._addAssistantMessage(`Tool groups:\n${groupList}`);
+				{
+					const groupList = this._toolGroups.map(g =>
+						`${g.is_active ? '✓' : '○'} ${g.id} (${g.available_tools} tools)`
+					).join('\n');
+					this._addAssistantMessage(`Tool groups:\n${groupList}`);
+				}
 				break;
 			case 'activate':
 				if (args[0]) {
@@ -315,7 +340,7 @@ Tool invocation:
 		await this._handleToolCall(toolName, args);
 	}
 
-	private async _handleNaturalLanguage(text: string) {
+	private async _handleNaturalLanguage(text: string, metadata?: ChatModelMetadata) {
 		// Inject BCI behaviors for the user's task
 		try {
 			this._addSystemMessage('Retrieving relevant behaviors...');
@@ -339,6 +364,9 @@ Tool invocation:
 			}
 			if (bciResult.token_estimate) {
 				response += `\n_Token estimate: ${bciResult.token_estimate}_\n`;
+			}
+			if (metadata) {
+				response += `\n_Selected model: ${metadata.llm_model_id} (${metadata.llm_provider}/${metadata.credential_scope})_\n`;
 			}
 
 			response += `\nYou can also:\n• Use @toolname {...args} to call a specific tool\n• Type /tools to see available tools`;
@@ -510,6 +538,9 @@ Or type /tools to see available tools.`;
 		const styleUri = webview.asWebviewUri(
 			vscode.Uri.joinPath(this._extensionUri, 'src', 'styles', 'AmprealizeChatPanel.css')
 		);
+		const modelOptions = DEFAULT_CHAT_MODELS.map((model) => (
+			`<option value="${escapeHtmlAttr(model.llm_model_id)}" data-provider="${escapeHtmlAttr(model.llm_provider)}" data-scope="${escapeHtmlAttr(model.credential_scope)}">${escapeHtml(model.label)}</option>`
+		)).join('');
 
 		return `<!DOCTYPE html>
 <html lang="en">
@@ -668,6 +699,15 @@ Or type /tools to see available tools.`;
 		.input-area input:focus {
 			outline: 1px solid var(--vscode-focusBorder);
 		}
+		.model-select {
+			width: 210px;
+			padding: 8px 10px;
+			border: 1px solid var(--vscode-input-border);
+			background: var(--vscode-input-background);
+			color: var(--vscode-input-foreground);
+			border-radius: 4px;
+			font-size: 12px;
+		}
 		.input-area button {
 			padding: 8px 16px;
 			background: var(--vscode-button-background);
@@ -727,6 +767,9 @@ Or type /tools to see available tools.`;
 			</div>
 
 			<div class="input-area">
+				<select id="model-select" class="model-select" aria-label="Choose chat model">
+					${modelOptions}
+				</select>
 				<input type="text" id="input" placeholder="Type a message, /command, or @tool {...}" />
 				<button id="send">Send</button>
 			</div>
@@ -739,6 +782,7 @@ Or type /tools to see available tools.`;
 		// Elements
 		const messagesEl = document.getElementById('messages');
 		const inputEl = document.getElementById('input');
+		const modelSelectEl = document.getElementById('model-select');
 		const sendBtn = document.getElementById('send');
 		const statusEl = document.getElementById('connection-status');
 		const groupsListEl = document.getElementById('groups-list');
@@ -747,7 +791,16 @@ Or type /tools to see available tools.`;
 		function sendMessage() {
 			const text = inputEl.value.trim();
 			if (!text) return;
-			vscode.postMessage({ type: 'sendMessage', text });
+			const selectedOption = modelSelectEl.options[modelSelectEl.selectedIndex];
+			vscode.postMessage({
+				type: 'sendMessage',
+				text,
+				metadata: {
+					llm_model_id: modelSelectEl.value,
+					llm_provider: selectedOption.dataset.provider,
+					credential_scope: selectedOption.dataset.scope
+				}
+			});
 			inputEl.value = '';
 		}
 
@@ -898,4 +951,15 @@ function formatToolResult(result: unknown): string {
 	} catch {
 		return String(result);
 	}
+}
+
+function escapeHtml(text: string): string {
+	return text
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;');
+}
+
+function escapeHtmlAttr(text: string): string {
+	return escapeHtml(text).replace(/"/g, '&quot;');
 }

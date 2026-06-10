@@ -13,6 +13,7 @@
  */
 
 import { STORAGE_KEYS } from '../config/storageKeys';
+import { getWebPerfSessionId } from '../telemetry/perfSessionContext';
 
 const RAW_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080').replace(/\/+$/, '');
 
@@ -174,6 +175,11 @@ class ApiClient {
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
+    }
+
+    const perfSession = getWebPerfSessionId();
+    if (perfSession) {
+      headers['X-Web-Perf-Session'] = perfSession;
     }
 
     return headers;

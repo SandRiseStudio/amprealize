@@ -9,6 +9,7 @@ import { loadProjectSortPreference, sortProjects } from '../../utils/projectSort
 import { STORAGE_KEYS } from '../../config/storageKeys';
 import { type WikiDomain } from '../wiki/wikiData';
 import { preloadWhiteboardCanvas } from '../whiteboard/whiteboardCanvasLoader';
+import { SidebarProjectsSkeleton } from '../loading';
 import './SidebarNav.css';
 
 const STORAGE_KEY_SECTIONS = STORAGE_KEYS.sidebarSections;
@@ -438,7 +439,9 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
   const hasBehaviors = isModuleEnabled('behaviors');
   const hasWhiteboard = isModuleEnabled('whiteboard');
 
-  const { data: projects = [] } = useProjects(currentOrgId ?? undefined);
+  const { data: projectsData, isPending: projectsPending } = useProjects(currentOrgId ?? undefined);
+  const projects = projectsData ?? [];
+  const showProjectsNavSkeleton = projectsPending && projectsData === undefined;
 
   const sortedProjects = useMemo(
     () => sortProjects(projects, loadProjectSortPreference()),
@@ -597,6 +600,10 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
           </div>
           <div className={`sidebar-section-body ${visibleSections.projects ? 'collapsed' : ''}`}>
             <div className="sidebar-section-body-inner">
+              {showProjectsNavSkeleton ? (
+                <SidebarProjectsSkeleton />
+              ) : (
+                <>
               {sortedProjects.length > 1 && (
                 <NavItem
                   label="All Projects"
@@ -658,6 +665,8 @@ export const SidebarNav = memo(function SidebarNav({ onNavigate }: SidebarNavPro
                   />
                 );
               })}
+                </>
+              )}
             </div>
           </div>
         </div>

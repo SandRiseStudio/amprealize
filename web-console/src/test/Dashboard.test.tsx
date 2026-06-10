@@ -8,16 +8,13 @@ vi.mock('../components/workspace/useShell', () => ({
 
 vi.mock('../telemetry/raze', () => ({
   razeLog: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock('../api/boards', () => ({
-  useBoardsMultiProject: vi.fn(),
+  perfMark: vi.fn(),
 }));
 
 vi.mock('../api/dashboard', () => ({
   useDashboardStats: vi.fn(),
   useOrganizations: vi.fn(),
-  useProjects: vi.fn(),
+  useDashboardBootstrap: vi.fn(),
   useRecentRuns: vi.fn(),
 }));
 
@@ -44,9 +41,8 @@ vi.mock('../components/actors/ActorPresenceScene', () => ({
 }));
 
 import { Dashboard } from '../components/Dashboard';
-import { useBoardsMultiProject } from '../api/boards';
 import { useAllProjectAgents, useVisibleProjectAgentPresence } from '../api/agentRegistry';
-import { useDashboardStats, useOrganizations, useProjects, useRecentRuns } from '../api/dashboard';
+import { useDashboardBootstrap, useDashboardStats, useOrganizations, useRecentRuns } from '../api/dashboard';
 import { useAgentPresence } from '../hooks/useAgentPresence';
 import { useOrgContext } from '../store/orgContextStore';
 
@@ -102,8 +98,8 @@ describe('Dashboard', () => {
 
     vi.mocked(useDashboardStats).mockReturnValue({ data: stats, isLoading: false } as never);
     vi.mocked(useOrganizations).mockReturnValue({ data: [] } as never);
-    vi.mocked(useProjects).mockReturnValue({
-      data: [project],
+    vi.mocked(useDashboardBootstrap).mockReturnValue({
+      data: { projects: [project], boards_by_project: { 'proj-1': [] } },
       isLoading: false,
       isFetching: false,
       isError: false,
@@ -114,10 +110,6 @@ describe('Dashboard', () => {
       isLoading: false,
       isFetching: false,
       isError: false,
-    } as never);
-    vi.mocked(useBoardsMultiProject).mockReturnValue({
-      data: new Map([['proj-1', []]]),
-      isLoading: false,
     } as never);
     vi.mocked(useAllProjectAgents).mockReturnValue({
       data: [agent],
@@ -148,7 +140,7 @@ describe('Dashboard', () => {
       </MemoryRouter>,
     );
 
-    expect(useProjects).toHaveBeenCalledWith(undefined);
+    expect(useDashboardBootstrap).toHaveBeenCalledWith(undefined);
     expect(useAllProjectAgents).toHaveBeenCalledWith({ enabled: false });
     expect(screen.getByText('1 assigned')).toBeInTheDocument();
 

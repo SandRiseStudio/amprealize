@@ -392,6 +392,7 @@ export const FloatingChatWindow = memo(function FloatingChatWindow({
       <div className="conversation-floating-footer">
         <MessageComposer
           conversationId={conversation.id}
+          currentUserId={currentUserId}
           placeholder={`Message ${targetParticipant.actor.displayName}...`}
         />
       </div>

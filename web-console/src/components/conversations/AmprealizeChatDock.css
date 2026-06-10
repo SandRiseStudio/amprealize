@@ -1,0 +1,222 @@
+.amp-chat-root {
+  position: fixed;
+  inset: auto 16px 16px auto;
+  z-index: var(--z-chat, 350);
+  pointer-events: none;
+}
+
+.amp-chat-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-chat-scrim, 349) - 1);
+  pointer-events: none;
+  background: rgba(15, 23, 42, 0.06);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  opacity: 0;
+  animation: amp-chat-backdrop-in 220ms var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)) forwards;
+}
+
+@keyframes amp-chat-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.amp-chat-window-anchor {
+  position: fixed;
+  inset: auto 20px 78px auto;
+  width: min(800px, calc(100vw - 40px));
+  height: min(680px, calc(100vh - 112px));
+  z-index: var(--z-chat, 350);
+  pointer-events: auto;
+}
+
+.amp-chat-dock {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: min(260px, calc(100vw - 32px));
+  min-height: 36px;
+  padding: 4px 10px 4px 5px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.amp-chat-dock::before {
+  content: none;
+  display: none;
+}
+
+.amp-chat-dock::after {
+  content: none;
+  display: none;
+}
+
+.amp-chat-dock:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(15, 23, 42, 0.14);
+  background: #fff;
+}
+
+.amp-chat-dock:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.amp-chat-dock:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.amp-chat-dock__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  width: 30px;
+  height: 30px;
+  margin-left: 1px;
+  border-radius: 9px;
+  background: rgb(58, 118, 94);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: white;
+  flex: 0 0 auto;
+}
+
+.amp-chat-dock__icon::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(118, 186, 152);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+}
+
+.amp-chat-dock--project .amp-chat-dock__icon::after {
+  background: rgb(125, 211, 252);
+}
+
+.amp-chat-dock__icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.amp-chat-dock__copy {
+  display: flex;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding-right: 2px;
+  line-height: 1.15;
+}
+
+.amp-chat-dock__title {
+  max-width: 200px;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.amp-chat-dock__scope {
+  max-width: 200px;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .amp-chat-dock::before {
+    animation: none !important;
+  }
+
+  .amp-chat-backdrop {
+    animation: none;
+    opacity: 1;
+  }
+
+  .amp-chat-dock:hover:not(:disabled),
+  .amp-chat-dock:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .amp-chat-root {
+    inset: auto 12px 12px 12px;
+  }
+
+  .amp-chat-window-anchor {
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  .amp-chat-dock {
+    width: 100%;
+    max-width: none;
+    min-height: 40px;
+    padding: 5px 12px 5px 6px;
+  }
+
+  .amp-chat-dock__title,
+  .amp-chat-dock__scope {
+    max-width: none;
+  }
+}
+
+/* Vertical guide: right side of default chat slot down to dock (desktop; hidden while dragging header) */
+.amp-chat-bridge {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 349;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.amp-chat-bridge__line {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.amp-chat-bridge--global .amp-chat-bridge__line {
+  stroke: rgba(58, 118, 94, 0.55);
+  stroke-width: 2.25px;
+}
+
+.amp-chat-bridge--project .amp-chat-bridge__line {
+  stroke: rgba(37, 99, 235, 0.52);
+  stroke-width: 2.25px;
+}

@@ -51,6 +51,8 @@ type CollabActions = {
   clearPresence: () => void;
   setConnectionState: (state: CollabState['connectionState']) => void;
   toggleSidebar: () => void;
+  /** Desktop: true = narrow rail. Mobile drawer (≤560px): true = drawer closed off-screen. */
+  setSidebarCollapsed: (collapsed: boolean) => void;
   toggleCommandPalette: () => void;
 };
 
@@ -132,6 +134,8 @@ export const collabStore: CollabActions = {
   setConnectionState: (connectionState) => setState({ connectionState }),
 
   toggleSidebar: () => setState({ sidebarCollapsed: !state.sidebarCollapsed }),
+
+  setSidebarCollapsed: (sidebarCollapsed) => setState({ sidebarCollapsed }),
 
   toggleCommandPalette: () =>
     setState({ commandPaletteOpen: !state.commandPaletteOpen }),

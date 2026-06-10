@@ -7,21 +7,137 @@
 }
 
 .unified-conversation-floating {
-  width: min(560px, calc(100vw - 32px));
-  height: min(72vh, 620px);
+  width: 100%;
+  height: 100%;
   touch-action: none;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--chat-glass-panel, rgba(248, 252, 255, 0.92));
+  border: 1px solid var(--chat-glass-line-strong, rgba(255, 255, 255, 0.86));
+  border-top-color: rgba(255, 255, 255, 0.94);
+  outline: 1px solid var(--chat-structural-line, rgba(15, 23, 42, 0.1));
+  outline-offset: -2px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.unified-conversation-floating::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  opacity: 0.95;
+}
+
+.unified-conversation-floating::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 0;
+  height: 1px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.55);
+  opacity: 0.85;
+}
+
+.unified-conversation-floating--global {
+  width: 100%;
 }
 
 .unified-conversation-header {
   cursor: grab;
+  min-height: 0;
+  position: relative;
+  /* Lowest of chrome rows so .unified-conversation-panel-body can paint above the seam */
+  z-index: 1;
+  border-bottom: 1px solid var(--chat-structural-line, rgba(15, 23, 42, 0.1));
+  background: color-mix(in srgb, var(--chat-glass-panel-strong, rgba(255, 255, 255, 0.88)) 58%, rgba(224, 242, 254, 0.28));
+  -webkit-user-select: none;
+  user-select: none;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+/* Tighter chrome than 1:1 floating chat */
+.unified-conversation-header.conversation-floating-header {
+  padding: 6px 10px;
+  gap: 6px;
+}
+
+.unified-conversation-header .conversation-floating-action {
+  width: 30px;
+  height: 30px;
+}
+
+.unified-conversation-header .conversation-floating-action svg {
+  width: 15px;
+  height: 15px;
 }
 
 .unified-conversation-header-text {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.unified-conversation-context-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  border-top-color: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.52);
+  color: var(--color-text-primary);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.unified-conversation-context-pill--global {
+  color: color-mix(in srgb, #2c5c48 88%, rgb(15, 23, 42));
+  border-color: color-mix(in srgb, #3a765e 44%, rgba(255, 255, 255, 0.46));
+  outline: 1px solid rgba(118, 186, 152, 0.22);
+  outline-offset: -1px;
+}
+
+.unified-conversation-thread-title {
+  flex: 1 1 120px;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: rgb(var(--chat-accent-teal-dark));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-conversation-connection-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.01em;
 }
 
 .unified-conversation-panel-body {
@@ -29,16 +145,134 @@
   flex-direction: row;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  /* overflow:hidden here + on .conversation-panel-view clipped search chrome at the header/body seam */
+  overflow-x: hidden;
+  overflow-y: visible;
+  position: relative;
+  /* Above header (z-index 1) so subpixel overlap cannot cover the sidebar search */
+  z-index: 3;
+}
+
+.unified-conversation-floating .conversation-panel-view {
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+.unified-conversation-floating .conversation-panel-sidebar {
+  overflow-x: hidden;
+  overflow-y: visible;
+  /* Tighter to header than default .conversation-panel-sidebar padding-top */
+  padding-top: 0;
 }
 
 .unified-conversation-thread {
   flex: 1;
   min-height: 0;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Thread slot: MessageSearch + list + composer — avoid shaving top borders under nested overflow */
+.unified-conversation-thread.conversation-floating-body {
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+.unified-conversation-floating .conversation-panel-thread {
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .unified-conversation-mobile {
   min-height: 40vh;
+}
+
+.conversation-floating-action--active {
+  background: rgba(44, 92, 72, 0.14);
+  color: var(--color-text-primary);
+}
+
+.unified-conversation-rename-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.55);
+  position: relative;
+  /* Above panel body when open so inputs stay interactive */
+  z-index: 4;
+}
+
+.unified-conversation-rename-input {
+  flex: 1;
+  min-width: 120px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.unified-conversation-rename-save,
+.unified-conversation-rename-cancel {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--color-text-secondary);
+}
+
+.unified-conversation-rename-save {
+  background: color-mix(in srgb, var(--color-accent-primary, #3a765e) 18%, rgba(255, 255, 255, 0.9));
+  border-color: color-mix(in srgb, var(--color-accent-primary, #3a765e) 35%, rgba(0, 0, 0, 0.06));
+  color: var(--color-text-primary);
+}
+
+.conversation-panel-mobile-thread-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.conversation-panel-mobile-global-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.conversation-panel-mobile-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.conversation-panel-mobile-icon-btn--active {
+  background: rgba(44, 92, 72, 0.12);
+  color: var(--color-text-primary);
+}
+
+.conversation-panel-mobile-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 @media (max-width: 640px) {

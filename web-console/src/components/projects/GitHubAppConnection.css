@@ -296,7 +296,7 @@
   border-radius: 4px;
   color: #93c5fd;
   font-size: 0.75rem;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .github-app-actions {
@@ -730,7 +730,7 @@
 }
 
 .credential-masked {
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .credential-user {

@@ -1,0 +1,113 @@
+.lec-pairing-page {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+}
+
+.lec-pairing-header h1 {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 1.5rem;
+}
+
+.lec-pairing-header p {
+  margin: 0 0 1rem;
+  color: var(--color-text-muted, #6b7280);
+  line-height: 1.5;
+}
+
+.lec-back-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--color-link, #2563eb);
+  font-size: 0.9rem;
+}
+
+.lec-error {
+  background: #fef2f2;
+  color: #991b1b;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.lec-card {
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.lec-card h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.1rem;
+}
+
+.lec-muted {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.lec-btn-primary,
+.lec-btn-secondary {
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+}
+
+.lec-btn-primary {
+  background: var(--color-primary, #111827);
+  color: #fff;
+}
+
+.lec-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.lec-btn-secondary {
+  margin-top: 0.75rem;
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.lec-pair-result {
+  margin-top: 1rem;
+}
+
+.lec-code {
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  letter-spacing: 0.08em;
+  padding: 0.75rem 1rem;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px dashed #d1d5db;
+}
+
+.lec-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.lec-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  padding: 0.5rem 0.65rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.lec-success {
+  margin-top: 0.75rem;
+  color: #047857;
+  font-size: 0.9rem;
+}

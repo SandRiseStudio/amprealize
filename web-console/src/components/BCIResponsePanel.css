@@ -184,7 +184,7 @@
 .behavior-name {
   font-weight: 600;
   color: var(--color-accent, #2276d2);
-  font-family: 'SF Mono', 'Menlo', monospace;
+  font-family: var(--font-mono);
   font-size: 0.9rem;
 }
 

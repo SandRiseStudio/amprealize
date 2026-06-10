@@ -19,13 +19,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShellTitle } from './workspace/useShell';
-import { useBoardsMultiProject, type Board } from '../api/boards';
+import { type Board } from '../api/boards';
 import { orgContextStore, useOrgContext } from '../store/orgContextStore';
 import {
-  useDashboardStats,
   useOrganizations,
-  useProjects,
+  useDashboardBootstrap,
   useRecentRuns,
+  useBehaviors,
   type Project,
   type Agent,
   type Run,
@@ -54,6 +54,9 @@ import {
   PERSONAL_SCOPE_SHORT_HINT,
 } from '../copy/scopeLabels';
 import { razeLog, perfMark } from '../telemetry/raze';
+import { budgetCheck } from '../telemetry/dashboardPerfBudgets';
+import { getWebPerfSessionId, setWebPerfSessionId } from '../telemetry/perfSessionContext';
+import { DashboardProjectCardSkeleton, DashboardStatCardSkeleton } from './loading';
 import './Dashboard.css';
 
 // ---------------------------------------------------------------------------
@@ -702,30 +705,6 @@ const EmptyState = memo(function EmptyState({
 });
 
 // ---------------------------------------------------------------------------
-// Skeleton Loading Components
-// ---------------------------------------------------------------------------
-
-const StatCardSkeleton = () => (
-  <div className="stat-card skeleton">
-    <div className="skeleton-icon animate-shimmer" />
-    <div className="stat-card-content">
-      <span className="skeleton-text skeleton-value animate-shimmer" />
-      <span className="skeleton-text skeleton-label animate-shimmer" />
-    </div>
-  </div>
-);
-
-const ProjectCardSkeleton = () => (
-  <div className="project-card skeleton">
-    <div className="project-card-header">
-      <span className="skeleton-text skeleton-title animate-shimmer" />
-    </div>
-    <span className="skeleton-text skeleton-description animate-shimmer" />
-    <span className="skeleton-text skeleton-meta animate-shimmer" />
-  </div>
-);
-
-// ---------------------------------------------------------------------------
 // Utility Functions
 // ---------------------------------------------------------------------------
 
@@ -772,7 +751,7 @@ export function Dashboard() {
   const [projectSortMode, setProjectSortMode] = useState<ProjectSortMode>(() => loadProjectSortPreference());
   const [agentPanelEnabled, setAgentPanelEnabled] = useState(false);
   const dashboardPerfStartedAtRef = useRef<number | null>(null);
-  const dashboardPerfFlagsRef = useRef<{ chrome?: string; agentPanel?: string }>({});
+  const dashboardPerfFlagsRef = useRef<{ chrome?: string; agentPanel?: string; bootstrapSettled?: string }>({});
   const scopePerfKey = currentOrgId ?? 'personal';
 
   useEffect(() => {
@@ -791,16 +770,41 @@ export function Dashboard() {
     dashboardPerfFlagsRef.current = {};
   }, [scopePerfKey]);
 
-  // API hooks
-  const { data: stats, isLoading: statsLoading } = useDashboardStats();
-  const { data: organizations = [] } = useOrganizations();
+  useEffect(() => {
+    const sid =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `ps-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    setWebPerfSessionId(sid);
+    return () => {
+      setWebPerfSessionId(null);
+    };
+  }, [scopePerfKey]);
+
+  // API hooks — bootstrap first; heavy/secondary queries after first paint of projects+boards
   const {
-    data: projects = [],
-    isLoading: projectsLoading,
-    isFetching: projectsFetching,
-    isError: projectsError,
-    refetch: refetchProjects,
-  } = useProjects(currentOrgId ?? undefined);
+    data: bootstrap,
+    isLoading: bootstrapLoading,
+    isFetching: bootstrapFetching,
+    isError: bootstrapError,
+    refetch: refetchDashboardBootstrap,
+  } = useDashboardBootstrap(currentOrgId ?? undefined);
+
+  const [secondaryHydrationReady, setSecondaryHydrationReady] = useState(false);
+
+  useEffect(() => {
+    setSecondaryHydrationReady(false);
+  }, [scopePerfKey]);
+
+  useEffect(() => {
+    if (bootstrapLoading) return;
+    if (bootstrap != null || bootstrapError) {
+      setSecondaryHydrationReady(true);
+    }
+  }, [bootstrap, bootstrapError, bootstrapLoading]);
+
+  const { data: organizations = [] } = useOrganizations();
+  const projects = bootstrap?.projects ?? [];
   const {
     data: agents = [],
     isLoading: agentsLoading,
@@ -812,7 +816,18 @@ export function Dashboard() {
     isLoading: runsLoading,
     isFetching: runsFetching,
     isError: runsError,
-  } = useRecentRuns(5);
+  } = useRecentRuns(5, { enabled: secondaryHydrationReady });
+  const { data: behaviors = [] } = useBehaviors();
+
+  const today = new Date().toISOString().slice(0, 10);
+  const stats = useMemo(() => ({
+    running_runs: recentRuns.filter(r => r.status === 'running').length,
+    completed_runs_today: recentRuns.filter(
+      r => r.status === 'completed' && (r.started_at ?? '').startsWith(today)
+    ).length,
+    total_behaviors: behaviors.length,
+  }), [recentRuns, behaviors, today]);
+  const statsLoading = runsLoading;
   const sortedOrganizations = useMemo(
     () => [...organizations].sort((a, b) => a.name.localeCompare(b.name)),
     [organizations]
@@ -880,62 +895,116 @@ export function Dashboard() {
   const {
     data: visibleProjectPresence,
   } = useVisibleProjectAgentPresence(visibleProjectIds, {
-    enabled: visibleProjectIds.length > 0,
+    enabled: secondaryHydrationReady && visibleProjectIds.length > 0,
   });
-  const { data: boardsByProject } = useBoardsMultiProject(visibleProjectIds);
+  const boardsByProject = useMemo(() => {
+    const map = new Map<string, Board[]>();
+    const byProject = bootstrap?.boards_by_project;
+    if (!byProject) return map;
+    for (const id of visibleProjectIds) {
+      map.set(id, byProject[id] ?? []);
+    }
+    return map;
+  }, [bootstrap?.boards_by_project, visibleProjectIds]);
   const displayedAgents = scopedAgents.slice(0, 5);
-  const showProjectsLoading = projectsLoading
-    || (projectsFetching && projects.length === 0)
-    || (projectsError && projects.length === 0);
+  const showProjectsLoading = bootstrapLoading
+    || (bootstrapFetching && projects.length === 0)
+    || (bootstrapError && projects.length === 0);
+  const showStatsLoading = !secondaryHydrationReady || statsLoading;
   const showAgentsLoading = agentsLoading
     || (agentsFetching && scopedAgents.length === 0)
     || (agentsError && scopedAgents.length === 0)
     || !agentPanelEnabled;
-  const showRunsLoading = runsLoading
+  const showRunsLoading = !secondaryHydrationReady
+    || runsLoading
     || (runsFetching && recentRuns.length === 0)
     || (runsError && recentRuns.length === 0);
-  const projectsBannerTitle = projectsError ? 'Reconnecting to projects' : 'Syncing current scope';
-  const projectsBannerDescription = projectsError
+  const projectsBannerTitle = bootstrapError ? 'Reconnecting to projects' : 'Syncing current scope';
+  const projectsBannerDescription = bootstrapError
     ? 'We hit a bump loading projects. Retrying now.'
     : 'Pulling your projects into focus.';
-  const projectsBannerClassName = projectsError
+  const projectsBannerClassName = bootstrapError
     ? 'projects-loading-banner is-error animate-fade-in-up'
     : 'projects-loading-banner animate-fade-in-up';
 
   const handleProjectsRetry = useCallback(() => {
-    refetchProjects();
-  }, [refetchProjects]);
+    refetchDashboardBootstrap();
+  }, [refetchDashboardBootstrap]);
 
   useEffect(() => {
-    if (showProjectsLoading || !scopedStats) return;
+    if (showProjectsLoading) return;
     if (dashboardPerfFlagsRef.current.chrome === scopePerfKey) return;
     dashboardPerfFlagsRef.current.chrome = scopePerfKey;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const elapsed_ms = Math.round(now - (dashboardPerfStartedAtRef.current ?? now));
+    const b = budgetCheck('chromeReady', elapsed_ms);
     const payload = {
       scope: currentOrgId ? 'org' : 'personal',
       org_id: currentOrgId ?? null,
       project_count: projects.length,
       visible_project_count: visibleProjectIds.length,
-      elapsed_ms: Math.round(now - (dashboardPerfStartedAtRef.current ?? now)),
+      perf_session_id: getWebPerfSessionId(),
+      elapsed_ms,
+      budget_ms: b.budget_ms,
+      budget_ok: b.ok,
+      over_budget_ms: b.over_by_ms,
     };
     perfMark('dashboard.chrome_ready', payload);
-    void razeLog('INFO', 'dashboard.chrome_ready', payload);
-  }, [currentOrgId, projects.length, scopedStats, scopePerfKey, showProjectsLoading, visibleProjectIds.length]);
+    void razeLog(
+      b.ok ? 'INFO' : 'WARN',
+      b.ok ? 'dashboard.chrome_ready' : 'dashboard.chrome_ready.budget_exceeded',
+      payload
+    );
+  }, [currentOrgId, projects.length, scopePerfKey, showProjectsLoading, visibleProjectIds.length]);
+
+  useEffect(() => {
+    if (!secondaryHydrationReady) return;
+    if (dashboardPerfFlagsRef.current.bootstrapSettled === scopePerfKey) return;
+    dashboardPerfFlagsRef.current.bootstrapSettled = scopePerfKey;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const elapsed_ms = Math.round(now - (dashboardPerfStartedAtRef.current ?? now));
+    const b = budgetCheck('bootstrapSettled', elapsed_ms);
+    const payload = {
+      scope: currentOrgId ? 'org' : 'personal',
+      org_id: currentOrgId ?? null,
+      perf_session_id: getWebPerfSessionId(),
+      elapsed_ms,
+      budget_ms: b.budget_ms,
+      budget_ok: b.ok,
+      over_budget_ms: b.over_by_ms,
+    };
+    perfMark('dashboard.bootstrap_settled', payload);
+    void razeLog(
+      b.ok ? 'INFO' : 'WARN',
+      b.ok ? 'dashboard.bootstrap_settled' : 'dashboard.bootstrap_settled.budget_exceeded',
+      payload
+    );
+  }, [secondaryHydrationReady, currentOrgId, scopePerfKey]);
 
   useEffect(() => {
     if (!agentPanelEnabled || showAgentsLoading) return;
     if (dashboardPerfFlagsRef.current.agentPanel === scopePerfKey) return;
     dashboardPerfFlagsRef.current.agentPanel = scopePerfKey;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const elapsed_ms = Math.round(now - (dashboardPerfStartedAtRef.current ?? now));
+    const b = budgetCheck('agentPanel', elapsed_ms);
     const payload = {
       scope: currentOrgId ? 'org' : 'personal',
       org_id: currentOrgId ?? null,
       total_agents: scopedAgents.length,
       displayed_agents: displayedAgents.length,
-      elapsed_ms: Math.round(now - (dashboardPerfStartedAtRef.current ?? now)),
+      perf_session_id: getWebPerfSessionId(),
+      elapsed_ms,
+      budget_ms: b.budget_ms,
+      budget_ok: b.ok,
+      over_budget_ms: b.over_by_ms,
     };
     perfMark('dashboard.agent_panel_ready', payload);
-    void razeLog('INFO', 'dashboard.agent_panel_ready', payload);
+    void razeLog(
+      b.ok ? 'INFO' : 'WARN',
+      b.ok ? 'dashboard.agent_panel_ready' : 'dashboard.agent_panel_ready.budget_exceeded',
+      payload
+    );
   }, [agentPanelEnabled, currentOrgId, displayedAgents.length, scopedAgents.length, scopePerfKey, showAgentsLoading]);
 
   useShellTitle('Home');
@@ -1024,12 +1093,12 @@ export function Dashboard() {
 
         {/* Stats Row */}
         <section className="dashboard-stats" aria-label="Key metrics">
-          {statsLoading ? (
+          {showStatsLoading ? (
             <>
-              <StatCardSkeleton />
-              <StatCardSkeleton />
-              <StatCardSkeleton />
-              <StatCardSkeleton />
+              <DashboardStatCardSkeleton />
+              <DashboardStatCardSkeleton />
+              <DashboardStatCardSkeleton />
+              <DashboardStatCardSkeleton />
             </>
           ) : (
             <>
@@ -1099,7 +1168,7 @@ export function Dashboard() {
                       <span className="projects-loading-title">{projectsBannerTitle}</span>
                       <span className="projects-loading-description">{projectsBannerDescription}</span>
                     </div>
-                    {projectsError && (
+                    {bootstrapError && (
                       <button
                         type="button"
                         className="projects-loading-action pressable"
@@ -1110,9 +1179,9 @@ export function Dashboard() {
                       </button>
                     )}
                   </div>
-                  <ProjectCardSkeleton />
-                  <ProjectCardSkeleton />
-                  <ProjectCardSkeleton />
+                  <DashboardProjectCardSkeleton />
+                  <DashboardProjectCardSkeleton />
+                  <DashboardProjectCardSkeleton />
                 </>
               ) : displayedProjects.length > 0 ? (
                 displayedProjects.map((project) => {
