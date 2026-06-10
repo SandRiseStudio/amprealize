@@ -4,7 +4,6 @@
 
 DIFFER   __init__.py
 DIFFER   action_capturability.py
-DIFFER   action_contracts.py
 DIFFER   action_replay_executor.py
 DIFFER   action_service.py
 DIFFER   action_service_postgres.py
@@ -28,7 +27,6 @@ DIFFER   auth/providers/google.py
 DIFFER   auth/providers/registry.py
 DIFFER   auth/user_auth_service.py
 DIFFER   auth_tokens.py
-DIFFER   bci_contracts.py
 DIFFER   bci_service.py
 DIFFER   behavior_retriever.py
 DIFFER   behavior_service.py

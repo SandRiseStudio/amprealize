@@ -331,6 +331,30 @@ class TraceFormat(str, Enum):
     JSON_STEPS = "json_steps"
     PLAN_MARKDOWN = "plan_markdown"
 
+    # Backward-compatible aliases used by older tests/adapters.
+    JSON = "json_steps"
+    STRUCTURED_JSON = "json_steps"
+    STRUCTURED_LOG = "json_steps"
+    MARKDOWN = "plan_markdown"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "TraceFormat | None":
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().lower()
+        alias_map = {
+            "text": cls.CHAIN_OF_THOUGHT,
+            "chain_of_thought": cls.CHAIN_OF_THOUGHT,
+            "json": cls.JSON_STEPS,
+            "json_steps": cls.JSON_STEPS,
+            "structured_json": cls.JSON_STEPS,
+            "structured_log": cls.JSON_STEPS,
+            "markdown": cls.PLAN_MARKDOWN,
+            "plan": cls.PLAN_MARKDOWN,
+            "plan_markdown": cls.PLAN_MARKDOWN,
+        }
+        return alias_map.get(normalized)
+
 
 @dataclass
 class TraceStep(SerializableDataclass):
