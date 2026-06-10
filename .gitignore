@@ -76,3 +76,8 @@ environments.yaml
 
 # Local data (databases, caches, backups)
 data/
+.superdesign
+
+# Vendored/runtime local artifacts
+.deps_trafilatura/
+.whiteboard-dev.db
