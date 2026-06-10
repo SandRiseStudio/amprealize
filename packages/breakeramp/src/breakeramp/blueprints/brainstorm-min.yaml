@@ -1,0 +1,183 @@
+# brainstorm-min — bare-minimum LIVE whiteboard stack for the Brainstorm agent.
+#
+# Goal: run ONLY what's needed to use the brainstorm agent's whiteboard live in
+# the local amprealize UI, without the full cloud-dev stack (no execution-worker,
+# no podman-socket-proxy, no telemetry-db, no redis, no gateway, no full API).
+#
+# Services (3 + 1 optional):
+#   whiteboard-api   minimal whiteboard-only FastAPI (scripts/whiteboard_min_api.py)  :8000
+#   whiteboard-sync  Node @tldraw/sync sidecar                                         :3040
+#   web-console      Vite dev server                                                   :5173
+#   whiteboard-db    (optional) single Postgres, only for the `postgres` store profile :5432
+#
+# Shared store: Claude Code's MCP server (on the HOST, via .mcp.json) and this
+# whiteboard-api MUST use the SAME store so agent-created rooms appear in the
+# browser. Across the host<->container boundary, prefer Postgres:
+#   - neon     : set WHITEBOARD_PG_DSN=${DATABASE_URL}; do NOT enable the `db` module.
+#   - postgres : enable the `db` module (local container) and point both at it.
+#   (SQLite is supported by the same env knob but is recommended for the raw
+#    process path scripts/brainstorm-min.sh, not for host<->container sharing.)
+#
+# Usage:
+#   breakeramp up brainstorm-min                 # api+sync+console, BYO Postgres (neon)
+#   breakeramp up brainstorm-min --module db     # also start a local Postgres
+name: brainstorm-min
+version: 0.1.0
+
+# =============================================================================
+# MODULES
+# =============================================================================
+modules:
+  api:
+    description: "Minimal whiteboard-only FastAPI (no full amprealize-api)"
+    enabled: true
+  sync:
+    description: "Whiteboard real-time sync sidecar"
+    enabled: true
+  console:
+    description: "Web console (Vite dev server)"
+    enabled: true
+  db:
+    description: "Local Postgres for the 'postgres' store profile (optional)"
+    enabled: false
+
+# =============================================================================
+# SERVICES
+# =============================================================================
+services:
+  # ---------------------------------------------------------------------------
+  # MODULE: DB (optional) — single local Postgres for the whiteboard schema.
+  # ---------------------------------------------------------------------------
+  whiteboard-db:
+    module: db
+    image: "docker.io/library/postgres:16-alpine"
+    ports:
+      - "${WHITEBOARD_DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: "whiteboard"
+      POSTGRES_PASSWORD: "whiteboard_dev"  # pragma: allowlist secret
+      POSTGRES_DB: "whiteboard"
+    volumes:
+      - "brainstorm-min-pgdata:/var/lib/postgresql/data"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whiteboard -d whiteboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    labels:
+      breakeramp.module: db
+      breakeramp.service: whiteboard-db
+
+  # ---------------------------------------------------------------------------
+  # MODULE: API — minimal whiteboard-only FastAPI sharing the MCP's store.
+  # ---------------------------------------------------------------------------
+  whiteboard-api:
+    module: api
+    image: "${AMPREALIZE_API_IMAGE:-docker.io/library/python:3.11-slim-bookworm}"
+    ports:
+      - "${WHITEBOARD_API_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.containers.internal:host-gateway"
+    volumes:
+      - "${AMPREALIZE_REPO_ROOT:-.}:/app"
+      - "brainstorm-min-api-pip-cache:/root/.cache/pip"
+    workdir: /app
+    command:
+      - "sh"
+      - "-c"
+      - |
+        set -e
+        if [ "${AMPREALIZE_API_SKIP_PIP:-}" != "1" ]; then
+          pip install -e '.[postgres]'
+        fi
+        exec uvicorn scripts.whiteboard_min_api:app --host 0.0.0.0 --port 8000 --log-level info
+    environment:
+      AMPREALIZE_ENABLE_WHITEBOARD: "true"
+      AMPREALIZE_API_SKIP_PIP: "${AMPREALIZE_API_SKIP_PIP:-}"
+      # Store selection — keep in lockstep with .mcp.json's MCP server env.
+      WHITEBOARD_STORAGE_BACKEND: "${WHITEBOARD_STORAGE_BACKEND:-postgres}"
+      # postgres profile: local container by default; for neon set
+      # WHITEBOARD_PG_DSN=${DATABASE_URL} on the host and leave `db` disabled.
+      WHITEBOARD_PG_DSN: "${WHITEBOARD_PG_DSN:-postgresql://whiteboard:whiteboard_dev@whiteboard-db:5432/whiteboard}"  # pragma: allowlist secret
+      WHITEBOARD_SQLITE_PATH: "${WHITEBOARD_SQLITE_PATH:-/app/.whiteboard-dev.db}"
+      WHITEBOARD_DEV_USER: "${WHITEBOARD_DEV_USER:-mcp-user}"
+      WHITEBOARD_CORS_ORIGINS: "http://localhost:${AMPREALIZE_WEB_CONSOLE_PORT:-5173},http://127.0.0.1:${AMPREALIZE_WEB_CONSOLE_PORT:-5173}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    healthcheck_timeout_s: 120
+    restart: unless-stopped
+    labels:
+      breakeramp.module: api
+      breakeramp.service: whiteboard-api
+
+  # ---------------------------------------------------------------------------
+  # MODULE: SYNC — Node.js tldraw sync sidecar.
+  # ---------------------------------------------------------------------------
+  whiteboard-sync:
+    module: sync
+    image: "node:20-alpine"
+    build:
+      context: "../../packages/whiteboard-sync"
+      dockerfile: "Dockerfile"
+    ports:
+      - "${SYNC_PORT:-3040}:3040"
+    environment:
+      SYNC_PORT: "3040"
+      PYTHON_API_BASE: "http://whiteboard-api:8000/api/v1"
+      ROOM_IDLE_TIMEOUT_MS: "300000"
+      PERSIST_INTERVAL_MS: "30000"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3040/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - whiteboard-api
+    restart: unless-stopped
+    labels:
+      breakeramp.module: sync
+      breakeramp.service: whiteboard-sync
+
+  # ---------------------------------------------------------------------------
+  # MODULE: CONSOLE — Vite dev server (the brainstorm whiteboard UI).
+  # ---------------------------------------------------------------------------
+  web-console:
+    module: console
+    image: docker.io/library/node:20-bullseye-slim
+    ports:
+      - "${AMPREALIZE_WEB_CONSOLE_PORT:-5173}:5173"
+    volumes:
+      - "${AMPREALIZE_REPO_ROOT:-.}/web-console:/app"
+      - "brainstorm-min-web-node-modules:/app/node_modules"
+    environment:
+      # Browser runs on the host, so localhost + published ports resolve fine.
+      VITE_API_BASE_URL: "${VITE_API_BASE_URL:-http://localhost:8000}"
+      VITE_WHITEBOARD_SYNC_URL: "${VITE_WHITEBOARD_SYNC_URL:-http://localhost:3040}"
+      VITE_TLDRAW_LICENSE_KEY: "${TLDRAW_LICENSE_KEY:-}"
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "200"
+    command:
+      - "sh"
+      - "-lc"
+      - "cd /app && npm ci --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173"
+    depends_on:
+      - whiteboard-api
+    healthcheck_timeout_s: 180
+    labels:
+      breakeramp.module: console
+      breakeramp.service: web-console
+
+# =============================================================================
+# ENVIRONMENT OVERRIDES
+# =============================================================================
+environments:
+  brainstorm-min:
+    services:
+      whiteboard-sync:
+        environment:
+          ROOM_IDLE_TIMEOUT_MS: "60000"
+          PERSIST_INTERVAL_MS: "10000"

@@ -6,7 +6,8 @@ Available blueprints:
 - analytics-dashboard: Metabase dashboard for analytics
 - ci-test-stack: CI/CD testing environment
 - core-data-plane: Core data plane services
-- local-test-suite: Local development testing
+- local-test-env: Distinct BreakerAmp test stack (core+console+whiteboard, gateway on 8080)
+- local-test-suite: Local development testing (legacy name; broader template)
 - metrics-timescaledb: TimescaleDB for metrics
 - postgres.timescale.test: TimescaleDB test instance
 - streaming-ha: High-availability streaming setup
@@ -17,7 +18,7 @@ Usage:
     from breakeramp.blueprints import get_blueprint_path, list_blueprints
 
     # Get path to a specific blueprint
-    path = get_blueprint_path("local-test-suite")
+    path = get_blueprint_path("local-test-env")
 
     # List all available blueprints
     names = list_blueprints()

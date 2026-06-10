@@ -10,6 +10,24 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 
+def container_platform_for_image(image: str) -> Optional[str]:
+    """Return Podman/Docker ``--platform`` value for images that default to wrong arch.
+
+    ``alpine/socat`` tags may resolve to ``linux/amd64`` on Apple Silicon hosts,
+    causing emulator warnings and flaky runs; pin to the host CPU architecture.
+    """
+    if "alpine/socat" not in image:
+        return None
+    import platform as plat
+
+    mach = plat.machine().lower()
+    if mach in ("arm64", "aarch64"):
+        return "linux/arm64"
+    if mach in ("x86_64", "amd64"):
+        return "linux/amd64"
+    return None
+
+
 @dataclass
 class ContainerRunConfig:
     """Configuration for running a container.
@@ -27,6 +45,7 @@ class ContainerRunConfig:
         network_aliases: Optional list of DNS aliases for the container on the network
         privileged: Whether to run container in privileged mode (default False)
         extra_hosts: Extra /etc/hosts entries (e.g., "host.containers.internal:host-gateway")
+        platform: Optional OCI platform for ``podman run --platform`` (e.g., linux/arm64)
     """
     image: str
     name: str
@@ -40,6 +59,7 @@ class ContainerRunConfig:
     network_aliases: List[str] = field(default_factory=list)
     privileged: bool = False
     extra_hosts: List[str] = field(default_factory=list)
+    platform: Optional[str] = None
 
 
 @dataclass
@@ -243,7 +263,9 @@ class Executor(Protocol):
         self,
         container_id: str,
         command: List[str],
-        workdir: Optional[str] = None
+        workdir: Optional[str] = None,
+        *,
+        timeout_s: Optional[float] = None,
     ) -> str:
         """Execute a command inside a running container.
 
@@ -251,6 +273,7 @@ class Executor(Protocol):
             container_id: Container ID or name
             command: Command and arguments to run
             workdir: Working directory inside container
+            timeout_s: Optional wall-clock timeout for this exec (executor-specific).
 
         Returns:
             Command output (stdout)

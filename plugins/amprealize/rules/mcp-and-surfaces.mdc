@@ -1,0 +1,13 @@
+---
+description: Prefer MCP tools and maintain parity across CLI, API, and MCP where applicable
+alwaysApply: false
+globs: "**/*"
+---
+
+# MCP and cross-surface parity
+
+When Amprealize MCP tools are available, prefer them over ad-hoc duplication so schemas and telemetry stay aligned.
+
+For features exposed on multiple surfaces (CLI, REST, MCP, web), follow shared contracts and add or extend parity tests when the codebase already uses that pattern.
+
+Details: [`docs/contracts/`](../../docs/contracts/) and behavior **`behavior_validate_cross_surface_parity`** in [`AGENTS.md`](../../AGENTS.md).

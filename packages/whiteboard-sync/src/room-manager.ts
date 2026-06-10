@@ -44,6 +44,56 @@ export class RoomManager {
   }
 
   /**
+   * Re-read a room's snapshot from the Python backend and merge it into the
+   * live TLSocketRoom, broadcasting the changes to all connected clients.
+   *
+   * This is the live agent-push path: when an agent writes shapes via the MCP
+   * tools (which persist straight to the backend store), the API pings this so
+   * the additions appear immediately instead of waiting for a client refresh.
+   * Records are merged (put), which also means the next periodic save preserves
+   * them rather than clobbering the agent's writes.
+   *
+   * Returns `active=false` when the room isn't currently loaded here — in that
+   * case nothing needs doing, since the next client connection loads fresh.
+   */
+  async reloadFromBackend(
+    roomId: string,
+  ): Promise<{ active: boolean; applied: number; skipped?: number }> {
+    const managed = this.rooms.get(roomId);
+    if (!managed) {
+      return { active: false, applied: 0 };
+    }
+
+    const snapshot = await loadSnapshot(roomId, this.config.pythonApiBase);
+    const records = extractRecords(snapshot);
+    if (records.length === 0) {
+      return { active: true, applied: 0 };
+    }
+
+    // Apply per-record so a single invalid shape can't abort the whole reload
+    // (and can't 500 the endpoint). Valid records still broadcast to clients.
+    let applied = 0;
+    let skipped = 0;
+    await managed.tlRoom.updateStore((store) => {
+      for (const record of records) {
+        try {
+          store.put(record);
+          applied++;
+        } catch (err) {
+          skipped++;
+          log(
+            "warn",
+            `reload skipped invalid record in room=${roomId}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+    });
+    return { active: true, applied, skipped };
+  }
+
+  /**
    * Handle a new WebSocket connection for a room.  Creates the TLSocketRoom
    * on first connection, loads the initial snapshot, and wires up the socket.
    */
@@ -169,4 +219,40 @@ export class RoomManager {
     managed.tlRoom.close();
     this.rooms.delete(roomId);
   }
+}
+
+/**
+ * Extract tldraw records from a persisted canvas_state, tolerating both shapes
+ * the backend can produce:
+ *   - store snapshot:  { store: { [id]: record }, schema }   (Amprealize Python)
+ *   - room snapshot:   { documents: [{ state: record }], ... } (tldraw native)
+ */
+function log(level: string, message: string): void {
+  const entry = {
+    ts: new Date().toISOString(),
+    level,
+    service: "whiteboard-sync",
+    component: "room-manager",
+    message,
+  };
+  if (level === "error") console.error(JSON.stringify(entry));
+  else console.log(JSON.stringify(entry));
+}
+
+function extractRecords(snapshot: unknown): UnknownRecord[] {
+  if (!snapshot || typeof snapshot !== "object") return [];
+  const snap = snapshot as Record<string, unknown>;
+
+  const isRecord = (r: unknown): r is UnknownRecord =>
+    !!r && typeof r === "object" && "typeName" in (r as object);
+
+  if (snap.store && typeof snap.store === "object") {
+    return Object.values(snap.store as Record<string, unknown>).filter(isRecord);
+  }
+  if (Array.isArray(snap.documents)) {
+    return (snap.documents as Array<{ state?: unknown }>)
+      .map((d) => d?.state)
+      .filter(isRecord);
+  }
+  return [];
 }

@@ -27,12 +27,12 @@ import sys
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 # Add amprealize to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from amprealize.action_contracts import Actor
+from amprealize.bci_contracts import TraceFormat
 from amprealize.behavior_service import BehaviorService
 from amprealize.reflection_contracts import ReflectRequest
 from amprealize.reflection_service import ReflectionService
@@ -272,35 +272,91 @@ class NightlyReflectionJob:
         trace_text = "\n".join(
             f"Step {i+1}: {step}" for i, step in enumerate(pattern.sequence)
         )
-
-        # Create reflection request
-        actor = Actor(
-            id="system",
-            role="automation",
-            surface="batch",
-        )
+        provenance = self._build_pattern_candidate_provenance(pattern)
 
         reflect_request = ReflectRequest(
             trace_text=trace_text,
-            trace_format="text",
-            actor=actor,
-            metadata={
-                "pattern_id": pattern.pattern_id,
-                "frequency": pattern.frequency,
-                "extraction_job_id": self.job.job_id,
-            },
+            trace_format=TraceFormat.CHAIN_OF_THOUGHT,
+            run_id=provenance.get("source_run_id"),
         )
 
         # Call ReflectionService to generate candidates
         try:
             response = self.reflection_service.reflect(reflect_request)
+            if isinstance(response.metadata, dict):
+                response.metadata.update(provenance)
             if response.candidates:
+                self._persist_candidates(pattern, response, provenance)
                 logger.info(
                     f"Generated {len(response.candidates)} candidates from pattern {pattern.pattern_id}"
                 )
         except Exception as e:
             logger.error(f"Failed to generate candidate for pattern {pattern.pattern_id}: {e}")
             raise
+
+    def _build_pattern_candidate_provenance(self, pattern) -> Dict[str, Any]:
+        """Build canonical provenance metadata for a batch-generated candidate."""
+        source_trace_ids = self._source_trace_ids_for_pattern(pattern)
+        provenance: Dict[str, Any] = {
+            "pattern_id": pattern.pattern_id,
+            "pattern_frequency": pattern.frequency,
+            "source_trace_ids": source_trace_ids,
+        }
+        if self.job:
+            provenance["extraction_job_id"] = self.job.job_id
+        if source_trace_ids:
+            provenance["source_run_id"] = source_trace_ids[0]
+        return provenance
+
+    def _source_trace_ids_for_pattern(self, pattern) -> List[str]:
+        """Resolve canonical trace identifiers for a pattern's candidate provenance."""
+        trace_ids: List[str] = []
+        if self.storage:
+            try:
+                trace_ids.extend(
+                    occurrence.run_id
+                    for occurrence in self.storage.get_occurrences_by_pattern(pattern.pattern_id)
+                    if occurrence.run_id
+                )
+            except Exception as exc:
+                logger.debug(
+                    "Failed to load pattern occurrences for %s: %s",
+                    pattern.pattern_id,
+                    exc,
+                )
+        trace_ids.extend(run_id for run_id in pattern.extracted_from_runs if run_id)
+        return list(dict.fromkeys(trace_ids))
+
+    def _persist_candidates(self, pattern, response, provenance: Dict[str, Any]) -> None:
+        """Persist batch-generated candidates through the same review-queue path."""
+        if not hasattr(self.reflection_service, "create_candidate"):
+            return
+        for candidate in response.candidates:
+            quality_scores = (
+                candidate.quality_scores.to_dict()
+                if candidate.quality_scores is not None
+                else None
+            )
+            self.reflection_service.create_candidate(
+                name=candidate.slug,
+                summary=candidate.instruction,
+                triggers=[f"Extracted from trace pattern {pattern.pattern_id}"],
+                steps=candidate.supporting_steps,
+                pattern_id=pattern.pattern_id,
+                confidence=candidate.confidence,
+                role="student",
+                keywords=candidate.tags,
+                historical_validation={
+                    "source_run_ids": provenance.get("source_trace_ids", []),
+                    "pattern_frequency": pattern.frequency,
+                },
+                metadata={
+                    **provenance,
+                    "display_name": candidate.display_name,
+                    "duplicate_behavior_id": candidate.duplicate_behavior_id,
+                    "quality_scores": quality_scores,
+                },
+            )
 
     def _update_job_status(self, status: ExtractionJobStatus, message: str) -> None:
         """Update extraction job status in storage."""
@@ -423,7 +479,18 @@ def main() -> int:
         run_service = RunService()
         logger.warning("AMPREALIZE_RUN_PG_DSN not set - using SQLite RunService")
     behavior_service = BehaviorService()
-    reflection_service = ReflectionService(behavior_service=behavior_service)
+    reflection_dsn = apply_host_overrides(os.environ.get("AMPREALIZE_REFLECTION_PG_DSN"), "REFLECTION")
+    if reflection_dsn:
+        from amprealize.reflection_service_postgres import PostgresReflectionService
+
+        reflection_service = PostgresReflectionService(
+            dsn=reflection_dsn,
+            behavior_service=behavior_service,
+        )
+        logger.info("Using PostgresReflectionService for nightly reflection")
+    else:
+        reflection_service = ReflectionService(behavior_service=behavior_service)
+        logger.warning("AMPREALIZE_REFLECTION_PG_DSN not set - nightly reflection will not persist candidates")
     trace_analysis = TraceAnalysisService()
 
     # Initialize PostgreSQL storage if configured

@@ -165,3 +165,14 @@ services:
         assert blueprint.name == "from-yaml"
         assert blueprint.services["database"].image == "postgres:16"
         assert blueprint.services["database"].environment["POSTGRES_PASSWORD"] == "secret"
+
+    def test_local_test_env_packaged_blueprint_loads_and_validates(self):
+        """Shipped local-test-env blueprint parses and passes topology validation."""
+        path = get_blueprint_path("local-test-env")
+        assert path is not None and path.is_file()
+        assert "local-test-env" in list_blueprints()
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        blueprint = Blueprint(**data)
+        errors = blueprint.validate_topology()
+        assert errors == [], errors

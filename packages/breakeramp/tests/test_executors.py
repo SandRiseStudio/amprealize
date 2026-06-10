@@ -8,6 +8,7 @@ from breakeramp.executors.base import (
     ContainerRunConfig,
     ContainerInfo,
     MachineInfo,
+    container_platform_for_image,
 )
 
 
@@ -45,6 +46,115 @@ class TestContainerRunConfig:
         assert len(config.volumes) == 1
         assert config.command == ["postgres", "-c", "shared_buffers=256MB"]
         assert config.detach is False
+
+
+def test_container_platform_for_socat_matches_host_arch(monkeypatch: pytest.MonkeyPatch) -> None:
+    import platform
+
+    monkeypatch.setattr(platform, "machine", lambda: "arm64")
+    assert container_platform_for_image("docker.io/alpine/socat:1.0.5") == "linux/arm64"
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    assert container_platform_for_image("docker.io/alpine/socat:1.0.5") == "linux/amd64"
+    assert container_platform_for_image("postgres:16") is None
+
+
+def test_podman_run_container_includes_platform_flag(mocker: Any) -> None:
+    from breakeramp.executors.podman import PodmanExecutor
+
+    executor = PodmanExecutor()
+    captured: List[List[str]] = []
+
+    def capture(args: List[str], **kwargs: Any) -> MagicMock:
+        captured.append(list(args))
+        mock_result = MagicMock()
+        mock_result.stdout = "abc123\n"
+        return mock_result
+
+    mocker.patch.object(executor, "_run_podman", side_effect=capture)
+    mocker.patch.object(executor, "stop_container")
+    mocker.patch.object(executor, "remove_container")
+    config = ContainerRunConfig(
+        image="docker.io/alpine/socat:1.0.5",
+        name="socat-test",
+        platform="linux/arm64",
+    )
+    executor.run_container(config)
+    run_args = next(a for a in captured if a and a[0] == "run")
+    assert "--platform" in run_args
+    pi = run_args.index("--platform")
+    assert run_args[pi + 1] == "linux/arm64"
+
+
+class TestPodmanPsJsonParsing:
+    """``podman ps --format json`` output varies by Podman version (array vs NDJSON)."""
+
+    def test_parse_json_array(self):
+        from breakeramp.executors.podman import PodmanExecutor
+        import json
+
+        payload = [
+            {"Id": "abc", "Names": ["/foo"], "State": "running", "Image": "redis"},
+        ]
+        rows = PodmanExecutor._parse_podman_ps_json_stdout(json.dumps(payload))
+        assert len(rows) == 1
+        assert PodmanExecutor._container_name_from_ps_row(rows[0]) == "/foo"
+        assert PodmanExecutor._container_state_from_ps_row(rows[0]) == "running"
+
+    def test_parse_ndjson_lines(self):
+        from breakeramp.executors.podman import PodmanExecutor
+
+        stdout = (
+            '{"Id":"a1","Names":["amp-deadbeef-redis"],"State":"running","Image":"redis"}\n'
+            '{"Id":"b2","Names":["amp-deadbeef-api"],"State":"running","Image":"python"}\n'
+        )
+        rows = PodmanExecutor._parse_podman_ps_json_stdout(stdout)
+        assert len(rows) == 2
+        assert PodmanExecutor._container_name_from_ps_row(rows[0]) == "amp-deadbeef-redis"
+
+    def test_list_containers_parses_ndjson_via_mock(self, mocker: Any):
+        from breakeramp.executors.podman import PodmanExecutor
+
+        ndjson = (
+            '{"Id":"fullid1","Names":["/c1"],"State":"running","Image":"i"}\n'
+            '{"Id":"fullid2","Names":["/c2"],"State":"exited","Image":"i"}\n'
+        )
+        executor = PodmanExecutor()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ndjson
+        mocker.patch.object(executor, "_run_podman", return_value=mock_result)
+        rows = executor.list_containers(all_containers=True)
+        assert len(rows) == 2
+        assert rows[0].name == "/c1"
+        assert rows[0].status == "running"
+        assert rows[1].name == "/c2"
+
+    def test_list_container_name_state_map_falls_back_when_template_stdout_empty(self, mocker: Any):
+        """Template ``ps`` can return success with no rows; JSON listing must still run."""
+        from breakeramp.executors.podman import PodmanExecutor
+
+        ndjson = (
+            '{"Id":"fullid1","Names":["amp-run-redis"],"State":"running","Image":"i"}\n'
+        )
+        executor = PodmanExecutor()
+
+        def fake_run_podman(args: List[str], **kwargs: Any) -> MagicMock:
+            mock_result = MagicMock()
+            if len(args) >= 3 and args[0] == "ps" and args[1] == "-a" and args[2] == "--noheading":
+                mock_result.returncode = 0
+                mock_result.stdout = ""
+                return mock_result
+            if args[:3] == ["ps", "--format", "json"]:
+                mock_result.returncode = 0
+                mock_result.stdout = ndjson
+                return mock_result
+            mock_result.returncode = 1
+            mock_result.stdout = ""
+            return mock_result
+
+        mocker.patch.object(executor, "_run_podman", side_effect=fake_run_podman)
+        m = executor.list_container_name_state_map()
+        assert m.get("amp-run-redis") == "running"
 
 
 class TestContainerInfo:
@@ -494,3 +604,141 @@ class TestSmartCleanup:
         )
 
         assert result["build_cache_cleared"] is True
+
+
+class TestRecommendPodmanCliDefaultConnection:
+    """Tests for host ``podman system connection default`` selection."""
+
+    def test_prefers_dev_when_both_running(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=True),
+            MachineInfo(name="amprealize-test", running=True),
+        ]
+
+        assert (
+            recommend_podman_cli_default_connection(
+                machines,
+                connection_exists=lambda _: True,
+            )
+            == "amprealize-dev"
+        )
+
+    def test_prefers_dev_when_only_dev_running(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=True),
+            MachineInfo(name="amprealize-test", running=False),
+        ]
+
+        assert (
+            recommend_podman_cli_default_connection(
+                machines,
+                connection_exists=lambda _: True,
+            )
+            == "amprealize-dev"
+        )
+
+    def test_both_running_falls_back_to_dev_if_test_connection_missing(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=True),
+            MachineInfo(name="amprealize-test", running=True),
+        ]
+
+        def exists(name: str) -> bool:
+            return name == "amprealize-dev"
+
+        assert (
+            recommend_podman_cli_default_connection(machines, connection_exists=exists)
+            == "amprealize-dev"
+        )
+
+    def test_both_running_uses_dev_root_when_only_dev_root_registered(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=True),
+            MachineInfo(name="amprealize-test", running=True),
+        ]
+
+        def exists(name: str) -> bool:
+            return name == "amprealize-dev-root"
+
+        assert (
+            recommend_podman_cli_default_connection(machines, connection_exists=exists)
+            == "amprealize-dev-root"
+        )
+
+    def test_both_running_falls_back_to_test_root_when_dev_missing(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=True),
+            MachineInfo(name="amprealize-test", running=True),
+        ]
+
+        def exists(name: str) -> bool:
+            return name == "amprealize-test-root"
+
+        assert (
+            recommend_podman_cli_default_connection(machines, connection_exists=exists)
+            == "amprealize-test-root"
+        )
+
+    def test_falls_back_to_test_when_only_test_running(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=False),
+            MachineInfo(name="amprealize-test", running=True),
+        ]
+
+        assert (
+            recommend_podman_cli_default_connection(
+                machines,
+                connection_exists=lambda _: True,
+            )
+            == "amprealize-test"
+        )
+
+    def test_when_none_running_prefers_existing_dev_connection(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=False),
+            MachineInfo(name="amprealize-test", running=False),
+        ]
+
+        def exists(name: str) -> bool:
+            return name == "amprealize-dev"
+
+        assert recommend_podman_cli_default_connection(machines, connection_exists=exists) == "amprealize-dev"
+
+    def test_when_none_running_and_only_test_connection(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [
+            MachineInfo(name="amprealize-dev", running=False),
+        ]
+
+        def exists(name: str) -> bool:
+            return name == "amprealize-test"
+
+        assert recommend_podman_cli_default_connection(machines, connection_exists=exists) == "amprealize-test"
+
+    def test_dev_running_uses_root_connection_when_only_root_registered(self):
+        from breakeramp.executors.podman import recommend_podman_cli_default_connection
+
+        machines = [MachineInfo(name="amprealize-dev", running=True)]
+
+        def exists(name: str) -> bool:
+            return name == "amprealize-dev-root"
+
+        assert (
+            recommend_podman_cli_default_connection(machines, connection_exists=exists)
+            == "amprealize-dev-root"
+        )

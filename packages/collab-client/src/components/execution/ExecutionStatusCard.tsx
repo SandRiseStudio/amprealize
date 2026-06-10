@@ -3,6 +3,7 @@ import type { ExecutionStatus } from '../../types.js';
 import { ensureExecutionStyles } from './executionStyles.js';
 import { clampProgress, formatRelativeTime, formatExecutionStateLabel, normalizeExecutionState } from './executionUtils.js';
 import { ExecutionStatusBadge } from './ExecutionStatusBadge.js';
+import { KnowledgeRetrievalSummary } from './KnowledgeRetrievalSummary.js';
 
 export interface ExecutionStatusCardProps {
   status?: ExecutionStatus | null;
@@ -106,6 +107,7 @@ export function ExecutionStatusCard({
               <div className="ga-exec-meta-value">{costLabel}</div>
             </div>
           </div>
+          <KnowledgeRetrievalSummary data={status?.traceSummary?.knowledge_retrieval ?? null} />
         </div>
       )}
     </section>

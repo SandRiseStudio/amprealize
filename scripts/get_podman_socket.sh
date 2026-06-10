@@ -1,6 +1,7 @@
 #!/bin/bash
 # Get the podman socket path for the current machine (macOS/Windows)
-# This is used to set PODMAN_SOCKET_HOST for the local-test-suite blueprint
+# This is used to set PODMAN_SOCKET_HOST / discover paths for local stacks.
+# BreakerAmp also auto-sets AMPREALIZE_PODMAN_SOCK_HOST_PATH on plan/apply when unset.
 
 set -e
 

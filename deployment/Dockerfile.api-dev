@@ -1,0 +1,26 @@
+# Amprealize API — dependencies baked at build time for fast container restarts.
+#
+# Build from the amprealize repository root (context includes .dockerignore):
+#   podman build -f deployment/Dockerfile.api-dev -t localhost/amprealize-api-dev:latest .
+#
+# Use with BreakerAmp (cloud-dev, local-dev, local-test-suite):
+#   export AMPREALIZE_API_IMAGE=localhost/amprealize-api-dev:latest
+#   export AMPREALIZE_API_SKIP_PIP=1
+#   # Recreate or apply so amprealize-api uses the new image and command path
+#
+# Rebuild when dependencies change. The dev stack still bind-mounts the repo to
+# /app; set AMPREALIZE_API_SKIP_PIP=1 to skip `pip install` on every restart.
+
+FROM docker.io/library/python:3.11-slim-bookworm
+
+WORKDIR /app
+
+COPY . .
+
+RUN pip install --no-cache-dir -U pip \
+    && pip install --no-cache-dir -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8000
+
+CMD ["sh", "-c", "exec uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers ${AMPREALIZE_API_WORKERS:-1} --log-level info"]

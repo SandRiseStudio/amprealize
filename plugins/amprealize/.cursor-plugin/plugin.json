@@ -1,0 +1,30 @@
+{
+  "name": "amprealize",
+  "displayName": "Amprealize",
+  "version": "1.0.0",
+  "description": "Behavior engine for AI agents: MCP tools for behaviors, runs, compliance, and workflows—plus curated Cursor rules and skills aligned with the Amprealize handbook.",
+  "author": {
+    "name": "SandRise Studio"
+  },
+  "homepage": "https://github.com/SandRiseStudio/amprealize",
+  "repository": "https://github.com/SandRiseStudio/amprealize",
+  "license": "Apache-2.0",
+  "logo": "assets/logo.png",
+  "keywords": [
+    "amprealize",
+    "mcp",
+    "behaviors",
+    "bci",
+    "agents",
+    "compliance",
+    "workflows"
+  ],
+  "category": "developer-tools",
+  "tags": [
+    "model-context-protocol",
+    "ai-agents",
+    "developer-tools"
+  ],
+  "rules": "./rules/",
+  "skills": "./skills/"
+}

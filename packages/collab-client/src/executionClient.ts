@@ -214,7 +214,10 @@ export class ExecutionStreamClient extends TypedEventEmitter<ExecutionStreamEven
       this.log('WebSocket error');
     };
 
-    this.ws.onclose = (event) => {
+    this.ws.onclose = (event: CloseEvent) => {
+      if (event.target !== this.ws) {
+        return;
+      }
       this.log('WebSocket closed', event.code, event.reason);
       this.clearTimers();
       this.ws = null;
@@ -344,7 +347,9 @@ export class ExecutionStreamClient extends TypedEventEmitter<ExecutionStreamEven
   private send(message: { type: string }): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
-      this.log('Sent:', message.type);
+      if (message.type !== 'ping') {
+        this.log('Sent:', message.type);
+      }
     }
   }
 

@@ -154,7 +154,7 @@ def create_breakeramp_routes(
         @router.get("/environments", response_model=List[Dict[str, Any]])
         async def list_environments(
             reconcile: bool = True,
-            auto_cleanup: bool = True,
+            auto_cleanup: bool = False,
         ) -> List[Dict[str, Any]]:
             """List active environments.
 
@@ -163,6 +163,7 @@ def create_breakeramp_routes(
             Args:
                 reconcile: If True, verify containers actually exist
                 auto_cleanup: If True, remove state files for stale environments
+                    (default False; opt in for explicit cleanup)
             """
             try:
                 return service.list_environments(

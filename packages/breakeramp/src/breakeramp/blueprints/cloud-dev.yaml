@@ -1,13 +1,17 @@
 # Cloud Development Blueprint - DATABASE ON CLOUD (Neon / Supabase / etc.)
-# Same services as local-dev but without local database containers.
-# DATABASE_URL and TELEMETRY_DATABASE_URL are passed through from host env vars
-# (set via `amprealize context use <name>` before `breakeramp fresh cloud-dev`).
+# Same services as local-dev but without the local primary app database.
+# DATABASE_URL comes from the active host context.
+# Telemetry DSNs are resolved by BreakerAmp before blueprint expansion:
+# - explicit telemetry DSN from context/env when configured
+# - otherwise the local telemetry-db service in this cloud-dev stack
 #
 # Architecture:
-#   - No amprealize-db or telemetry-db containers (databases live in the cloud)
-#   - All services receive DATABASE_URL / TELEMETRY_DATABASE_URL from the host
+#   - No amprealize-db container (main database lives in the cloud)
+#   - telemetry-db runs locally for development telemetry/metrics
+#   - Services receive explicit container-safe DB/telemetry DSNs from BreakerAmp
 #   - Redis still runs locally (low-latency cache)
-#   - Migrations run on the host via `amprealize context migrate`, NOT in containers
+#   - Main app migrations run on the host via `amprealize context migrate`
+#   - Telemetry migrations run in-container against local telemetry-db
 #
 # Usage:
 #   amprealize context use neon            # activate cloud context (sets DATABASE_URL)
@@ -18,15 +22,19 @@
 #   - Prefer Neon's *pooler* connection string (often host contains "-pooler")
 #     over the direct instance host to cut connection latency and churn.
 #   - Append ?sslmode=require when Neon requires TLS.
+#   - Podman socket bind mount: BreakerAmp sets AMPREALIZE_PODMAN_SOCK_HOST_PATH
+#     before expanding blueprints (from podman machine inspect / Linux paths).
+#     Override on the host if needed.
 #   - Optional API pool tuning via env (see amprealize/storage/postgres_pool.py):
 #       AMPREALIZE_PG_POOL_RECYCLE, AMPREALIZE_PG_CONNECT_TIMEOUT,
 #       AMPREALIZE_PG_POOL_SIZE, AMPREALIZE_PG_POOL_MAX_OVERFLOW,
 #       or DATABASE_POOL_SIZE / DATABASE_MAX_OVERFLOW in settings.
 #   - Raising AMPREALIZE_API_WORKERS increases concurrent requests but multiplies
 #     DB pool usage per worker; stay within Neon max connections.
-# Podman here runs Redis/API/console/workers only; DB round-trips are API→Neon.
+# Podman here runs telemetry/Redis/API/console/workers; app DB round-trips are API→Neon.
 #
 # Port Conventions (same as local-dev):
+#   Telemetry DB: 5433
 #   Redis: 6379
 #   API: 8000
 #   Web Console: 5173
@@ -62,8 +70,29 @@ modules:
 # =============================================================================
 services:
   # ---------------------------------------------------------------------------
-  # MODULE: CORE - Redis only (no database containers)
+  # MODULE: CORE - local telemetry database + Redis
   # ---------------------------------------------------------------------------
+
+  # --- Telemetry Database (Port 5433) - TimescaleDB ---
+  # Keeps cloud-dev app data on Neon while storing dev observability locally.
+  telemetry-db:
+    image: docker.io/timescale/timescaledb:latest-pg16
+    module: core
+    ports:
+      - "${AMPREALIZE_PG_PORT_TELEMETRY:-5433}:5432"
+    environment:
+      POSTGRES_USER: "${AMPREALIZE_PG_USER_TELEMETRY:-telemetry}"
+      POSTGRES_PASSWORD: "${AMPREALIZE_PG_PASS_TELEMETRY:-telemetry_dev}"
+      POSTGRES_DB: "${AMPREALIZE_PG_DB_TELEMETRY:-telemetry}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - telemetry-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telemetry -d telemetry"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    healthcheck_timeout_s: 30
 
   # --- Redis Cache ---
   redis:
@@ -90,7 +119,8 @@ services:
     ports:
       - "8888:8888"
     volumes:
-      - "/run/user/501/podman/podman.sock:/run/podman/podman.sock"
+      # Host path set by BreakerAmp before compose (AMPREALIZE_PODMAN_SOCK_HOST_PATH)
+      - "${AMPREALIZE_PODMAN_SOCK_HOST_PATH:-/run/user/501/podman/podman.sock}:/run/podman/podman.sock"
     command:
       - "tcp-listen:8888,reuseaddr,fork"
       - "unix-connect:/run/podman/podman.sock"
@@ -106,6 +136,7 @@ services:
     image: docker.io/library/python:3.11-slim-bookworm
     module: agents
     depends_on:
+      - telemetry-db
       - redis
       - podman-socket-proxy
     volumes:
@@ -115,7 +146,7 @@ services:
     command:
       - "sh"
       - "-c"
-      - "pip install -e . -e ./packages/execution-queue -e ./packages/raze -e ./packages/breakeramp && python -m amprealize.execution_worker"
+      - "pip install -e '.[postgres]' -e ./packages/execution-queue -e ./packages/raze -e ./packages/breakeramp && python -m amprealize.execution_worker"
     environment:
       # Redis Streams connection
       REDIS_URL: "redis://redis:6379/0"
@@ -123,15 +154,27 @@ services:
       WORKER_ID: "${HOSTNAME:-worker-1}"
       CONSUMER_GROUP: "amprealize-workers"
       # Cloud database connections — passed through from host env vars
-      DATABASE_URL: "${DATABASE_URL}"
-      # Telemetry disabled in cloud-dev (no telemetry DB available)
-      AMPREALIZE_TELEMETRY_ENABLED: "false"
+      DATABASE_URL: "${BREAKERAMP_CLOUD_DATABASE_URL}"
+      TELEMETRY_DATABASE_URL: "${BREAKERAMP_CLOUD_TELEMETRY_DATABASE_URL}"
+      AMPREALIZE_TELEMETRY_PG_DSN: "${BREAKERAMP_CLOUD_TELEMETRY_PG_DSN}"
+      AMPREALIZE_METRICS_PG_DSN: "${BREAKERAMP_CLOUD_METRICS_PG_DSN}"
+      AMPREALIZE_TELEMETRY_ENABLED: "${AMPREALIZE_TELEMETRY_ENABLED:-true}"
       # Podman API via socket proxy (AmpOrchestrator)
       PODMAN_HOST: "tcp://podman-socket-proxy:8888"
       # LLM Provider API Keys
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
+      TOGETHER_API_KEY: "${TOGETHER_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      FIREWORKS_API_KEY: "${FIREWORKS_API_KEY:-}"
+      # Managed observability exporter passthrough
+      AMPREALIZE_DATADOG_OTLP_ENDPOINT: "${AMPREALIZE_DATADOG_OTLP_ENDPOINT:-}"
+      AMPREALIZE_DATADOG_API_KEY: "${AMPREALIZE_DATADOG_API_KEY:-}"
+      AMPREALIZE_LANGFUSE_PUBLIC_KEY: "${AMPREALIZE_LANGFUSE_PUBLIC_KEY:-}"
+      AMPREALIZE_LANGFUSE_SECRET_KEY: "${AMPREALIZE_LANGFUSE_SECRET_KEY:-}"
+      AMPREALIZE_LANGFUSE_HOST: "${AMPREALIZE_LANGFUSE_HOST:-}"
       # Worker tuning
       WORKER_HEARTBEAT_INTERVAL_S: "30"
       WORKER_CLAIM_TIMEOUT_MS: "300000"
@@ -179,11 +222,12 @@ services:
     healthcheck_timeout_s: 60
 
   amprealize-api:
-    image: docker.io/library/python:3.11-slim-bookworm
+    image: "${AMPREALIZE_API_IMAGE:-docker.io/library/python:3.11-slim-bookworm}"
     module: console
     ports:
       - "${AMPREALIZE_API_PORT:-8000}:8000"
     depends_on:
+      - telemetry-db
       - redis
     extra_hosts:
       - "host.containers.internal:host-gateway"
@@ -194,23 +238,30 @@ services:
     command:
       - "sh"
       - "-c"
-      # Default workers=4 for cloud-dev: DB round-trips go over the public
-      # internet to Neon (~40-75ms RTT each), so a single worker serializes
-      # every request and makes the web console feel molasses-slow. Four
-      # workers is enough to overlap request handling with Neon latency on a
-      # dev laptop without thrashing. Overridable via AMPREALIZE_API_WORKERS.
-      - "pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue && uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers ${AMPREALIZE_API_WORKERS:-4} --log-level info"
+      # Default workers=4 for cloud-dev when using pip path. With AMPREALIZE_API_SKIP_PIP=1
+      # and a baked image (see deployment/Dockerfile.api-dev), uvicorn starts immediately.
+      - |
+        set -e
+        # Default 1 worker: ConversationEventHub is in-process memory; multiple workers
+        # split WebSocket subscribers from REST/reply tasks so real-time chat breaks.
+        W="${AMPREALIZE_API_WORKERS:-1}"
+        if [ "${AMPREALIZE_API_SKIP_PIP:-}" = "1" ]; then
+          exec uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers "$W" --log-level info
+        fi
+        pip install -e '.[postgres]' -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue
+        exec uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers "$W" --log-level info
     environment:
+      AMPREALIZE_API_SKIP_PIP: "${AMPREALIZE_API_SKIP_PIP:-}"
       # Podman API for workspace provisioning (when using queue mode)
       PODMAN_HOST: "${PODMAN_HOST:-tcp://host.containers.internal:8888}"
       # =========================================================================
       # Cloud database connections — passed through from host env vars
       # Set via `amprealize context use <name>` before starting
       # =========================================================================
-      DATABASE_URL: "${DATABASE_URL}"
+      DATABASE_URL: "${BREAKERAMP_CLOUD_DATABASE_URL}"
+      TELEMETRY_DATABASE_URL: "${BREAKERAMP_CLOUD_TELEMETRY_DATABASE_URL}"
       AMPREALIZE_API_WORKERS: "${AMPREALIZE_API_WORKERS:-1}"
-      # Telemetry disabled in cloud-dev (no telemetry DB available)
-      AMPREALIZE_TELEMETRY_ENABLED: "false"
+      AMPREALIZE_TELEMETRY_ENABLED: "${AMPREALIZE_TELEMETRY_ENABLED:-true}"
       # Explicit Org DSN — falls back to DATABASE_URL
       AMPREALIZE_ORG_PG_DSN: "${DATABASE_URL}"
 
@@ -231,12 +282,13 @@ services:
       AMPREALIZE_AGENT_REGISTRY_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_MESSAGING_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_WHITEBOARD_PG_DSN: "${DATABASE_URL}"
-      AMPREALIZE_METRICS_PG_DSN: "${TELEMETRY_DATABASE_URL:-${DATABASE_URL}}"
+      AMPREALIZE_METRICS_PG_DSN: "${BREAKERAMP_CLOUD_METRICS_PG_DSN}"
+      AMPREALIZE_TELEMETRY_PG_DSN: "${BREAKERAMP_CLOUD_TELEMETRY_PG_DSN}"
+      # Sampled REST `api.http.completed` (host `BREAKERAMP_CLOUD_TELEMETRY_PG_DSN` must match sink target). Default 1; use 0.1 if noisy.
+      AMPREALIZE_API_HTTP_TELEMETRY_SAMPLE_RATE: "${AMPREALIZE_API_HTTP_TELEMETRY_SAMPLE_RATE:-1}"
       # Whiteboard storage backend — use Postgres in cloud-dev
       WHITEBOARD_STORAGE_BACKEND: "postgres"
       WHITEBOARD_PG_DSN: "${DATABASE_URL}"
-      # Telemetry disabled — no separate telemetry DB in cloud-dev
-      AMPREALIZE_TELEMETRY_ENABLED: "false"
 
       # =========================================================================
       # OAuth settings (loaded from .env.google-oauth and .env.github-oauth)
@@ -281,7 +333,22 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
-      BYOK_ENCRYPTION_KEY: "${BYOK_ENCRYPTION_KEY:-F8mx5M0oI4byBM353Yu5dtcz8d4AxlEKl1cBf2FW0Y4=}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
+      TOGETHER_API_KEY: "${TOGETHER_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      FIREWORKS_API_KEY: "${FIREWORKS_API_KEY:-}"
+      # Managed observability exporter passthrough
+      AMPREALIZE_DATADOG_OTLP_ENDPOINT: "${AMPREALIZE_DATADOG_OTLP_ENDPOINT:-}"
+      AMPREALIZE_DATADOG_API_KEY: "${AMPREALIZE_DATADOG_API_KEY:-}"
+      AMPREALIZE_LANGFUSE_PUBLIC_KEY: "${AMPREALIZE_LANGFUSE_PUBLIC_KEY:-}"
+      AMPREALIZE_LANGFUSE_SECRET_KEY: "${AMPREALIZE_LANGFUSE_SECRET_KEY:-}"
+      AMPREALIZE_LANGFUSE_HOST: "${AMPREALIZE_LANGFUSE_HOST:-}"
+      # Do not ship a shared default Fernet key — set BYOK_ENCRYPTION_KEY on the host
+      # (e.g. from `python -c "from amprealize.auth.credential_encryption import CredentialEncryptionService as C; print(C.generate_key())"`).
+      BYOK_ENCRYPTION_KEY: "${BYOK_ENCRYPTION_KEY:-}"
+      # Set to 1 on the host to require BYOK_ENCRYPTION_KEY (or KMS/Vault) before saving keys.
+      # Default 0 matches local-dev so docker cloud-dev works without an extra Fernet key.
+      AMPREALIZE_REQUIRE_BYOK_ENCRYPTION: "${AMPREALIZE_REQUIRE_BYOK_ENCRYPTION:-0}"
 
       # =========================================================================
       # Performance instrumentation (emits `perf ...` lines on the
@@ -289,9 +356,21 @@ services:
       # emission itself is a cost.
       # =========================================================================
       AMPREALIZE_PERF_LOG: "${AMPREALIZE_PERF_LOG:-1}"
+
+      # Research URL ingest: optional Jina Reader (host .env → API). See .env.example.
+      AMPREALIZE_RESEARCH_READER_PROXY: "${AMPREALIZE_RESEARCH_READER_PROXY:-}"
+      AMPREALIZE_RESEARCH_JINA_READER_BASE: "${AMPREALIZE_RESEARCH_JINA_READER_BASE:-}"
+      AMPREALIZE_RESEARCH_JINA_AUTO_FALLBACK: "${AMPREALIZE_RESEARCH_JINA_AUTO_FALLBACK:-}"
+
+      # Chat: targeted workspace fetch (Phase B). Set on host .env — forwarded here.
+      AMPREALIZE_ENABLE_CHAT_WORKSPACE_TARGETED_FETCH: "${AMPREALIZE_ENABLE_CHAT_WORKSPACE_TARGETED_FETCH:-false}"
     healthcheck_timeout_s: 90
-    # NOTE: No post_start_commands for migrations — run on host via:
-    #   amprealize context migrate
+    post_start_commands:
+      # Run telemetry migrations against the local telemetry-db only.
+      # Main app migrations still target the active cloud context on the host.
+      - command: ["sh", "-c", "while ! python -c 'import alembic' 2>/dev/null; do sleep 2; done && python -m alembic -c alembic.telemetry.ini upgrade head"]
+        description: "Run Telemetry Alembic migrations (local Timescale/Postgres telemetry-db)"
+        timeout_s: 300
 
   # --- MCP Server ---
   amprealize-mcp:
@@ -300,6 +379,7 @@ services:
     ports:
       - "${AMPREALIZE_MCP_PORT:-3000}:3000"
     depends_on:
+      - telemetry-db
       - redis
     extra_hosts:
       - "host.containers.internal:host-gateway"
@@ -310,7 +390,7 @@ services:
     command:
       - "sh"
       - "-c"
-      - "pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue && tail -f /dev/null | python -m amprealize.mcp_server"
+      - "pip install -e '.[postgres]' -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue && tail -f /dev/null | python -m amprealize.mcp_server"
     environment:
       MCP_TRANSPORT: "${MCP_TRANSPORT:-stdio}"
       MCP_IDLE_TIMEOUT: "${MCP_IDLE_TIMEOUT:-3600}"
@@ -318,9 +398,10 @@ services:
       REDIS_URL: "redis://redis:6379/0"
 
       # Cloud database connections — passed through from host env vars
-      DATABASE_URL: "${DATABASE_URL}"
-      # Telemetry disabled in cloud-dev (no telemetry DB available)
-      AMPREALIZE_TELEMETRY_ENABLED: "false"
+      DATABASE_URL: "${BREAKERAMP_CLOUD_DATABASE_URL}"
+      TELEMETRY_DATABASE_URL: "${BREAKERAMP_CLOUD_TELEMETRY_DATABASE_URL}"
+      AMPREALIZE_TELEMETRY_PG_DSN: "${BREAKERAMP_CLOUD_TELEMETRY_PG_DSN}"
+      AMPREALIZE_TELEMETRY_ENABLED: "${AMPREALIZE_TELEMETRY_ENABLED:-true}"
       AMPREALIZE_MODULES_WHITEBOARD: "true"
       AMPREALIZE_ENABLE_WHITEBOARD: "true"
       AMPREALIZE_CONSOLE_URL: "http://localhost:5173"
@@ -330,12 +411,28 @@ services:
       AMPREALIZE_RUN_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_COMPLIANCE_PG_DSN: "${DATABASE_URL}"
       AMPREALIZE_WHITEBOARD_PG_DSN: "${DATABASE_URL}"
-      AMPREALIZE_METRICS_PG_DSN: "${TELEMETRY_DATABASE_URL:-${DATABASE_URL}}"
+      AMPREALIZE_METRICS_PG_DSN: "${BREAKERAMP_CLOUD_METRICS_PG_DSN}"
+      AMPREALIZE_PG_DSN: "${DATABASE_URL}"
 
-      # LLM provider keys
+      # LLM provider keys + BYOK (must match API policy for MCP config tools)
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
+      TOGETHER_API_KEY: "${TOGETHER_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      FIREWORKS_API_KEY: "${FIREWORKS_API_KEY:-}"
+      # Managed observability exporter passthrough
+      AMPREALIZE_DATADOG_OTLP_ENDPOINT: "${AMPREALIZE_DATADOG_OTLP_ENDPOINT:-}"
+      AMPREALIZE_DATADOG_API_KEY: "${AMPREALIZE_DATADOG_API_KEY:-}"
+      AMPREALIZE_LANGFUSE_PUBLIC_KEY: "${AMPREALIZE_LANGFUSE_PUBLIC_KEY:-}"
+      AMPREALIZE_LANGFUSE_SECRET_KEY: "${AMPREALIZE_LANGFUSE_SECRET_KEY:-}"
+      AMPREALIZE_LANGFUSE_HOST: "${AMPREALIZE_LANGFUSE_HOST:-}"
+      BYOK_ENCRYPTION_KEY: "${BYOK_ENCRYPTION_KEY:-}"
+      AMPREALIZE_REQUIRE_BYOK_ENCRYPTION: "${AMPREALIZE_REQUIRE_BYOK_ENCRYPTION:-0}"
+
+      # Chat: targeted workspace fetch (Phase B). Set on host .env — forwarded here.
+      AMPREALIZE_ENABLE_CHAT_WORKSPACE_TARGETED_FETCH: "${AMPREALIZE_ENABLE_CHAT_WORKSPACE_TARGETED_FETCH:-false}"
     healthcheck:
       test: ["CMD-SHELL", "grep -r amprealize.mcp_server /proc/*/cmdline >/dev/null 2>&1 || exit 1"]
       interval: 15s
@@ -456,9 +553,11 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin  # pragma: allowlist secret
 
 # =============================================================================
-# VOLUMES - No database volumes needed (cloud-hosted)
+# VOLUMES - Main database is cloud-hosted; telemetry remains local.
 # =============================================================================
 volumes:
+  telemetry-db-data:
+    name: amprealize-cloud-dev-telemetry-db
   amprealize-web-console-node-modules:
     name: amprealize-cloud-web-console-node-modules
   amprealize-api-pip-cache:

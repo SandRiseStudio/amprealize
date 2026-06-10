@@ -1,12 +1,14 @@
 #!/usr/bin/env python
-"""Seed the behavior store with behaviors parsed from AGENTS.md.
+"""Seed the behavior store with behaviors parsed from the handbook catalog.
 
-This script extracts behavior definitions from the AGENTS.md handbook and
-populates the BehaviorService database for BCI (Behavior-Conditioned Inference).
+This script extracts behavior definitions from `docs/agent-handbook/behavior-catalog.md`
+(legacy: `AGENTS.md` when it still contained the full catalog) and populates the
+BehaviorService database for BCI (Behavior-Conditioned Inference).
 
 Usage:
     python scripts/seed_behaviors_from_agents_md.py
     python scripts/seed_behaviors_from_agents_md.py --dry-run  # Preview without writing
+    python scripts/seed_behaviors_from_agents_md.py --apply-context  # Neon/cloud-dev: refresh DSNs from active CLI context
 
 Behaviors: behavior_curate_behavior_handbook
 """
@@ -47,6 +49,7 @@ def parse_behaviors_from_agents_md(agents_md_path: Path) -> List[Dict[str, Any]]
     behavior_pattern = re.compile(
         r'### `(behavior_\w+)`\s*\n'
         r'- \*\*When\*\*:\s*(.+?)\n'
+        r'(?:- \*\*Role\*\*:.*?\n)?'
         r'- \*\*Steps\*\*:\s*\n'
         r'((?:\s+\d+\.\s+.+?\n)+)',
         re.MULTILINE
@@ -84,7 +87,7 @@ def parse_behaviors_from_agents_md(agents_md_path: Path) -> List[Dict[str, Any]]
             'role_focus': role_focus,
             'tags': extract_tags(name),
             'metadata': {
-                'source': 'AGENTS.md',
+                'source': str(agents_md_path),
                 'when_clause': when_clause,
                 'step_count': len(steps),
             }
@@ -157,8 +160,12 @@ def determine_role_focus(name: str) -> str:
     return 'ENGINEER'
 
 
-def seed_behaviors(behaviors: List[Dict[str, Any]], dry_run: bool = False) -> None:
-    """Seed behaviors into the BehaviorService database."""
+def seed_behaviors(behaviors: List[Dict[str, Any]], dry_run: bool = False) -> int:
+    """Seed behaviors into the BehaviorService database.
+
+    Returns:
+        Process exit code (0 success, 1 on write/verify failures).
+    """
     if dry_run:
         print("\n🔍 DRY RUN - No changes will be made\n")
         for b in behaviors:
@@ -169,7 +176,7 @@ def seed_behaviors(behaviors: List[Dict[str, Any]], dry_run: bool = False) -> No
             print(f"    Tags: {', '.join(b['tags'])}")
             print()
         print(f"Total: {len(behaviors)} behaviors")
-        return
+        return 0
 
     service = BehaviorService()
     actor = Actor(id='seed-script', role='ENGINEER', surface='CLI')
@@ -180,11 +187,17 @@ def seed_behaviors(behaviors: List[Dict[str, Any]], dry_run: bool = False) -> No
 
     print(f"\n📝 Seeding {len(behaviors)} behaviors from AGENTS.md...\n")
 
+    try:
+        initial = service.list_behaviors(status='APPROVED')
+    except Exception as e:
+        print(f"  ✗ Cannot reach BehaviorService database: {e}")
+        return 1
+
+    existing_names = {eb['behavior'].get('name') for eb in initial}
+
     for b in behaviors:
         try:
-            # Check if behavior already exists
-            existing = service.list_behaviors(status='APPROVED')
-            if any(eb['behavior'].get('name') == b['name'] for eb in existing):
+            if b['name'] in existing_names:
                 print(f"  ⏭️  Skipped (exists): {b['name']}")
                 skipped += 1
                 continue
@@ -215,6 +228,7 @@ def seed_behaviors(behaviors: List[Dict[str, Any]], dry_run: bool = False) -> No
 
             print(f"  ✓ Created: {b['name']} ({behavior_id})")
             created += 1
+            existing_names.add(b['name'])
 
         except Exception as e:
             print(f"  ✗ Error creating {b['name']}: {e}")
@@ -226,9 +240,16 @@ def seed_behaviors(behaviors: List[Dict[str, Any]], dry_run: bool = False) -> No
     print(f"   Skipped: {skipped}")
     print(f"   Errors:  {errors}")
 
-    # Verify
-    all_behaviors = service.list_behaviors(status='APPROVED')
-    print(f"\n📊 Total APPROVED behaviors in database: {len(all_behaviors)}")
+    exit_code = 1 if errors else 0
+
+    try:
+        all_behaviors = service.list_behaviors(status='APPROVED')
+        print(f"\n📊 Total APPROVED behaviors in database: {len(all_behaviors)}")
+    except Exception as e:
+        print(f"\n⚠️  Seeding finished but could not verify count: {e}", file=sys.stderr)
+        return 1
+
+    return exit_code
 
 
 def main():
@@ -243,24 +264,47 @@ def main():
     parser.add_argument(
         '--agents-md',
         type=Path,
-        default=Path(__file__).parent.parent / 'AGENTS.md',
-        help='Path to AGENTS.md file'
+        default=Path(__file__).parent.parent / 'docs/agent-handbook/behavior-catalog.md',
+        help='Path to behavior catalog markdown (default: docs/agent-handbook/behavior-catalog.md)',
+    )
+    parser.add_argument(
+        '--apply-context',
+        action='store_true',
+        help=(
+            'Call apply_context_to_environment(force=True) before connecting '
+            '(overrides stale AMPREALIZE_*_PG_DSN from .env; use with `amprealize context use neon`).'
+        ),
     )
     args = parser.parse_args()
 
     if not args.agents_md.exists():
-        print(f"❌ AGENTS.md not found at {args.agents_md}")
+        print(f"❌ Behavior catalog not found at {args.agents_md}")
         sys.exit(1)
 
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    print("     Seed Behaviors from AGENTS.md")
+    print("     Seed Behaviors from handbook catalog")
     print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
     print(f"\n📖 Parsing behaviors from: {args.agents_md}")
     behaviors = parse_behaviors_from_agents_md(args.agents_md)
     print(f"   Found {len(behaviors)} behavior definitions")
 
-    seed_behaviors(behaviors, dry_run=args.dry_run)
+    if args.apply_context:
+        from amprealize.context import apply_context_to_environment
+
+        ctx = apply_context_to_environment(force=True)
+        if ctx:
+            print(f"\n🔗 Applied Amprealize context: {ctx} (per-service DSNs set for this process)")
+        else:
+            print(
+                "\n⚠️  No postgres context is active; --apply-context did nothing. "
+                "Run `amprealize context use neon` (or your cloud profile), then retry.",
+                file=sys.stderr,
+            )
+
+    rc = seed_behaviors(behaviors, dry_run=args.dry_run)
+    if rc:
+        sys.exit(rc)
 
 
 if __name__ == '__main__':

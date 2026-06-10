@@ -3,21 +3,25 @@
 Standalone CLI for managing container environments using BreakerAmp.
 
 Usage:
-    breakeramp plan postgres-dev --env development
+    breakeramp up development
+    breakeramp plan development --blueprint postgres-dev
     breakeramp apply --plan-id <plan-id>
     breakeramp status amp-abc123
     breakeramp destroy amp-abc123 --reason "cleanup"
     breakeramp list
+    breakeramp services
 
 Install with CLI support:
     pip install breakeramp[cli]
 """
 
 import os
+import re
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import json
 import sys
+from urllib.parse import urlparse, urlunparse
 
 try:
     import typer
@@ -35,13 +39,93 @@ from .service import BreakerAmpService
 from .executors import PodmanExecutor
 from .models import PlanRequest, ApplyRequest, DestroyRequest
 from .display import LiveProgressDisplay, render_header, render_summary
+from .health_wait import (
+    default_direct_api_health_url,
+    default_gateway_health_url,
+    wait_for_stack_health,
+)
 
 app = typer.Typer(
     name="breakeramp",
     help="Container environment management made simple.",
     add_completion=False,
 )
-console = Console()
+
+
+class ConsoleProxy:
+    """Proxy that creates a fresh Rich Console bound to the current stdout."""
+
+    def __init__(self) -> None:
+        self._active_console: Optional[Console] = None
+
+    def __getattr__(self, name: str):
+        if self._active_console is not None:
+            return getattr(self._active_console, name)
+        return getattr(Console(file=sys.stdout), name)
+
+    def __enter__(self) -> Console:
+        self._active_console = Console(file=sys.stdout)
+        return self._active_console
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        if self._active_console is not None:
+            try:
+                return self._active_console.__exit__(exc_type, exc, traceback)
+            finally:
+                self._active_console = None
+
+
+console = ConsoleProxy()
+
+
+def _rich_progress_console() -> Console:
+    """Return a dedicated Rich Console for ``Progress`` / ``Live`` / ``LiveProgressDisplay``.
+
+    Do not pass :data:`console` (:class:`ConsoleProxy`): attribute access on the proxy
+    yields a **new** ``Console`` each time, so ``push_render_hook`` runs on one instance
+    and ``pop_render_hook`` on another → ``IndexError: pop from empty list`` when
+    ``Live`` stops (see Rich ``Console.pop_render_hook``).
+    """
+    return Console(file=sys.stdout)
+
+
+def _write_json(payload: Any, *, default: Any = str) -> None:
+    """Write machine-readable JSON without Rich wrapping or markup."""
+    sys.stdout.write(json.dumps(payload, indent=2, default=default) + "\n")
+
+
+def _write_json_text(payload: str) -> None:
+    """Write pre-serialized JSON without Rich wrapping or markup."""
+    sys.stdout.write(payload + "\n")
+
+
+def _run_stack_wait_poll(
+    *,
+    strict: bool,
+    max_wait_s: float,
+    interval_s: float,
+    direct_api: bool,
+    gateway_health_url: Optional[str],
+    api_health_url: Optional[str],
+) -> Dict[str, Any]:
+    """Poll gateway (and optionally direct API) /health until ready or timeout."""
+    gw = gateway_health_url or default_gateway_health_url()
+    direct = (api_health_url or default_direct_api_health_url()) if direct_api else None
+    res = wait_for_stack_health(
+        gateway_health_url=gw,
+        direct_api_health_url=direct,
+        strict=strict,
+        max_wait_s=max_wait_s,
+        interval_s=interval_s,
+    )
+    return {
+        "ok": res.ok,
+        "gateway_health_url": gw,
+        "direct_api_health_url": direct,
+        "attempts": res.attempts,
+        "elapsed_s": round(res.elapsed_s, 2),
+        "last_error": res.last_error,
+    }
 
 
 def get_service() -> BreakerAmpService:
@@ -61,6 +145,7 @@ def _apply_amprealize_context(quiet: bool = False) -> Optional[str]:
     try:
         from amprealize.context import apply_context_to_environment
         ctx_name = apply_context_to_environment(force=True)
+        _set_cloud_container_database_env()
         if ctx_name and not quiet:
             console.print(f"[dim]📍 Using context: {ctx_name}[/dim]")
         return ctx_name
@@ -72,12 +157,77 @@ def _apply_amprealize_context(quiet: bool = False) -> Optional[str]:
         return None
 
 
+def _sanitize_breakeramp_dsn(dsn: Optional[str]) -> str:
+    """Trim malformed trailing braces from env-expanded DSNs."""
+    if not dsn:
+        return ""
+    return dsn.rstrip("}").strip()
+
+
+def _default_cloud_local_telemetry_dsn() -> str:
+    """Default local telemetry DSN for cloud-dev containers."""
+    return "postgresql://telemetry:telemetry_dev@telemetry-db:5432/telemetry"
+
+
+def _rewrite_loopback_host_for_container(dsn: str) -> str:
+    """Rewrite host-loopback DSNs so containers can reach host services."""
+    if not dsn:
+        return dsn
+    parsed = urlparse(dsn)
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {"localhost", "127.0.0.1", "::1"}:
+        return dsn
+
+    netloc = parsed.netloc
+    if "@" in netloc:
+        credentials, hostport = netloc.rsplit("@", 1)
+        replacement = hostport.replace(hostname, "host.containers.internal", 1)
+        netloc = f"{credentials}@{replacement}"
+    else:
+        netloc = netloc.replace(hostname, "host.containers.internal", 1)
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
+def _set_cloud_container_database_env() -> None:
+    """Populate explicit cloud-dev DSNs for container-safe blueprint wiring."""
+    database_dsn = _sanitize_breakeramp_dsn(os.environ.get("DATABASE_URL", ""))
+    if not database_dsn:
+        return
+
+    telemetry_dsn = _sanitize_breakeramp_dsn(
+        os.environ.get("AMPREALIZE_TELEMETRY_PG_DSN")
+        or os.environ.get("TELEMETRY_DATABASE_URL")
+    )
+    metrics_dsn = _sanitize_breakeramp_dsn(
+        os.environ.get("AMPREALIZE_METRICS_PG_DSN")
+    )
+
+    resolved_telemetry_dsn = (
+        _rewrite_loopback_host_for_container(telemetry_dsn)
+        if telemetry_dsn
+        else _default_cloud_local_telemetry_dsn()
+    )
+    resolved_metrics_dsn = (
+        _rewrite_loopback_host_for_container(metrics_dsn)
+        if telemetry_dsn and metrics_dsn
+        else resolved_telemetry_dsn
+    )
+
+    os.environ["BREAKERAMP_CLOUD_DATABASE_URL"] = _rewrite_loopback_host_for_container(
+        database_dsn
+    )
+    os.environ["BREAKERAMP_CLOUD_TELEMETRY_DATABASE_URL"] = resolved_telemetry_dsn
+    os.environ["BREAKERAMP_CLOUD_TELEMETRY_PG_DSN"] = resolved_telemetry_dsn
+    os.environ["BREAKERAMP_CLOUD_METRICS_PG_DSN"] = resolved_metrics_dsn
+
+
 def _get_environment_podman_machine(
     service: BreakerAmpService,
     environment: str,
 ) -> Optional[str]:
     """Return the configured Podman machine for an environment, if any."""
-    env_def = service.environments.get(environment)
+    environments = getattr(service, "environments", {}) or {}
+    env_def = environments.get(environment)
     if not env_def:
         return None
 
@@ -127,6 +277,76 @@ def _select_podman_machine_for_environment(
             return name
 
     return None
+
+
+def _gather_podman_machine_info(service: BreakerAmpService) -> List[Dict[str, Any]]:
+    """Return raw Podman machine state and environment ownership mapping."""
+    managed_by: Dict[str, List[str]] = {}
+    environments = getattr(service, "environments", {}) or {}
+    for env_name, env_def in environments.items():
+        runtime = getattr(env_def, "runtime", None)
+        if runtime is None or getattr(runtime, "provider", None) != "podman":
+            continue
+        machine_name = getattr(runtime, "podman_machine", None)
+        if machine_name:
+            managed_by.setdefault(machine_name, []).append(env_name)
+
+    try:
+        machines = service.executor.list_machines()
+    except Exception:
+        machines = []
+
+    return [
+        {
+            "name": machine.name,
+            "running": machine.running,
+            "cpus": machine.cpus,
+            "memory_mb": machine.memory_mb,
+            "disk_gb": machine.disk_gb,
+            "managed_by": managed_by.get(machine.name, []),
+        }
+        for machine in machines
+    ]
+
+
+def _print_podman_machine_tables(machines: List[Dict[str, Any]]) -> None:
+    """Render managed and raw Podman machine tables."""
+    managed = [m for m in machines if m["managed_by"]]
+    raw = [m for m in machines if not m["managed_by"]]
+
+    def _render_table(title: str, rows: List[Dict[str, Any]]) -> None:
+        table = Table(title=title)
+        table.add_column("Machine", style="cyan")
+        table.add_column("State")
+        table.add_column("CPUs", justify="right")
+        table.add_column("Memory", justify="right")
+        table.add_column("Disk", justify="right")
+        table.add_column("Environments", style="green")
+
+        for row in rows:
+            state = "running" if row["running"] else "stopped"
+            memory = f'{row["memory_mb"]} MB' if row["memory_mb"] else "-"
+            disk = f'{row["disk_gb"]} GB' if row["disk_gb"] else "-"
+            environments = ", ".join(row["managed_by"]) if row["managed_by"] else "-"
+            table.add_row(
+                row["name"],
+                state,
+                str(row["cpus"] or "-"),
+                memory,
+                disk,
+                environments,
+            )
+        console.print(table)
+
+    if managed:
+        _render_table("BreakerAmp-managed Podman machines", managed)
+    else:
+        console.print("[dim]No BreakerAmp-managed Podman machines found.[/dim]")
+
+    if raw:
+        _render_table("Raw Podman machines", raw)
+    else:
+        console.print("[dim]No raw Podman machines found.[/dim]")
 
 
 def _is_cloud_dsn(dsn: str) -> bool:
@@ -193,6 +413,216 @@ def _check_context_blueprint_mismatch(
         f"  → Use 'breakeramp fresh {cloud_env}' to skip local DB containers."
     )
     return warning, cloud_env
+
+
+def _load_restartable_environments(environments_dir: Path) -> List[tuple]:
+    """Return restartable environment manifests, newest first."""
+    active_runs: List[tuple] = []
+    for env_file in environments_dir.glob("*.json"):
+        try:
+            with open(env_file) as f:
+                data = json.load(f)
+            if data.get("phase") in ("APPLIED", "PROVISIONING", "DEGRADED", "STOPPED"):
+                active_runs.append((env_file.stem, data, env_file.stat().st_mtime))
+        except Exception:
+            pass
+
+    active_runs.sort(key=lambda x: x[2], reverse=True)
+    return active_runs
+
+
+def _resolve_service_name(requested: str, outputs: Dict[str, Any]) -> Optional[str]:
+    """Resolve a CLI service target to an environment output key."""
+    if requested in outputs:
+        return requested
+
+    for service_name, service_info in outputs.items():
+        if not isinstance(service_info, dict):
+            continue
+
+        aliases = {
+            service_info.get("service"),
+            service_info.get("name"),
+            service_info.get("container_name"),
+        }
+        if requested in aliases:
+            return service_name
+
+    return None
+
+
+def _format_available_services(outputs: Dict[str, Any]) -> str:
+    """Format service names from an environment manifest for CLI help text."""
+    return ", ".join(sorted(outputs.keys())) or "none"
+
+
+def _matches_environment(data: Dict[str, Any], environment: Optional[str]) -> bool:
+    """Return True when a manifest belongs to the requested environment."""
+    if not environment:
+        return True
+    return data.get("environment") == environment or data.get("blueprint_id") == environment
+
+
+def _restart_action_for_environment(env: Dict[str, Any]) -> str:
+    """Return the most useful next CLI action for a listed environment."""
+    actual_status = env.get("actual_status")
+    if actual_status == "RUNNING":
+        return "restart <service>"
+    if actual_status == "DEGRADED":
+        return "restart"
+    if actual_status == "STOPPED":
+        return "restart --all or nuke"
+    if actual_status == "STALE":
+        return "nuke"
+
+    phase = env.get("phase")
+    if phase == "FAILED":
+        return "status"
+    return "status"
+
+
+def _service_ports_text(ports: Dict[str, str]) -> str:
+    """Format inspected port mappings for concise CLI display."""
+    if not ports:
+        return "-"
+    return ", ".join(
+        f"{host}->{container}"
+        for container, host in sorted(ports.items())
+    )
+
+
+def _resource_recommendation(resource_data: Dict[str, Any]) -> str:
+    """Return the next recommended operator action for resource state."""
+    insights = {
+        str(resource): insight
+        for resource, insight in resource_data.get("insights", {}).items()
+        if isinstance(insight, dict)
+    }
+    levels = {
+        str(insight.get("level", "")).upper()
+        for insight in insights.values()
+    }
+    pressure_resources = [
+        resource
+        for resource, insight in insights.items()
+        if resource in {"memory", "disk", "cpu", "bandwidth"}
+        and str(insight.get("level", "")).upper() in {"WARNING", "CRITICAL"}
+    ]
+    over_provisioned_resources = [
+        resource
+        for resource, insight in insights.items()
+        if resource in {"memory", "disk", "cpu", "bandwidth"}
+        and str(insight.get("level", "")).upper() == "OVER_PROVISIONED"
+    ]
+    containers = insights.get("containers")
+    container_level = str((containers or {}).get("level", "")).upper()
+
+    if pressure_resources:
+        return (
+            f"Capacity action recommended: {', '.join(sorted(pressure_resources))} pressure detected. "
+            "Run 'breakeramp cleanup --dry-run' to preview reclaimable resources, then clean up or resize "
+            "the Podman machine if pressure remains."
+        )
+
+    if container_level == "CRITICAL":
+        return (
+            "Service action recommended: containers are failing, but memory/disk are not constrained. "
+            "Run 'breakeramp services --all' and 'breakeramp list --all' to identify stale or unhealthy "
+            "runs, then use 'breakeramp restart --env <env> <service>' or 'breakeramp destroy <run-id>'."
+        )
+    if container_level == "WARNING":
+        return (
+            "Service attention recommended: container health is degraded. Run 'breakeramp services' "
+            "and restart the affected service before considering cleanup."
+        )
+
+    if over_provisioned_resources:
+        return (
+            f"Optimization optional: {', '.join(sorted(over_provisioned_resources))} appear over-provisioned. "
+            "No cleanup is required for capacity; consider reducing Podman machine allocation only if you "
+            "need to return host resources."
+        )
+
+    if "WARNING" in levels:
+        return "Attention recommended: inspect the warnings above and use the command tied to that resource."
+    if "UNKNOWN" in levels and len(levels) == 1:
+        return "No recommendation: resource data is unavailable. Verify the Podman machine is running."
+    return "No action needed: resources look healthy for normal BreakerAmp operations."
+
+
+def _collect_environment_services(
+    service: BreakerAmpService,
+    *,
+    environment: Optional[str] = None,
+    include_all: bool = False,
+) -> List[Dict[str, Any]]:
+    """Collect live service rows from BreakerAmp manifests and Podman state."""
+    environments = service.list_environments(reconcile=True, auto_cleanup=False)
+    rows: List[Dict[str, Any]] = []
+
+    for env in environments:
+        if not _matches_environment(env, environment):
+            continue
+
+        actual_status = env.get("actual_status")
+        if not include_all and actual_status != "RUNNING":
+            continue
+
+        run_id = env.get("amp_run_id")
+        if not run_id:
+            continue
+
+        env_path = service.environments_dir / f"{run_id}.json"
+        if not env_path.exists():
+            continue
+
+        try:
+            with open(env_path) as f:
+                run_data = json.load(f)
+        except Exception:
+            continue
+
+        runtime = run_data.get("runtime", {})
+        executor = PodmanExecutor(connection=runtime.get("podman_connection"))
+        if not executor.connection:
+            machine_name = runtime.get("podman_machine")
+            if machine_name:
+                executor.connection = executor.resolve_connection_for_machine(machine_name)
+
+        for service_name, service_info in run_data.get("environment_outputs", {}).items():
+            container_id = service_info.get("container_id")
+            row = {
+                "amp_run_id": run_id,
+                "environment": env.get("environment"),
+                "environment_status": actual_status,
+                "service": service_name,
+                "container_id": container_id,
+                "container_name": f"{run_id}-{service_name}",
+                "status": "unknown",
+                "image": "",
+                "ports": {},
+                "restart_command": f"breakeramp restart {run_id} -s {service_name}",
+            }
+
+            if container_id:
+                try:
+                    container = executor.inspect_container(container_id)
+                    row.update(
+                        {
+                            "container_id": container.container_id,
+                            "container_name": container.name,
+                            "status": container.status,
+                            "image": container.image,
+                            "ports": container.ports,
+                        }
+                    )
+                except Exception as exc:
+                    row["status"] = f"inspect_failed: {exc}"
+
+            rows.append(row)
+
+    rows.sort(key=lambda item: (item.get("environment") or "", item.get("service") or ""))
+    return rows
 
 
 def _recover_podman_machine_start(
@@ -339,7 +769,7 @@ def plan(
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        console=console,
+        console=_rich_progress_console(),
         transient=True,
     ) as progress:
         progress.add_task("Planning...", total=None)
@@ -644,7 +1074,11 @@ def apply(
     while True:
         attempt += 1
         try:
-            display = LiveProgressDisplay(console=console, quiet=quiet, verbose=verbose)
+            display = LiveProgressDisplay(
+                console=_rich_progress_console(),
+                quiet=quiet,
+                verbose=verbose,
+            )
             with display:
                 display.on_phase("apply", "Applying environment")
                 response = service.apply(request, progress=display)
@@ -1269,7 +1703,7 @@ def status(
         raise typer.Exit(1)
 
     if json_output:
-        console.print(response.model_dump_json(indent=2))
+        _write_json_text(response.model_dump_json(indent=2))
         return
 
     # Display status
@@ -1415,7 +1849,7 @@ def destroy(
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        console=console,
+        console=_rich_progress_console(),
         transient=True,
     ) as progress:
         progress.add_task("Destroying...", total=None)
@@ -1446,14 +1880,19 @@ def destroy(
 
 @app.command()
 def restart(
-    run_id: Optional[str] = typer.Argument(
+    target: Optional[str] = typer.Argument(
         None,
-        help="Run ID to restart (defaults to most recent active environment)",
+        help="Run ID or service name to restart (defaults to most recent active environment)",
     ),
     services: Optional[List[str]] = typer.Option(
         None,
         "--service", "-s",
         help="Specific service(s) to restart (can specify multiple times)",
+    ),
+    environment: Optional[str] = typer.Option(
+        None,
+        "--env", "-e",
+        help="Environment name to target when multiple environments are active",
     ),
     all_services: bool = typer.Option(
         False,
@@ -1470,6 +1909,45 @@ def restart(
         "--json", "-j",
         help="Output as JSON",
     ),
+    wait: bool = typer.Option(
+        False,
+        "--wait", "-w",
+        help="Poll gateway /health until HTTP 200 (after restart, or alone if nothing to restart)",
+    ),
+    wait_timeout: float = typer.Option(
+        300.0,
+        "--wait-timeout",
+        min=1.0,
+        help="Max seconds for --wait (default 300)",
+    ),
+    wait_interval: float = typer.Option(
+        2.0,
+        "--wait-interval",
+        min=0.2,
+        help="Seconds between health polls during --wait",
+    ),
+    wait_strict: bool = typer.Option(
+        False,
+        "--wait-strict",
+        help="Require JSON body status=healthy on /health (not just HTTP 200)",
+    ),
+    wait_direct_api: bool = typer.Option(
+        False,
+        "--wait-direct-api",
+        help="Also poll direct API /health (e.g. localhost:8000)",
+    ),
+    gateway_health_url: Optional[str] = typer.Option(
+        None,
+        "--gateway-health-url",
+        envvar="AMPREALIZE_GATEWAY_HEALTH_URL",
+        help="Gateway /health URL (default AMPREALIZE_GATEWAY_URL + /health)",
+    ),
+    api_health_url: Optional[str] = typer.Option(
+        None,
+        "--api-health-url",
+        envvar="AMPREALIZE_API_HEALTH_URL",
+        help="Direct API /health URL (defaults to localhost:8000/health)",
+    ),
 ) -> None:
     """Restart containers in an environment.
 
@@ -1478,52 +1956,91 @@ def restart(
     services.
 
     If no run_id is specified, uses the most recent active environment.
+    The positional target can also be one of the service names shown by
+    `breakeramp fresh`, such as `amprealize-api` or `web-console`.
+    If multiple environments expose that service, pass --env or the run ID.
 
     Examples:
         breakeramp restart                      # Restart unhealthy containers in latest env
+        breakeramp restart amprealize-api       # Restart service in latest env
+        breakeramp restart --env test amprealize-api  # Restart service in test env
         breakeramp restart --all                # Restart all containers in latest env
-        breakeramp restart -s postgres-amprealize  # Restart specific service
+        breakeramp restart -s amprealize-api    # Restart specific service
         breakeramp restart amp-abc123 --force   # Force restart all in specific env
+        breakeramp restart amprealize-api --wait  # Restart then wait for gateway health
     """
     import subprocess
 
     service = get_service()
 
     # Find the run to restart
-    target_run_id = run_id
+    target_run_id = target
+    requested_services = list(services or [])
+    run_data = None
     if not target_run_id:
         # Find most recent active environment by file modification time
         # Include STOPPED environments since restart can bring them back
-        envs = list(service.environments_dir.glob("*.json"))
-        active_runs = []
-        for env_file in envs:
-            try:
-                with open(env_file) as f:
-                    data = json.load(f)
-                if data.get("phase") in ("APPLIED", "PROVISIONING", "DEGRADED", "STOPPED"):
-                    mtime = env_file.stat().st_mtime
-                    active_runs.append((env_file.stem, data, mtime))
-            except Exception:
-                pass
+        active_runs = [
+            run for run in _load_restartable_environments(service.environments_dir)
+            if _matches_environment(run[1], environment)
+        ]
 
         if not active_runs:
             console.print("[yellow]No active environments found[/yellow]")
-            console.print("[dim]Run 'breakeramp plan <environment>' to create one[/dim]")
+            if environment:
+                console.print(f"[dim]No active environment matched --env {environment}[/dim]")
+            else:
+                console.print("[dim]Run 'breakeramp plan <environment>' to create one[/dim]")
             raise typer.Exit(1)
 
-        # Sort by modification time (most recent first)
-        active_runs.sort(key=lambda x: x[2], reverse=True)
-        target_run_id = active_runs[0][0]
+        target_run_id, run_data, _ = active_runs[0]
         console.print(f"[dim]Using most recent environment: {target_run_id}[/dim]")
 
     # Load environment manifest
     env_path = service.environments_dir / f"{target_run_id}.json"
-    if not env_path.exists():
-        console.print(f"[red]Environment {target_run_id} not found[/red]")
-        raise typer.Exit(1)
+    if env_path.exists():
+        with open(env_path) as f:
+            run_data = json.load(f)
+    else:
+        # A non-existent positional target may be a service name from the most
+        # recent environment, matching the names shown by `breakeramp fresh`.
+        active_runs = [
+            run for run in _load_restartable_environments(service.environments_dir)
+            if _matches_environment(run[1], environment)
+        ]
+        service_matches = []
+        for candidate_run_id, candidate_data, _ in active_runs:
+            outputs = candidate_data.get("environment_outputs", {})
+            resolved_service = _resolve_service_name(target_run_id, outputs)
+            if resolved_service:
+                service_matches.append((candidate_run_id, candidate_data, resolved_service))
 
-    with open(env_path) as f:
-        run_data = json.load(f)
+        if len(service_matches) == 1:
+            candidate_run_id, candidate_data, resolved_service = service_matches[0]
+            requested_services.insert(0, resolved_service)
+            target_run_id = candidate_run_id
+            run_data = candidate_data
+            env_path = service.environments_dir / f"{target_run_id}.json"
+            console.print(f"[dim]Using environment: {target_run_id}[/dim]")
+        elif len(service_matches) > 1:
+            console.print(f"[red]Service '{target_run_id}' exists in multiple environments[/red]")
+            console.print("[dim]Pass --env <environment> or use a run ID to choose one:[/dim]")
+            for candidate_run_id, candidate_data, _ in service_matches:
+                env_name = candidate_data.get("environment", "unknown")
+                created = (candidate_data.get("created_at", "") or "")[:19]
+                console.print(f"  [cyan]{candidate_run_id}[/cyan]  {env_name}  {created}")
+            raise typer.Exit(1)
+
+        if run_data is None:
+            console.print(f"[red]Environment or service '{target_run_id}' not found[/red]")
+            if environment:
+                console.print(f"[dim]Searched only environments matching --env {environment}[/dim]")
+            if active_runs:
+                latest_outputs = active_runs[0][1].get("environment_outputs", {})
+                console.print(
+                    f"[dim]Available services: {_format_available_services(latest_outputs)}[/dim]"
+                )
+            raise typer.Exit(1)
 
     runtime = run_data.get("runtime", {})
     executor = PodmanExecutor(connection=runtime.get("podman_connection"))
@@ -1554,13 +2071,17 @@ def restart(
 
     # Determine which services to restart
     target_services = []
-    if services:
+    unknown_services = []
+    if requested_services:
         # Specific services requested
-        for svc in services:
-            if svc in outputs:
-                target_services.append(svc)
+        for svc in requested_services:
+            resolved_service = _resolve_service_name(svc, outputs)
+            if resolved_service:
+                if resolved_service not in target_services:
+                    target_services.append(resolved_service)
             else:
                 console.print(f"[yellow]Service '{svc}' not found in environment[/yellow]")
+                unknown_services.append(svc)
     elif all_services or force:
         # Restart all services
         target_services = list(outputs.keys())
@@ -1577,122 +2098,148 @@ def restart(
                     # Container doesn't exist or error - needs restart
                     target_services.append(svc_name)
 
-    if not target_services:
-        console.print("[green]✓ All services are healthy - nothing to restart[/green]")
-        if json_output:
-            console.print(json.dumps({"restarted": [], "status": "healthy"}))
-        return
-
-    # First, check if containers actually exist
-    missing_containers = []
-    existing_containers = []
-    for svc_name in target_services:
-        svc_info = outputs.get(svc_name, {})
-        container_id = svc_info.get("container_id")
-        if container_id:
-            check = subprocess.run(
-                podman_cmd + ["container", "exists", container_id],
-                capture_output=True,
-            )
-            if check.returncode != 0:
-                missing_containers.append(svc_name)
-            else:
-                existing_containers.append(svc_name)
-        else:
-            missing_containers.append(svc_name)
-
-    # If all containers are missing, suggest using 'up' instead
-    if missing_containers and not existing_containers:
-        console.print("[yellow]⚠ All containers have been removed[/yellow]")
+    if requested_services and not target_services:
         console.print(
-            "[dim]Environment manifest exists but containers were deleted (e.g., by 'breakeramp nuke')[/dim]"
+            f"[dim]Available services: {_format_available_services(outputs)}[/dim]"
         )
-        console.print()
-        console.print("[bold]To recreate the environment:[/bold]")
-        blueprint = run_data.get("blueprint_name", "development")
-        # Simplify suggestion - 'development' is the default so no arg needed
-        if blueprint == "development":
-            console.print("  [cyan]breakeramp up[/cyan]")
-        else:
-            console.print(f"  [cyan]breakeramp up {blueprint}[/cyan]")
-        console.print()
-        console.print("[dim]Or to start fresh:[/dim]")
-        if blueprint == "development":
-            console.print("  [dim]breakeramp plan && breakeramp apply <plan-id>[/dim]")
-        else:
-            console.print(f"  [dim]breakeramp plan {blueprint} && breakeramp apply <plan-id>[/dim]")
         if json_output:
             console.print(
                 json.dumps(
                     {
-                        "error": "containers_missing",
-                        "missing": missing_containers,
-                        "suggestion": "breakeramp up" if blueprint == "development" else f"breakeramp up {blueprint}",
+                        "error": "services_not_found",
+                        "services": unknown_services,
+                        "available_services": sorted(outputs.keys()),
                     }
                 )
             )
         raise typer.Exit(1)
 
-    # If some containers are missing, warn but continue with existing ones
-    if missing_containers:
-        console.print(f"[yellow]⚠ {len(missing_containers)} container(s) no longer exist:[/yellow]")
-        for svc in missing_containers:
-            console.print(f"  [dim]• {svc}[/dim]")
-        console.print(f"[dim]Continuing with {len(existing_containers)} existing container(s)...[/dim]")
-        console.print()
-        target_services = existing_containers
+    if not target_services:
+        if not wait:
+            console.print("[green]✓ All services are healthy - nothing to restart[/green]")
+            if json_output:
+                console.print(json.dumps({"restarted": [], "status": "healthy"}))
+            return
 
-    results = {"restarted": [], "failed": [], "skipped": [], "missing": missing_containers}
+    results: Dict[str, Any] = {"restarted": [], "failed": [], "skipped": [], "missing": []}
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-        transient=True,
-    ) as progress:
-        task = progress.add_task("Restarting services...", total=len(target_services))
+    if target_services:
+        # First, check if containers actually exist
+        missing_containers: List[str] = []
+        existing_containers: List[str] = []
         for svc_name in target_services:
-            progress.update(task, description=f"Restarting {svc_name}...")
             svc_info = outputs.get(svc_name, {})
             container_id = svc_info.get("container_id")
-
-            if not container_id:
-                results["skipped"].append({"service": svc_name, "reason": "no container_id"})
-                progress.advance(task)
-                continue
-
-            try:
-                # Stop container
-                try:
-                    subprocess.run(
-                        podman_cmd + ["stop", "-t", "10", container_id],
-                        capture_output=True,
-                        timeout=30,
-                    )
-                except Exception:
-                    pass  # Container might already be stopped
-
-                # Start container
-                result = subprocess.run(
-                    podman_cmd + ["start", container_id],
+            if container_id:
+                check = subprocess.run(
+                    podman_cmd + ["container", "exists", container_id],
                     capture_output=True,
-                    text=True,
-                    timeout=30,
                 )
-
-                if result.returncode == 0:
-                    results["restarted"].append(svc_name)
+                if check.returncode != 0:
+                    missing_containers.append(svc_name)
                 else:
-                    results["failed"].append(
+                    existing_containers.append(svc_name)
+            else:
+                missing_containers.append(svc_name)
+
+        # If all containers are missing, suggest using 'up' instead
+        if missing_containers and not existing_containers:
+            console.print("[yellow]⚠ All containers have been removed[/yellow]")
+            console.print(
+                "[dim]Environment manifest exists but containers were deleted (e.g., by 'breakeramp nuke')[/dim]"
+            )
+            console.print()
+            console.print("[bold]To recreate the environment:[/bold]")
+            blueprint = run_data.get("blueprint_name", "development")
+            if blueprint == "development":
+                console.print("  [cyan]breakeramp up[/cyan]")
+            else:
+                console.print(f"  [cyan]breakeramp up {blueprint}[/cyan]")
+            console.print()
+            console.print("[dim]Or to start fresh:[/dim]")
+            if blueprint == "development":
+                console.print("  [dim]breakeramp plan && breakeramp apply <plan-id>[/dim]")
+            else:
+                console.print(f"  [dim]breakeramp plan {blueprint} && breakeramp apply <plan-id>[/dim]")
+            if json_output:
+                console.print(
+                    json.dumps(
                         {
-                            "service": svc_name,
-                            "error": result.stderr.strip() or "Unknown error",
+                            "error": "containers_missing",
+                            "missing": missing_containers,
+                            "suggestion": "breakeramp up"
+                            if blueprint == "development"
+                            else f"breakeramp up {blueprint}",
                         }
                     )
-            except Exception as e:
-                results["failed"].append({"service": svc_name, "error": str(e)})
+                )
+            raise typer.Exit(1)
 
-            progress.advance(task)
+        # If some containers are missing, warn but continue with existing ones
+        if missing_containers:
+            console.print(
+                f"[yellow]⚠ {len(missing_containers)} container(s) no longer exist:[/yellow]"
+            )
+            for svc in missing_containers:
+                console.print(f"  [dim]• {svc}[/dim]")
+            console.print(
+                f"[dim]Continuing with {len(existing_containers)} existing container(s)...[/dim]"
+            )
+            console.print()
+            target_services = existing_containers
+
+        results["missing"] = missing_containers
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=_rich_progress_console(),
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Restarting services...", total=len(target_services))
+            for svc_name in target_services:
+                progress.update(task, description=f"Restarting {svc_name}...")
+                svc_info = outputs.get(svc_name, {})
+                container_id = svc_info.get("container_id")
+
+                if not container_id:
+                    results["skipped"].append({"service": svc_name, "reason": "no container_id"})
+                    progress.advance(task)
+                    continue
+
+                try:
+                    try:
+                        subprocess.run(
+                            podman_cmd + ["stop", "-t", "10", container_id],
+                            capture_output=True,
+                            timeout=30,
+                        )
+                    except Exception:
+                        pass
+
+                    result = subprocess.run(
+                        podman_cmd + ["start", container_id],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+
+                    if result.returncode == 0:
+                        results["restarted"].append(svc_name)
+                    else:
+                        results["failed"].append(
+                            {
+                                "service": svc_name,
+                                "error": result.stderr.strip() or "Unknown error",
+                            }
+                        )
+                except Exception as e:
+                    results["failed"].append({"service": svc_name, "error": str(e)})
+
+                progress.advance(task)
+
+    elif wait and not json_output:
+        console.print("[dim]No restart needed — waiting for gateway health (--wait)...[/dim]")
 
     # Update manifest phase back to APPLIED if we successfully restarted containers
     if results["restarted"] and not results["failed"]:
@@ -1701,8 +2248,26 @@ def restart(
             with open(env_path, "w") as f:
                 json.dump(run_data, f, indent=2, default=str)
 
+    wait_payload: Optional[Dict[str, Any]] = None
+    if wait:
+        if not json_output:
+            console.print("[dim]Waiting for stack health...[/dim]")
+        wait_payload = _run_stack_wait_poll(
+            strict=wait_strict,
+            max_wait_s=wait_timeout,
+            interval_s=wait_interval,
+            direct_api=wait_direct_api,
+            gateway_health_url=gateway_health_url,
+            api_health_url=api_health_url,
+        )
+
     if json_output:
-        console.print(json.dumps(results, indent=2))
+        payload_out: Dict[str, Any] = dict(results)
+        if wait_payload is not None:
+            payload_out["wait_health"] = wait_payload
+        console.print(json.dumps(payload_out, indent=2))
+        if wait and wait_payload is not None and not wait_payload.get("ok"):
+            raise typer.Exit(1)
         return
 
     # Display results
@@ -1718,6 +2283,95 @@ def restart(
 
     if results["skipped"]:
         console.print(f"[yellow]⊘ Skipped {len(results['skipped'])} service(s)[/yellow]")
+
+    if wait and wait_payload is not None:
+        if wait_payload.get("ok"):
+            console.print(
+                f"[green]✓ Stack healthy[/green] "
+                f"[dim]({wait_payload.get('attempts')} attempts, "
+                f"{wait_payload.get('elapsed_s')}s)[/dim]"
+            )
+        else:
+            console.print(
+                f"[red]✗ Stack health check failed: {wait_payload.get('last_error')}[/red]"
+            )
+            raise typer.Exit(1)
+
+
+# =============================================================================
+# Wait for stack health (gateway / API)
+# =============================================================================
+
+
+@app.command("wait-health")
+def wait_health(
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Require JSON body status=healthy (not just HTTP 200)",
+    ),
+    max_wait: float = typer.Option(
+        300.0,
+        "--timeout",
+        min=1.0,
+        help="Max seconds to poll (default 300)",
+    ),
+    interval: float = typer.Option(
+        2.0,
+        "--interval",
+        min=0.2,
+        help="Seconds between attempts",
+    ),
+    direct_api: bool = typer.Option(
+        False,
+        "--direct-api",
+        help="Also require direct API :8000 /health to succeed",
+    ),
+    gateway_health_url: Optional[str] = typer.Option(
+        None,
+        "--gateway-health-url",
+        envvar="AMPREALIZE_GATEWAY_HEALTH_URL",
+    ),
+    api_health_url: Optional[str] = typer.Option(
+        None,
+        "--api-health-url",
+        envvar="AMPREALIZE_API_HEALTH_URL",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json", "-j",
+        help="Output as JSON",
+    ),
+) -> None:
+    """Poll the gateway (and optionally the direct API) until /health is ready.
+
+    Default URLs: ``http://localhost:8080/health`` and ``http://localhost:8000/health``.
+    Set ``AMPREALIZE_GATEWAY_URL`` or use ``--gateway-health-url`` to override the base.
+    """
+    if not json_output:
+        console.print("[dim]Waiting for stack health...[/dim]")
+    payload = _run_stack_wait_poll(
+        strict=strict,
+        max_wait_s=max_wait,
+        interval_s=interval,
+        direct_api=direct_api,
+        gateway_health_url=gateway_health_url,
+        api_health_url=api_health_url,
+    )
+    if json_output:
+        console.print(json.dumps(payload, indent=2))
+    else:
+        if payload.get("ok"):
+            console.print(
+                f"[green]✓ Stack healthy[/green] "
+                f"[dim]({payload.get('attempts')} attempts, {payload.get('elapsed_s')}s)[/dim]"
+            )
+        else:
+            console.print(
+                f"[red]✗ Health check failed: {payload.get('last_error')}[/red]"
+            )
+    if not payload.get("ok"):
+        raise typer.Exit(1)
 
 
 # =============================================================================
@@ -1894,7 +2548,7 @@ def stop(
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        console=console,
+        console=_rich_progress_console(),
         transient=True,
     ) as progress:
         task = progress.add_task("Stopping services...", total=len(containers_to_stop))
@@ -2099,7 +2753,7 @@ def up(
         rebuild_images=rebuild_images,
     )
 
-    display = LiveProgressDisplay(console=console, quiet=quiet)
+    display = LiveProgressDisplay(console=_rich_progress_console(), quiet=quiet)
     try:
         with display:
             display.on_phase("apply", f"Bringing up '{environment}'")
@@ -2143,8 +2797,94 @@ def up(
 # List Command
 # =============================================================================
 
+_AMP_STACK_NAME = re.compile(
+    r"^(amp-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-",
+    re.IGNORECASE,
+)
+
+
+def _orphan_amp_run_ids_from_podman(service: BreakerAmpService) -> List[str]:
+    """Return distinct amp_run_id prefixes from Podman container names.
+
+    Used when BreakerAmp has no saved environment JSON but Podman still shows
+    ``amp-<uuid>-<service>`` stacks (orphaned after stale reconcile / manual state deletion).
+
+    Merges names across the default connection and common machine connections so this
+    matches stacks created under ``--connection amprealize-dev`` while the CLI executor
+    defaults to no explicit connection.
+    """
+    names: List[str] = []
+    ex = service.executor
+    prev = getattr(ex, "connection", None)
+    connections: List[Optional[str]] = [None]
+    if isinstance(ex, PodmanExecutor):
+        for cn in ("amprealize-dev", "amprealize-dev-root"):
+            try:
+                if ex.connection_exists(cn):
+                    connections.append(cn)
+            except Exception:
+                continue
+    try:
+        for conn in connections:
+            try:
+                if hasattr(ex, "connection"):
+                    setattr(ex, "connection", conn)
+                list_map = getattr(ex, "list_container_name_state_map", None)
+                if callable(list_map):
+                    names.extend(list(list_map().keys()))
+                elif hasattr(ex, "list_containers"):
+                    containers = ex.list_containers(all_containers=True)
+                    names.extend(c.name for c in containers if getattr(c, "name", None))
+            except Exception:
+                continue
+    finally:
+        if hasattr(ex, "connection"):
+            setattr(ex, "connection", prev)
+
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for raw in names:
+        name = (raw or "").strip()
+        if name.startswith("/"):
+            name = name[1:]
+        match = _AMP_STACK_NAME.match(name)
+        if not match:
+            continue
+        rid = match.group(1).lower()
+        if rid not in seen:
+            seen.add(rid)
+            ordered.append(rid)
+    return ordered
+
+
+def _print_orphan_amp_hint(service: BreakerAmpService) -> None:
+    """Explain empty BreakerAmp list when Podman still has amp-* stacks."""
+    orphans = _orphan_amp_run_ids_from_podman(service)
+    if not orphans:
+        return
+    preview = ", ".join(
+        (o[:12] + "..." if len(o) > 12 else o) for o in orphans[:3]
+    )
+    if len(orphans) > 3:
+        preview += f" (+{len(orphans) - 3} more)"
+    console.print()
+    console.print(
+        "[yellow]⚠[/yellow] Podman still has containers for "
+        f"[cyan]{preview}[/cyan], but BreakerAmp has no saved state under "
+        f"[dim]{service.environments_dir}[/dim]. "
+        "That usually means environment JSON was removed while containers kept running. "
+        "Recreate state with [green]breakeramp up[/green] or [green]breakeramp fresh cloud-dev[/green], "
+        "or tear down with [green]breakeramp nuke[/green]."
+    )
+
+
 @app.command("list")
 def list_environments(
+    show_all: bool = typer.Option(
+        False,
+        "--all", "-a",
+        help="Show stopped and historical environments too",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json", "-j",
@@ -2155,93 +2895,250 @@ def list_environments(
         "--no-reconcile",
         help="Skip container reality check (faster but may show stale entries)",
     ),
-    keep_stale: bool = typer.Option(
+    prune_stale: bool = typer.Option(
         False,
-        "--keep-stale",
-        help="Don't auto-remove stale state files for missing containers",
+        "--prune-stale",
+        help=(
+            "Delete environment/manifest JSON when reconcile finds no matching containers "
+            "(destructive; default is to keep files so a flaky Podman view cannot wipe state)"
+        ),
+    ),
+    no_machines: bool = typer.Option(
+        False,
+        "--no-machines",
+        help="Skip Podman machine tables (faster; no extra `podman machine list`)",
     ),
 ) -> None:
-    """List active environments.
+    """List current environments.
 
-    Shows all environments currently deployed or in progress.
-    By default, reconciles with actual container state and removes stale entries.
+    Shows actionable environments by default.
+    Reconciles with actual container state for display; stale runs are shown as STALE
+    unless you pass ``--prune-stale`` to remove their JSON (old default was to prune).
+    When there are environments to show, prints Podman machine tables (skip with
+    ``--no-machines``). With no visible rows, machine introspection is skipped
+    unless you use ``--json`` (JSON always includes ``podman_machines`` when not
+    ``--no-machines``). Reconcile skips Podman when there are no ``*.json`` state files.
+    Use --all to include stopped historical runs.
     """
     service = get_service()
 
     try:
         environments = service.list_environments(
             reconcile=not no_reconcile,
-            auto_cleanup=not keep_stale,
+            auto_cleanup=prune_stale,
         )
     except Exception as e:
         console.print(f"[red]List failed: {e}[/red]")
         raise typer.Exit(1)
 
+    stopped_environments = [
+        env for env in environments
+        if env.get("actual_status") == "STOPPED"
+    ]
+    visible_environments = environments if show_all else [
+        env for env in environments
+        if env.get("actual_status") != "STOPPED"
+    ]
+
+    # Machine introspection is slow (``podman machine list``). Skip when unused:
+    # ``--no-machines``, plain-text empty list (no tables), or user opted out via flag.
+    if no_machines:
+        podman_machines: List[Dict[str, Any]] = []
+    elif json_output:
+        podman_machines = _gather_podman_machine_info(service)
+    elif not visible_environments:
+        podman_machines = []
+    else:
+        podman_machines = _gather_podman_machine_info(service)
+
     if json_output:
-        console.print(json.dumps(environments, indent=2))
+        output: Dict[str, Any] = {
+            "environments": visible_environments,
+            "podman_machines": podman_machines,
+        }
+        if not visible_environments:
+            output["orphan_amp_run_ids"] = _orphan_amp_run_ids_from_podman(service)
+        _write_json(output)
         return
 
-    if not environments:
-        console.print("[dim]No active environments[/dim]")
+    if not visible_environments:
+        console.print("[dim]No current environments[/dim]")
+        if stopped_environments and not show_all:
+            console.print(
+                f"[dim]Hidden {len(stopped_environments)} stopped historical run(s). "
+                "Use 'breakeramp list --all' to inspect them or 'breakeramp nuke' to remove them.[/dim]"
+            )
+        _print_orphan_amp_hint(service)
         return
 
-    table = Table(title="Active Environments")
+    table_title = "All Environments" if show_all else "Current Environments"
+    table = Table(title=table_title)
     table.add_column("Run ID", style="cyan")
     table.add_column("Environment", style="green")
-    table.add_column("Phase")
-    table.add_column("Blueprint")
+    table.add_column("State")
+    table.add_column("Services", justify="right")
     table.add_column("Created")
-    # Show actual status columns when reconciling
-    if not no_reconcile:
-        table.add_column("Containers", justify="right")
-        table.add_column("Health")
+    table.add_column("Machine", style="magenta")
+    table.add_column("Next Action", style="dim")
 
-    for env in environments:
+    for env in visible_environments:
         phase_colors = {
             "PLANNED": "yellow",
             "PROVISIONING": "blue",
             "APPLIED": "green",
             "FAILED": "red",
+            "DEGRADED": "yellow",
         }
         phase = env.get("phase", "unknown")
-        phase_styled = f"[{phase_colors.get(phase, 'white')}]{phase}[/{phase_colors.get(phase, 'white')}]"
+        actual_status = env.get("actual_status")
+        if not no_reconcile and actual_status:
+            state_colors = {
+                "RUNNING": "green",
+                "DEGRADED": "yellow",
+                "STOPPED": "red",
+                "STALE": "red",
+            }
+            state_color = state_colors.get(actual_status, "white")
+            state_styled = f"[{state_color}]{actual_status}[/{state_color}]"
+        else:
+            phase_color = phase_colors.get(phase, "white")
+            state_styled = f"[{phase_color}]{phase}[/{phase_color}]"
 
         run_id = env.get("amp_run_id", "")
         display_id = run_id[:12] + "..." if len(run_id) > 12 else run_id
 
-        row = [
-            display_id,
-            env.get("environment", ""),
-            phase_styled,
-            env.get("blueprint_id", ""),
-            (env.get("created_at", "") or "")[:19],
-        ]
-
         if not no_reconcile:
             container_count = env.get("container_count", 0)
             running_count = env.get("running_count", 0)
-            actual_status = env.get("actual_status", "")
+            services_text = f"{running_count}/{container_count}"
+        else:
+            services_text = "-"
 
-            # Show running/total counts
-            if actual_status == "STALE":
-                row.append("[red]0[/red]")
-                row.append("[red]STALE[/red]")
-            elif actual_status == "STOPPED":
-                row.append(f"[red]0/{container_count}[/red]")
-                row.append("[red]STOPPED[/red]")
-            elif actual_status == "DEGRADED":
-                row.append(f"[yellow]{running_count}/{container_count}[/yellow]")
-                row.append("[yellow]DEGRADED[/yellow]")
-            elif actual_status == "RUNNING":
-                row.append(f"[green]{running_count}/{container_count}[/green]")
-                row.append("[green]HEALTHY[/green]")
-            else:
-                row.append(str(container_count))
-                row.append("[dim]UNKNOWN[/dim]")
+        machine_name = _get_environment_podman_machine(service, env.get("environment", ""))
+        row = [
+            display_id,
+            env.get("environment", ""),
+            state_styled,
+            services_text,
+            (env.get("created_at", "") or "")[:19],
+            machine_name or "",
+        ]
+
+        row.append(_restart_action_for_environment(env))
 
         table.add_row(*row)
 
     console.print(table)
+    console.print()
+    if not no_machines:
+        _print_podman_machine_tables(podman_machines)
+
+    if stopped_environments and not show_all:
+        console.print(
+            f"[dim]Hidden {len(stopped_environments)} stopped historical run(s). "
+            "Use 'breakeramp list --all' to inspect them or 'breakeramp nuke' to remove them.[/dim]"
+        )
+
+
+@app.command("services")
+def services_command(
+    environment: Optional[str] = typer.Option(
+        None,
+        "--env", "-e",
+        help="Only show services for this environment name",
+    ),
+    show_all: bool = typer.Option(
+        False,
+        "--all", "-a",
+        help="Include services from non-running environments too",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose", "-v",
+        help="Include container, image, and exact restart command columns",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json", "-j",
+        help="Output as JSON",
+    ),
+) -> None:
+    """List services across running BreakerAmp environments."""
+    service = get_service()
+
+    try:
+        rows = _collect_environment_services(
+            service,
+            environment=environment,
+            include_all=show_all,
+        )
+        podman_machines = _gather_podman_machine_info(service)
+    except Exception as e:
+        console.print(f"[red]Services failed: {e}[/red]")
+        raise typer.Exit(1)
+
+    if json_output:
+        _write_json(rows)
+        return
+
+    if not rows:
+        scope = f" for environment '{environment}'" if environment else ""
+        console.print(f"[dim]No running services found{scope}[/dim]")
+        if not show_all:
+            console.print("[dim]Use 'breakeramp services --all' to include non-running environments.[/dim]")
+        _print_orphan_amp_hint(service)
+        return
+
+    title = "BreakerAmp Services"
+    if environment:
+        title += f" ({environment})"
+    if show_all:
+        title += " — All Environments"
+
+    table = Table(title=title)
+    table.add_column("Environment", style="green")
+    table.add_column("Run ID", style="cyan")
+    table.add_column("Service", style="cyan", no_wrap=True)
+    table.add_column("Status")
+    table.add_column("Ports")
+    if verbose:
+        table.add_column("Container", style="dim")
+        table.add_column("Image", style="dim")
+        table.add_column("Restart", style="dim")
+
+    for row in rows:
+        run_id = row.get("amp_run_id", "")
+        display_id = run_id[:12] + "..." if len(run_id) > 12 else run_id
+        status = str(row.get("status", "unknown"))
+        if status == "running":
+            status_text = "[green]running[/green]"
+        elif status.startswith("inspect_failed"):
+            status_text = "[red]inspect failed[/red]"
+        else:
+            status_text = f"[yellow]{status}[/yellow]"
+
+        row_values = [
+            str(row.get("environment") or ""),
+            display_id,
+            str(row.get("service") or ""),
+            status_text,
+            _service_ports_text(row.get("ports", {})),
+        ]
+        if verbose:
+            container_name = str(row.get("container_name") or row.get("container_id") or "")
+            image = str(row.get("image") or "")
+            row_values.extend([
+                container_name[:28],
+                image[:36],
+                str(row.get("restart_command") or ""),
+            ])
+        table.add_row(*row_values)
+
+    console.print(table)
+    console.print()
+    _print_podman_machine_tables(podman_machines)
+    if not verbose:
+        console.print("[dim]Use --verbose for container/image/restart columns or --json for full details.[/dim]")
 
 
 # =============================================================================
@@ -2380,6 +3277,10 @@ def resources(
     Configure thresholds via environment variables:
         BREAKERAMP_INSIGHT_MEMORY_WARNING=70
         BREAKERAMP_INSIGHT_MEMORY_CRITICAL=90
+
+    Podman subprocess timeouts (avoid hangs when the VM/socket is wedged):
+        BREAKERAMP_PODMAN_TIMEOUT (default 90s), BREAKERAMP_PODMAN_MACHINE_TIMEOUT (default 180s),
+        BREAKERAMP_PODMAN_STATS_TIMEOUT (default 45s for ``podman stats``).
     """
     executor = PodmanExecutor()
 
@@ -2393,8 +3294,8 @@ def resources(
         raise typer.Exit(1)
 
     if json_output:
-        import json as json_module
-        console.print(json_module.dumps(resource_data, indent=2, default=str))
+        resource_data["recommendation"] = _resource_recommendation(resource_data)
+        _write_json(resource_data)
         return
 
     # Show raw metrics first if verbose
@@ -2445,6 +3346,13 @@ def resources(
         ))
     else:
         console.print("[dim]No resource data available. Is Podman machine running?[/dim]")
+
+    console.print()
+    console.print(Panel(
+        _resource_recommendation(resource_data),
+        title="Recommended Action",
+        expand=False,
+    ))
 
     # Hint about threshold configuration
     if not json_output:
@@ -2623,7 +3531,7 @@ def cleanup(
                 **smart_result,
                 "stale_state": {k: [str(f) for f in v] for k, v in stale_state_to_remove.items()},
             }
-            console.print(json.dumps(output, indent=2, default=str))
+            _write_json(output)
             return
 
         console.print("[yellow]Dry run — no changes will be made[/yellow]")
@@ -2733,7 +3641,7 @@ def cleanup(
         }
         if machine_result:
             output["machines_stopped"] = machine_result.machines_stopped
-        console.print(json.dumps(output, indent=2, default=str))
+        _write_json(output)
         return
 
     if quiet:
@@ -2955,7 +3863,7 @@ def plan_for_tests(
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        console=console,
+        console=_rich_progress_console(),
         transient=True,
     ) as progress:
         progress.add_task("Analyzing tests...", total=None)
@@ -3126,7 +4034,7 @@ def run_tests(
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        console=console,
+        console=_rich_progress_console(),
         transient=True,
     ) as progress:
         task = progress.add_task("Analyzing tests...", total=None)
@@ -3210,9 +4118,9 @@ def nuke(
         help="Also remove associated volumes (WARNING: data loss possible)",
     ),
     include_state: bool = typer.Option(
-        False,
-        "--include-state", "-s",
-        help="Also remove breakeramp state files (manifests, environments)",
+        True,
+        "--include-state/--no-state", "-s/-S",
+        help="Remove breakeramp state files (manifests, environments, snapshots)",
     ),
     include_processes: bool = typer.Option(
         True,
@@ -3261,9 +4169,10 @@ def nuke(
     It finds and removes:
     - Containers matching amprealize-* or amp-*
     - Podman networks matching amprealize-* or amp-*
+    - BreakerAmp manifests, environments, and snapshots
     - Amprealize processes on ports 8000 (backend) and 5173 (frontend)
     - Stops the Podman machine to release ports (gvproxy)
-    - Optionally: volumes, state files, and destroy (not just stop) the Podman machine
+    - Optionally: volumes and destroy (not just stop) the Podman machine
 
     Before any destruction, databases are automatically backed up to
     ~/.amprealize/backups/ unless --skip-backup is passed.
@@ -3272,10 +4181,11 @@ def nuke(
 
     Examples:
         breakeramp nuke --dry-run          # Preview what would be removed
-        breakeramp nuke                    # Remove containers + networks + processes + stop machine
+        breakeramp nuke                    # Remove containers + state + networks + processes + stop machine
         breakeramp nuke --force            # Remove without confirmation
-        breakeramp nuke -v -s              # Also remove volumes and state files
+        breakeramp nuke -v                 # Also remove volumes
         breakeramp nuke -m                 # Also destroy the Podman machine (not just stop)
+        breakeramp nuke --no-state         # Preserve BreakerAmp state/history
         breakeramp nuke --no-stop-machine  # Keep machine running (ports may remain bound)
         breakeramp nuke --no-processes     # Skip killing processes
         breakeramp nuke --skip-backup      # Skip pre-nuke database backup
@@ -3351,6 +4261,7 @@ def nuke(
     # Discover containers
     try:
         all_containers = []
+        seen_containers: set[tuple[str, str]] = set()
         discovery_errors: List[str] = []
         any_success = False
         for connection in podman_connections_to_clean:
@@ -3373,6 +4284,10 @@ def nuke(
                         # Check if name matches any pattern
                         for pattern in patterns:
                             if re.match(pattern, name):
+                                dedupe_key = (container_id, name)
+                                if dedupe_key in seen_containers:
+                                    break
+                                seen_containers.add(dedupe_key)
                                 all_containers.append({
                                     "id": container_id,
                                     "name": name,
@@ -3402,6 +4317,7 @@ def nuke(
 
     # Discover volumes
     volumes_to_remove: List[Dict[str, Any]] = []
+    seen_volumes: set[str] = set()
     if include_volumes:
         try:
             for connection in podman_connections_to_clean:
@@ -3418,6 +4334,9 @@ def nuke(
                         continue
                     for pattern in patterns:
                         if re.match(pattern, vol_name):
+                            if vol_name in seen_volumes:
+                                break
+                            seen_volumes.add(vol_name)
                             volumes_to_remove.append({"name": vol_name, "connection": connection})
                             break
         except Exception:
@@ -3425,6 +4344,7 @@ def nuke(
 
     # Discover networks
     networks_to_remove: List[Dict[str, Any]] = []
+    seen_networks: set[str] = set()
     if include_networks:
         try:
             for connection in podman_connections_to_clean:
@@ -3441,6 +4361,9 @@ def nuke(
                         continue
                     for pattern in patterns:
                         if re.match(pattern, net_name):
+                            if net_name in seen_networks:
+                                break
+                            seen_networks.add(net_name)
                             networks_to_remove.append({"name": net_name, "connection": connection})
                             break
         except Exception:
@@ -3451,11 +4374,10 @@ def nuke(
     if include_state:
         state_dir = Path.home() / ".amprealize" / "breakeramp"
         if state_dir.exists():
-            for subdir in ["manifests", "environments"]:
+            for subdir in ["manifests", "environments", "snapshots"]:
                 path = state_dir / subdir
                 if path.exists():
-                    for f in path.glob("*.json"):
-                        state_files_to_remove.append(f)
+                    state_files_to_remove.extend(f for f in path.iterdir() if f.is_file())
 
     # Discover Amprealize processes on standard ports
     processes_to_kill: List[Dict[str, Any]] = []
@@ -3607,7 +4529,7 @@ def nuke(
                     "machine_destroy": 1 if machine_to_destroy else 0,
                 },
             }
-            console.print(json.dumps(output, indent=2))
+            _write_json(output)
             return
 
         console.print("[yellow]Dry run mode - no changes will be made[/yellow]")
@@ -3750,8 +4672,8 @@ def nuke(
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
-        console=console,
-        transient=quiet,
+        console=_rich_progress_console(),
+        transient=quiet or json_output,
     ) as progress:
         # Kill processes first (before containers, so ports are freed)
         if processes_to_kill:
@@ -3779,18 +4701,29 @@ def nuke(
                     container_podman_cmd = _podman_cmd_for_connection(container.get("connection"))
                     # Stop if running
                     if container["running"]:
-                        subprocess.run(
+                        stop_result = subprocess.run(
                             container_podman_cmd + ["stop", "--time", "5", container["id"]],
                             capture_output=True,
+                            text=True,
                             timeout=30,
                         )
+                        if stop_result.returncode != 0:
+                            removed["errors"].append(
+                                f"Failed to stop {container['name']}: {stop_result.stderr.strip() or stop_result.stdout.strip()}"
+                            )
 
                     # Remove
-                    subprocess.run(
+                    rm_result = subprocess.run(
                         container_podman_cmd + ["rm", "-f", container["id"]],
                         capture_output=True,
+                        text=True,
                         timeout=30,
                     )
+                    if rm_result.returncode != 0:
+                        removed["errors"].append(
+                            f"Failed to remove {container['name']}: {rm_result.stderr.strip() or rm_result.stdout.strip()}"
+                        )
+                        continue
                     if container.get("connection") and len(podman_connections_to_clean) > 1:
                         removed["containers"].append(f"{container['name']} (conn: {container['connection']})")
                     else:
@@ -3806,11 +4739,17 @@ def nuke(
 
             for vol in volumes_to_remove:
                 try:
-                    subprocess.run(
+                    volume_result = subprocess.run(
                         _podman_cmd_for_connection(vol.get("connection")) + ["volume", "rm", "-f", vol["name"]],
                         capture_output=True,
+                        text=True,
                         timeout=30,
                     )
+                    if volume_result.returncode != 0:
+                        removed["errors"].append(
+                            f"Failed to remove volume {vol.get('name')}: {volume_result.stderr.strip() or volume_result.stdout.strip()}"
+                        )
+                        continue
                     if vol.get("connection") and len(podman_connections_to_clean) > 1:
                         removed["volumes"].append(f"{vol['name']} (conn: {vol['connection']})")
                     else:
@@ -3826,11 +4765,17 @@ def nuke(
 
             for net in networks_to_remove:
                 try:
-                    subprocess.run(
+                    network_result = subprocess.run(
                         _podman_cmd_for_connection(net.get("connection")) + ["network", "rm", "-f", net["name"]],
                         capture_output=True,
+                        text=True,
                         timeout=30,
                     )
+                    if network_result.returncode != 0:
+                        removed["errors"].append(
+                            f"Failed to remove network {net.get('name')}: {network_result.stderr.strip() or network_result.stdout.strip()}"
+                        )
+                        continue
                     if net.get("connection") and len(podman_connections_to_clean) > 1:
                         removed["networks"].append(f"{net['name']} (conn: {net['connection']})")
                     else:
@@ -3912,7 +4857,7 @@ def nuke(
 
     # Output results
     if json_output:
-        console.print(json.dumps(removed, indent=2))
+        sys.stdout.write(json.dumps(removed, indent=2) + "\n")
         return
 
     if quiet:
@@ -3981,9 +4926,9 @@ def fresh(
         help="Also remove volumes during nuke (WARNING: data loss possible)",
     ),
     include_state: bool = typer.Option(
-        False,
-        "--include-state", "-s",
-        help="Also remove state files during nuke",
+        True,
+        "--include-state/--no-state",
+        help="Remove state files during nuke",
     ),
     skip_machine_stop: bool = typer.Option(
         False,
@@ -4124,7 +5069,7 @@ def fresh(
         except Exception as e:
             console.print(f"[yellow]Machine start error: {e}[/yellow]")
 
-    display = LiveProgressDisplay(console=console, quiet=quiet)
+    display = LiveProgressDisplay(console=_rich_progress_console(), quiet=quiet)
     try:
         with display:
             display.on_phase("plan", "Planning fresh environment")
@@ -4153,6 +5098,15 @@ def fresh(
             apply_response = service.apply(apply_req, progress=display)
     except Exception as e:
         console.print(f"[red]Fresh apply failed: {e}[/red]")
+        if "pop from empty list" in str(e).lower():
+            console.print(
+                "[dim]If this persists, run with BREAKERAMP_DEBUG=1 and file an issue; "
+                "include the traceback.[/dim]"
+            )
+        if os.environ.get("BREAKERAMP_DEBUG"):
+            import traceback
+
+            console.print(traceback.format_exc())
         raise typer.Exit(1)
 
     # Print summary after Live exits

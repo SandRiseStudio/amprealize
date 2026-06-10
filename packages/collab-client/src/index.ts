@@ -54,6 +54,7 @@ export {
   ExecutionStatusBadge,
   ExecutionStatusCard,
   ExecutionTimeline,
+  KnowledgeRetrievalSummary,
 } from './components/execution/index.js';
 export type {
   ClarificationPanelProps,
@@ -61,4 +62,5 @@ export type {
   ExecutionStatusBadgeProps,
   ExecutionStatusCardProps,
   ExecutionTimelineProps,
+  KnowledgeRetrievalSummaryProps,
 } from './components/execution/index.js';

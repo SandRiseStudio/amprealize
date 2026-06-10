@@ -289,17 +289,48 @@ export type ExecutionState =
   | 'cancelled'
   | 'unknown';
 
+export interface ExecutionTraceSummary {
+  origin?: Record<string, unknown>;
+  execution?: Record<string, unknown>;
+  queue?: Record<string, unknown>;
+  metrics?: Record<string, unknown>;
+  phase_timings?: Record<string, unknown>;
+  last_error?: string | null;
+  /** Retrieval receipt slice (behaviors, wiki, etc.) for this run */
+  knowledge_retrieval?: Record<string, unknown>;
+}
+
 export interface ExecutionStatus {
   hasExecution: boolean;
   runId?: string | null;
   taskCycleId?: string | null;
+  workItemId?: string | null;
+  agentId?: string | null;
+  projectId?: string | null;
+  orgId?: string | null;
   state?: ExecutionState | null;
   phase?: string | null;
   startedAt?: string | null;
+  completedAt?: string | null;
   progressPct?: number | null;
   currentStep?: string | null;
   totalTokens?: number | null;
   totalCostUsd?: number | null;
+  toolCount?: number | null;
+  stepCount?: number | null;
+  error?: string | null;
+  lastError?: string | null;
+  modelId?: string | null;
+  surface?: string | null;
+  sourceType?: string | null;
+  conversationId?: string | null;
+  messageId?: string | null;
+  requestId?: string | null;
+  executionMode?: string | null;
+  queueJobId?: string | null;
+  queueMetadata?: Record<string, unknown> | null;
+  phaseTimings?: Record<string, unknown> | null;
+  traceSummary?: ExecutionTraceSummary | null;
   pendingClarifications?: Array<Record<string, unknown>> | null;
 }
 
@@ -313,6 +344,24 @@ export interface ExecutionListItem {
   startedAt: string;
   completedAt?: string | null;
   progressPct: number;
+  projectId?: string | null;
+  orgId?: string | null;
+  modelId?: string | null;
+  surface?: string | null;
+  sourceType?: string | null;
+  conversationId?: string | null;
+  messageId?: string | null;
+  requestId?: string | null;
+  executionMode?: string | null;
+  queueJobId?: string | null;
+  queueMetadata?: Record<string, unknown> | null;
+  phaseTimings?: Record<string, unknown> | null;
+  traceSummary?: ExecutionTraceSummary | null;
+  totalTokens?: number | null;
+  totalCostUsd?: number | null;
+  toolCount?: number | null;
+  stepCount?: number | null;
+  lastError?: string | null;
 }
 
 export interface ExecutionListResponse {
@@ -328,13 +377,20 @@ export interface ExecutionStep {
   stepType: string;
   startedAt: string;
   completedAt?: string | null;
+  name?: string | null;
+  status?: string | null;
+  progressPct?: number | null;
+  durationMs?: number | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  costUsd?: number | null;
   toolCalls?: number | null;
   contentPreview?: string | null;
   contentFull?: string | null;
   toolNames?: string[] | null;
   modelId?: string | null;
+  error?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface ExecutionStepsResponse {
@@ -351,6 +407,16 @@ export interface ExecutionStatusEventPayload {
   model_id?: string | null;
   cycle_id?: string | null;
   task_cycle_id?: string | null;
+  surface?: string | null;
+  source_type?: string | null;
+  conversation_id?: string | null;
+  message_id?: string | null;
+  request_id?: string | null;
+  execution_mode?: string | null;
+  queue_job_id?: string | null;
+  queue_metadata?: Record<string, unknown> | null;
+  phase_timings?: Record<string, unknown> | null;
+  trace_summary?: ExecutionTraceSummary | null;
   status: string;
   phase?: string | null;
   progress_pct?: number | null;
@@ -399,6 +465,9 @@ export interface ExecutionStatusSnapshotPayload {
   cycle_id?: string | null;
   task_cycle_id?: string | null;
   work_item_id?: string | null;
+  org_id?: string | null;
+  project_id?: string | null;
+  agent_id?: string | null;
   status?: string | null;
   phase?: string | null;
   progress_pct?: number | null;
@@ -408,6 +477,16 @@ export interface ExecutionStatusSnapshotPayload {
   error?: string | null;
   model_id?: string | null;
   step_count?: number | null;
+  surface?: string | null;
+  source_type?: string | null;
+  conversation_id?: string | null;
+  message_id?: string | null;
+  request_id?: string | null;
+  execution_mode?: string | null;
+  queue_job_id?: string | null;
+  queue_metadata?: Record<string, unknown> | null;
+  phase_timings?: Record<string, unknown> | null;
+  trace_summary?: ExecutionTraceSummary | null;
 }
 
 export interface ExecutionSnapshotEventPayload {
@@ -438,8 +517,16 @@ export interface ExecutionStreamEvents {
 // ---------------------------------------------------------------------------
 
 export enum ConversationScope {
+  GlobalUserHome = 'global_user_home',
+  /** Additional project-less chats; unlimited per user (mirrors conversation_contracts.py). */
+  GlobalPersonalThread = 'global_personal_thread',
+  ProjectSpace = 'project_space',
   ProjectRoom = 'project_room',
+  Dm = 'dm',
   AgentDm = 'agent_dm',
+  GroupChat = 'group_chat',
+  WorkItemThread = 'work_item_thread',
+  RunThread = 'run_thread',
 }
 
 export enum ActorType {
@@ -472,7 +559,7 @@ export enum NotificationPreference {
 
 export interface Conversation {
   id: string;
-  project_id: string;
+  project_id: string | null;
   org_id?: string | null;
   scope: ConversationScope | string;
   title?: string | null;
@@ -592,6 +679,15 @@ export interface ConversationParticipantEventPayload {
   participant: ConversationParticipant;
 }
 
+/** Server `reply.complete` / `complete` payload (agent stream finished; fields vary by version). */
+export interface AgentReplyCompletePayload {
+  conversation_id?: string;
+  stream_message_id?: string;
+  user_message_id?: string;
+  phase?: string;
+  [key: string]: unknown;
+}
+
 // ---------------------------------------------------------------------------
 // Conversation Stream Client Events
 // ---------------------------------------------------------------------------
@@ -608,5 +704,7 @@ export interface ConversationStreamEvents {
   'read.receipt': (payload: ConversationReadReceiptPayload) => void;
   'participant.joined': (payload: ConversationParticipantEventPayload) => void;
   'participant.left': (payload: ConversationParticipantEventPayload) => void;
+  /** Agent reply stream finished (`reply.complete` or legacy `complete` on WS). */
+  'agent.reply.complete': (payload: AgentReplyCompletePayload) => void;
   error: (code: string, message: string) => void;
 }

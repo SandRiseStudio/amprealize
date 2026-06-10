@@ -1,0 +1,203 @@
+# Optional enterprise-overlay tests: install amprealize-enterprise on top of OSS,
+# then run a curated pytest subset (not the full suite — many OSS tests assert HAS_ENTERPRISE is False).
+#
+# Triggers: manual, optional schedule, optional push to main (non-blocking signal).
+# Second checkout: set secrets.AMPREALIZE_ENTERPRISE_CHECKOUT_PAT if the enterprise repo is private
+# or not accessible to GITHUB_TOKEN.
+
+name: Enterprise overlay tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      enterprise_repo:
+        description: "GitHub owner/repo for amprealize-enterprise"
+        required: false
+        default: "SandRiseStudio/amprealize-enterprise"
+      enterprise_ref:
+        description: "Git ref (branch or tag) for enterprise checkout"
+        required: false
+        default: "main"
+  schedule:
+    # Weekly Monday 06:00 UTC — adjust or remove if too noisy
+    - cron: "0 6 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ci-enterprise.yml"
+      - "scripts/enterprise_gated_pytest_files.txt"
+
+env:
+  PYTHON_VERSION: "3.11"
+  DATABASE_URL: postgresql://amprealize_behavior:behavior_test_pass@localhost:6433/amprealize_behavior  # pragma: allowlist secret
+  AMPREALIZE_ALEMBIC_DATABASE_URL: postgresql://amprealize_behavior:behavior_test_pass@localhost:6433/amprealize_behavior  # pragma: allowlist secret
+  AMPREALIZE_ALEMBIC_SCHEMA_READY: "1"
+  AMPREALIZE_TEST_PER_SERVICE_PG_DATABASES: "0"
+  REDIS_HOST: localhost
+  REDIS_PORT: "6479"
+  AMPREALIZE_PG_HOST_BEHAVIOR: localhost
+  AMPREALIZE_PG_PORT_BEHAVIOR: "6433"
+  AMPREALIZE_PG_USER_BEHAVIOR: amprealize_behavior
+  AMPREALIZE_PG_PASS_BEHAVIOR: behavior_test_pass
+  AMPREALIZE_PG_DB_BEHAVIOR: amprealize_behavior
+  AMPREALIZE_PG_HOST_WORKFLOW: localhost
+  AMPREALIZE_PG_PORT_WORKFLOW: "6433"
+  AMPREALIZE_PG_USER_WORKFLOW: amprealize_behavior
+  AMPREALIZE_PG_PASS_WORKFLOW: behavior_test_pass
+  AMPREALIZE_PG_DB_WORKFLOW: amprealize_behavior
+  AMPREALIZE_PG_HOST_ACTION: localhost
+  AMPREALIZE_PG_PORT_ACTION: "6433"
+  AMPREALIZE_PG_USER_ACTION: amprealize_behavior
+  AMPREALIZE_PG_PASS_ACTION: behavior_test_pass
+  AMPREALIZE_PG_DB_ACTION: amprealize_behavior
+  AMPREALIZE_PG_HOST_RUN: localhost
+  AMPREALIZE_PG_PORT_RUN: "6433"
+  AMPREALIZE_PG_USER_RUN: amprealize_behavior
+  AMPREALIZE_PG_PASS_RUN: behavior_test_pass
+  AMPREALIZE_PG_DB_RUN: amprealize_behavior
+  AMPREALIZE_PG_HOST_COMPLIANCE: localhost
+  AMPREALIZE_PG_PORT_COMPLIANCE: "6433"
+  AMPREALIZE_PG_USER_COMPLIANCE: amprealize_behavior
+  AMPREALIZE_PG_PASS_COMPLIANCE: behavior_test_pass
+  AMPREALIZE_PG_DB_COMPLIANCE: amprealize_behavior
+  AMPREALIZE_PG_HOST_AUTH: localhost
+  AMPREALIZE_PG_PORT_AUTH: "6433"
+  AMPREALIZE_PG_USER_AUTH: amprealize_behavior
+  AMPREALIZE_PG_PASS_AUTH: behavior_test_pass
+  AMPREALIZE_PG_DB_AUTH: amprealize_behavior
+  AMPREALIZE_PG_HOST_TELEMETRY: localhost
+  AMPREALIZE_PG_PORT_TELEMETRY: "6438"
+  AMPREALIZE_PG_USER_TELEMETRY: amprealize_telemetry
+  AMPREALIZE_PG_PASS_TELEMETRY: telemetry_test_pass
+  AMPREALIZE_PG_DB_TELEMETRY: amprealize_telemetry
+  AMPREALIZE_PG_HOST_METRICS: localhost
+  AMPREALIZE_PG_PORT_METRICS: "6439"
+  AMPREALIZE_PG_USER_METRICS: amprealize_metrics_test
+  AMPREALIZE_PG_PASS_METRICS: metrics_test_pass
+  AMPREALIZE_PG_DB_METRICS: amprealize_metrics_test
+  AMPREALIZE_METRICS_PG_DSN: postgresql://amprealize_metrics_test:metrics_test_pass@localhost:6439/amprealize_metrics_test  # pragma: allowlist secret
+  AMPREALIZE_BEHAVIOR_PG_DSN: postgresql://amprealize_behavior:behavior_test_pass@localhost:6433/amprealize_behavior  # pragma: allowlist secret
+
+jobs:
+  enterprise-gated:
+    name: Curated pytest with enterprise overlay
+    runs-on: ubuntu-latest
+
+    services:
+      postgres-behavior:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: amprealize_behavior
+          POSTGRES_PASSWORD: behavior_test_pass  # pragma: allowlist secret
+          POSTGRES_DB: amprealize_behavior
+        ports:
+          - 6433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --memory 256m
+
+      postgres-telemetry:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: amprealize_telemetry
+          POSTGRES_PASSWORD: telemetry_test_pass  # pragma: allowlist secret
+          POSTGRES_DB: amprealize_telemetry
+        ports:
+          - 6438:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --memory 256m
+
+      postgres-metrics:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: amprealize_metrics_test
+          POSTGRES_PASSWORD: metrics_test_pass  # pragma: allowlist secret
+          POSTGRES_DB: amprealize_metrics_test
+        ports:
+          - 6439:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --memory 256m
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6479:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 3s
+          --health-retries 5
+          --memory 128m
+
+    steps:
+      - name: Checkout OSS (this repository)
+        uses: actions/checkout@v4
+
+      - name: Checkout amprealize-enterprise
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.enterprise_repo || 'SandRiseStudio/amprealize-enterprise' }}
+          ref: ${{ github.event.inputs.enterprise_ref || 'main' }}
+          path: amprealize-enterprise
+          token: ${{ secrets.AMPREALIZE_ENTERPRISE_CHECKOUT_PAT || github.token }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev postgresql-client redis-tools
+
+      - name: Wait for services
+        run: |
+          for port in 6433 6438 6439; do
+            timeout 60 bash -c "until pg_isready -h localhost -p $port; do sleep 1; done" || exit 1
+          done
+          timeout 30 bash -c "until redis-cli -h localhost -p 6479 ping; do sleep 1; done" || exit 1
+
+      - name: Enterprise guard (OSS tree only)
+        run: python scripts/check_enterprise_guard.py
+
+      - name: Install OSS then enterprise (editable)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,postgres,telemetry,semantic]"
+          pip install -e "./amprealize-enterprise[dev,postgres,telemetry,semantic,crypto]"
+
+      - name: Run Alembic migrations
+        run: python scripts/run_alembic_migrations.py
+
+      - name: Run curated enterprise-gated tests
+        run: |
+          set -o pipefail
+          files=$(grep -v '^#' scripts/enterprise_gated_pytest_files.txt | grep -v '^$' | tr '\n' ' ')
+          pytest -rs \
+            --tb=short \
+            --timeout=120 \
+            --junit-xml=enterprise-gated-results.xml \
+            $files \
+            2>&1 | tee enterprise-pytest.log
+
+      - name: Upload JUnit and log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-gated-results
+          path: |
+            enterprise-gated-results.xml
+            enterprise-pytest.log
+          retention-days: 14

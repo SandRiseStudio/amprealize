@@ -1,0 +1,9 @@
+# Curated pytest targets for .github/workflows/ci-enterprise.yml
+# One path per line. Do not run the full suite after enterprise overlay (OSS-only tests will fail).
+# Expand this list as additional modules are verified safe under enterprise.
+
+tests/test_organization_service.py
+tests/test_settings_api.py
+tests/test_invitation_service.py
+tests/test_analytics_parity.py
+tests/test_s3_worm_storage.py

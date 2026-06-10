@@ -9,6 +9,7 @@
 #   ./scripts/run_tests.sh tests/test_cli_*.py  # Run specific tests
 #   ./scripts/run_tests.sh --check-only       # Only check environment
 #   ./scripts/run_tests.sh --breakeramp --env test   # Use breakeramp with 'test' environment
+#   ./scripts/run_tests.sh --breakeramp --env test --enterprise  # Same + enterprise overlay + curated pytest
 #   ./scripts/run_tests.sh --env-file custom.yaml --env prod  # Custom manifest and environment
 
 set -euo pipefail
@@ -81,6 +82,7 @@ print_kv() {
 
 PARALLEL_WORKERS=0
 CHECK_ONLY=false
+ENTERPRISE_OVERLAY=false
 PYTEST_ARGS=()
 CONNECTION_TIMEOUT=5
 QUERY_TIMEOUT=30
@@ -102,11 +104,15 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --breakeramp)
-            AMPREALIZE_TEST_INFRA_MODE="breakeramp"
+            export AMPREALIZE_TEST_INFRA_MODE="breakeramp"
             shift
             ;;
         --with-kafka)
             WITH_KAFKA=true
+            shift
+            ;;
+        --enterprise)
+            ENTERPRISE_OVERLAY=true
             shift
             ;;
         --env)
@@ -132,8 +138,10 @@ while [[ $# -gt 0 ]]; do
             print_kv "--env <name>" "Specify environment name (default: ci)"
             print_kv "--env-file <path>" "Specify environment manifest file"
             print_kv "--with-kafka" "Enable Kafka streaming module"
+            print_kv "--enterprise" "Install amprealize-enterprise over OSS, run curated tests (see scripts/enterprise_gated_pytest_files.txt)"
             print_kv "-n <workers>" "Number of parallel workers (0=serial)"
             print_kv "AMPREALIZE_COMPOSE_BIN" "Override compose binary (default: podman compose)"
+            print_kv "AMPREALIZE_SKIP_LOCAL_TEST_CONTEXT_PROMPT" "1 = skip Amprealize CLI context prompt (BreakerAmp --env test)"
             print_kv "AMPREALIZE_TEST_PER_SERVICE_PG_DATABASES" "1 = legacy one-Postgres-per-service; 0 (default) = modular monolith + Alembic on behavior DB"
             print_kv "COMPOSE_PROFILES" "e.g. per-service-db — start extra Postgres services in infra/docker-compose.test.yml"
             print_kv "-h, --help" "Show this help message"
@@ -143,6 +151,7 @@ while [[ $# -gt 0 ]]; do
             print_info "$0 --breakeramp                       # Use breakeramp infra"
             print_info "$0 --breakeramp --env development     # Use 'development' env"
             print_info "$0 --breakeramp --env test --with-kafka  # Include Kafka"
+            print_info "$0 --breakeramp --env test --enterprise  # Enterprise overlay + curated pytest"
             print_info "$0 -n 4 tests/test_api.py            # Run tests in parallel"
             echo ""
             exit 0
@@ -155,7 +164,21 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ ${#PYTEST_ARGS[@]} -eq 0 ]; then
-    PYTEST_ARGS=("tests/")
+    if [ "$ENTERPRISE_OVERLAY" = true ]; then
+        PYTEST_ARGS=()
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+                ''|\#*) continue ;;
+            esac
+            PYTEST_ARGS+=("$line")
+        done < "$REPO_ROOT/scripts/enterprise_gated_pytest_files.txt"
+        if [ ${#PYTEST_ARGS[@]} -eq 0 ]; then
+            echo "No pytest paths in scripts/enterprise_gated_pytest_files.txt" >&2
+            exit 1
+        fi
+    else
+        PYTEST_ARGS=("tests/")
+    fi
 fi
 
 STAGING_STACK_MODE="${AMPREALIZE_ENABLE_STAGING_STACK:-auto}"
@@ -233,26 +256,12 @@ PY
 # If in breakeramp mode, load variables from environments.yaml FIRST
 # These will override the defaults set below
 if [ "$AMPREALIZE_TEST_INFRA_MODE" = "breakeramp" ]; then
-    # IMPORTANT: Unset any pre-existing DSN variables to prevent stale values
-    # from overriding freshly constructed DSNs. The ${VAR:-default} pattern
-    # only applies defaults if VAR is unset, so we must explicitly unset.
-    unset AMPREALIZE_TELEMETRY_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_BEHAVIOR_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_WORKFLOW_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_ACTION_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_RUN_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_COMPLIANCE_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_ORCHESTRATOR_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_METRICS_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_AUTH_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_BOARD_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_ORG_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_AGENT_REGISTRY_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_EXECUTION_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_TRACE_ANALYSIS_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_AGENTAUTH_PG_DSN 2>/dev/null || true
-    unset AMPREALIZE_TASK_PG_DSN 2>/dev/null || true
+    # IMPORTANT: Unset every AMPREALIZE_*_PG_DSN (and common DB URLs) so Neon
+    # or other cloud DSNs from the shell/.env cannot leak into pytest; the
+    # ${VAR:-default} pattern only applies defaults when VAR is unset.
+    while IFS= read -r _dsn_var; do
+        [ -n "$_dsn_var" ] && unset "$_dsn_var" 2>/dev/null || true
+    done < <(printenv | cut -d= -f1 | grep '^AMPREALIZE_.*_PG_DSN$' || true)
     unset AMPREALIZE_PG_DSN 2>/dev/null || true
     unset AMPREALIZE_ALEMBIC_DATABASE_URL 2>/dev/null || true
     unset DATABASE_URL 2>/dev/null || true
@@ -316,7 +325,7 @@ export AMPREALIZE_PG_USER_AUTH="${AMPREALIZE_PG_USER_AUTH:-amprealize_auth_test}
 export AMPREALIZE_PG_PASS_AUTH="${AMPREALIZE_PG_PASS_AUTH:-auth_test_pass}"
 export AMPREALIZE_PG_DB_AUTH="${AMPREALIZE_PG_DB_AUTH:-amprealize_auth_test}"
 
-# Blueprint port variables (used by local-test-suite.yaml)
+# Blueprint port variables (used by BreakerAmp blueprints, e.g. local-test-env / local-test-suite)
 # These map to the same ports as AMPREALIZE_PG_PORT_* but with the naming the blueprint expects
 export TELEMETRY_DB_PORT="${TELEMETRY_DB_PORT:-$AMPREALIZE_PG_PORT_TELEMETRY}"
 export BEHAVIOR_DB_PORT="${BEHAVIOR_DB_PORT:-$AMPREALIZE_PG_PORT_BEHAVIOR}"
@@ -371,10 +380,14 @@ fi
 ENCODED_STATEMENT_TIMEOUT="-c%20statement_timeout%3D${QUERY_TIMEOUT}s"
 DSN_QUERY_PARAMS="?connect_timeout=${CONNECTION_TIMEOUT}&options=${ENCODED_STATEMENT_TIMEOUT}"
 
-# search_path + statement_timeout for domain DSNs (matches amprealize.config.settings patterns)
+# search_path + statement_timeout for domain DSNs (matches PostgresPool multi-schema routing)
 amprealize_pg_options_schema() {
-    local schema="$1"
-    echo "-c%20search_path%3D${schema}%2Cpublic%20-c%20statement_timeout%3D${QUERY_TIMEOUT}s"
+    local primary="$1"
+    # Include all app schemas so unqualified names resolve (board.rows, workflow.*, etc.).
+    # Primary schema is listed first for predictable resolution when names overlap.
+    local path="${primary},board,auth,execution,behavior,workflow,consent,audit,compliance,credentials,messaging,research,public"
+    local encoded="${path//,/%2C}"
+    echo "-c%20search_path%3D${encoded}%20-c%20statement_timeout%3D${QUERY_TIMEOUT}s"
 }
 
 amprealize_service_dsn() {
@@ -412,6 +425,10 @@ export AMPREALIZE_AGENT_REGISTRY_PG_DSN="${AMPREALIZE_AGENT_REGISTRY_PG_DSN:-$(a
 export AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN="${AMPREALIZE_AGENT_ORCHESTRATOR_PG_DSN:-$(amprealize_service_dsn BEHAVIOR execution)}"
 export AMPREALIZE_EXECUTION_PG_DSN="${AMPREALIZE_EXECUTION_PG_DSN:-$(amprealize_service_dsn RUN execution)}"
 export AMPREALIZE_PG_DSN="${AMPREALIZE_PG_DSN:-$(amprealize_service_dsn BEHAVIOR public)}"
+
+# Parity tests (PostgresCollaborationService / PostgresReflectionService share modular DB + schemas)
+export AMPREALIZE_COLLABORATION_PG_DSN="${AMPREALIZE_COLLABORATION_PG_DSN:-$AMPREALIZE_BOARD_PG_DSN}"
+export AMPREALIZE_REFLECTION_PG_DSN="${AMPREALIZE_REFLECTION_PG_DSN:-$AMPREALIZE_BEHAVIOR_PG_DSN}"
 
 # Convenience for tools that read DATABASE_URL (only if unset)
 if [ "${AMPREALIZE_TEST_PER_SERVICE_PG_DATABASES:-0}" != "1" ] && [ -n "${AMPREALIZE_ALEMBIC_DATABASE_URL:-}" ]; then
@@ -1407,6 +1424,57 @@ handle_signal() {
 trap cleanup EXIT
 trap handle_signal INT TERM
 
+# When BreakerAmp ``--env test`` runs against local Podman Postgres, warn if the
+# Amprealize CLI context still points at cloud (e.g. Neon after ``cloud-dev``).
+prompt_amprealize_context_for_local_tests_if_needed() {
+    [ "$AMPREALIZE_TEST_INFRA_MODE" = "breakeramp" ] || return 0
+    [ "${AMPREALIZE_BREAKERAMP_ENVIRONMENT:-ci}" = "test" ] || return 0
+    command -v python >/dev/null 2>&1 || return 0
+    local rc=0
+    PYTHONPATH="$REPO_ROOT" python "$REPO_ROOT/scripts/prompt_amprealize_context_for_local_tests.py" || rc=$?
+    if [ "$rc" -eq 2 ]; then
+        print_error "Aborted at Amprealize context prompt."
+        exit 2
+    fi
+    if [ "$rc" -ne 0 ]; then
+        print_warning "Amprealize context prompt helper exited $rc (continuing)."
+    fi
+}
+
+# Enterprise overlay: same install order as .github/workflows/ci-enterprise.yml
+resolve_enterprise_repo_root() {
+    local ent="${AMPREALIZE_ENTERPRISE_REPO_PATH:-}"
+    if [ -z "$ent" ]; then
+        ent="$REPO_ROOT/../amprealize-enterprise"
+    fi
+    if [ ! -f "$ent/pyproject.toml" ]; then
+        print_error "amprealize-enterprise checkout not found (missing pyproject.toml)."
+        print_info "Clone as a sibling of OSS or set AMPREALIZE_ENTERPRISE_REPO_PATH."
+        print_info "Expected: $ent/pyproject.toml"
+        exit 1
+    fi
+    printf '%s' "$ent"
+}
+
+install_enterprise_overlay() {
+    local ent_root="$1"
+    print_section "Enterprise overlay (editable installs)"
+    print_kv "Enterprise repo" "$ent_root"
+    if ! ( cd "$REPO_ROOT" && python scripts/check_enterprise_guard.py ); then
+        exit 1
+    fi
+    print_info "pip install OSS extras, then enterprise overlay (may take a while)…"
+    if ! ( cd "$REPO_ROOT" && pip install -e ".[dev,postgres,telemetry,semantic]" ); then
+        print_error "pip install OSS extras failed"
+        exit 1
+    fi
+    if ! pip install -e "${ent_root}[dev,postgres,telemetry,semantic,crypto]"; then
+        print_error "pip install amprealize-enterprise failed"
+        exit 1
+    fi
+    print_success "Enterprise overlay installed"
+}
+
 # =============================================================================
 # Main Execution
 # =============================================================================
@@ -1416,8 +1484,11 @@ print_header "Amprealize Test Runner"
 # Show configuration
 print_kv "Mode" "$AMPREALIZE_TEST_INFRA_MODE"
 [ "$AMPREALIZE_TEST_INFRA_MODE" = "breakeramp" ] && print_kv "Environment" "$AMPREALIZE_BREAKERAMP_ENVIRONMENT"
+[ "$ENTERPRISE_OVERLAY" = true ] && print_kv "Enterprise" "overlay (curated pytest list)"
 print_kv "Workers" "${PARALLEL_WORKERS:-serial}"
 print_kv "Tests" "${PYTEST_ARGS[*]}"
+
+prompt_amprealize_context_for_local_tests_if_needed
 
 # Setup infrastructure
 ensure_test_infrastructure
@@ -1442,6 +1513,16 @@ ensure_all_schemas
 # Optional staging stack when smoke paths are selected and compose file exists
 # (tests/smoke/* skips in pytest when ports are down — see tests/smoke/conftest.py)
 ensure_staging_stack
+
+if [ "$ENTERPRISE_OVERLAY" = true ]; then
+    _amp_ent_root="$(resolve_enterprise_repo_root)"
+    if [ "$CHECK_ONLY" = true ]; then
+        print_section "Enterprise overlay"
+        print_success "Enterprise repo OK at $_amp_ent_root (check-only — pip install skipped)"
+    else
+        install_enterprise_overlay "$_amp_ent_root"
+    fi
+fi
 
 # Resource snapshot
 report_resources "pre-tests"

@@ -93,23 +93,34 @@ service = BreakerAmpService(
 ### Using the CLI
 
 ```bash
-# Bootstrap configuration in current directory
-breakeramp bootstrap --include-blueprints
+# Configure BreakerAmp in the current project
+breakeramp configure --blueprints
 
 # List available blueprints
-breakeramp blueprints
+breakeramp blueprints --json
 
 # Plan an environment
-breakeramp plan --blueprint postgres-dev --env development
+breakeramp plan development --blueprint postgres-dev
 
 # Apply the plan
 breakeramp apply --plan-id <plan-id>
 
-# Check status
-breakeramp status <amp-run-id>
+# Or use the day-to-day shortcut
+breakeramp up development --blueprint postgres-dev
 
-# Destroy environment
-breakeramp destroy <amp-run-id> --reason "Cleanup"
+# Check status and service-level details
+breakeramp status <amp-run-id>
+breakeramp list
+breakeramp services
+
+# Restart one service by its displayed service name
+breakeramp restart --env development postgres
+
+# Preview safe cleanup
+breakeramp cleanup --dry-run --json
+
+# Destroy one environment
+breakeramp destroy <amp-run-id> --reason "Cleanup" --interactive
 ```
 
 ### FastAPI Integration
@@ -195,6 +206,52 @@ breakeramp validate environments.yaml
 See `examples/environments.yaml.example` for a complete template with all options.
 
 `local-test-suite` includes `amprealize-api`, `amprealize-mcp`, `gateway`, and `web-console` for a full local Amprealize development stack.
+
+## Command Surface
+
+Use this taxonomy when choosing commands:
+
+| Category | Primary Commands | Notes |
+|---|---|---|
+| Configure | `configure`, `validate`, `blueprints`, `version` | `configure` is the standalone setup command. |
+| Lifecycle | `up`, `list`, `services`, `restart`, `status`, `stop`, `destroy`, `plan`, `apply` | Humans usually start with `up`, `list`, `services`, and `restart`; scripts should prefer JSON-capable commands. |
+| Capacity | `resources` | Includes an explicit recommendation in human and JSON output. |
+| Hygiene | `cleanup` | Use `cleanup --dry-run --json` before executing cleanup in automation. |
+| Disaster/Rebuild | `fresh`, `nuke` | High-risk commands; back up first and use explicit confirmation for scripts. |
+| Data Safety | `backup`, `backups`, `restore` | `fresh` and `nuke` auto-back up running PostgreSQL databases unless skipped. |
+| Test Environments | `plan-for-tests`, `run-tests` | For BreakerAmp-managed test infrastructure. |
+
+Recommended human workflow:
+
+```bash
+breakeramp up cloud-dev
+breakeramp list
+breakeramp services
+breakeramp restart --env cloud-dev amprealize-api
+breakeramp resources
+breakeramp cleanup --dry-run
+breakeramp fresh cloud-dev
+```
+
+Recommended agent/script workflow:
+
+```bash
+breakeramp list --json
+breakeramp services --json
+breakeramp status <run-id> --json
+breakeramp resources --json
+breakeramp cleanup --dry-run --json
+```
+
+Command classifications:
+
+| Classification | Commands |
+|---|---|
+| Primary | `up`, `list`, `services`, `restart`, `status`, `resources`, `cleanup`, `fresh` |
+| Advanced | `plan`, `apply`, `destroy`, `nuke`, `backup`, `restore`, `run-tests`, `plan-for-tests` |
+| Support | `blueprints`, `configure`, `validate`, `version`, `backups`, `stop`, `wait-health` |
+
+`destroy --force` is intended for non-interactive scripts that already have a specific run ID. `destroy --interactive` is intended for humans who want a confirmation prompt before removing an environment.
 
 ## Executors
 

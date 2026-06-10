@@ -13,14 +13,22 @@ import sys
 import time
 import uuid
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Set, Tuple
 
 import yaml
 
-from .executors.base import ContainerRunConfig, ExecutorError, MachineCapableExecutor, MachineInfo, ResourceCapableExecutor, ResourceHealthResult
+from .executors.base import (
+    ContainerRunConfig,
+    ExecutorError,
+    MachineCapableExecutor,
+    MachineInfo,
+    ResourceCapableExecutor,
+    ResourceHealthResult,
+    container_platform_for_image,
+)
 from .executors.podman import PodmanExecutor
 from .hooks import BreakerAmpHooks
 from .models import (
@@ -53,6 +61,113 @@ from .models import (
     TelemetryData,
     TestSuiteDefinition,
 )
+
+
+def _normalize_podman_container_key(name: str) -> str:
+    """Strip Podman's leading slash from container names for comparisons."""
+    n = (name or "").strip()
+    if n.startswith("/"):
+        return n[1:]
+    return n
+
+
+def _merge_container_id_statuses_from_listing(
+    executor: Any,
+    connection_order: List[Optional[str]],
+) -> Dict[str, str]:
+    """Map Podman container ID prefix (12 hex chars, lower) -> lowercased status.
+
+    ``podman ps`` names may omit ``amp_run_id`` while ``environment_outputs`` still
+    holds the real ``container_id`` from apply; reconcile uses this map as a fallback.
+    """
+    out: Dict[str, str] = {}
+    if not hasattr(executor, "list_containers"):
+        return out
+    prev = getattr(executor, "connection", None)
+    try:
+        for conn in connection_order:
+            if hasattr(executor, "connection"):
+                setattr(executor, "connection", conn)
+            try:
+                containers = executor.list_containers(all_containers=True)
+            except Exception:
+                continue
+            for c in containers:
+                cid = (getattr(c, "container_id", None) or "").strip()
+                if len(cid) < 8:
+                    continue
+                out[cid[:12].lower()] = (getattr(c, "status", None) or "").lower()
+    finally:
+        if hasattr(executor, "connection"):
+            setattr(executor, "connection", prev)
+    return out
+
+
+def _podman_container_names_for_amp_run(amp_run_id: str, actual_names: Set[str]) -> List[str]:
+    """Return Podman container names that belong to this BreakerAmp run.
+
+    Apply uses ``{amp_run_id}-{service}``, but ``podman ps`` may show compose- or
+    infra-prefixed names (e.g. ``proj_{amp_run_id}_redis``). Match on ``amp_run_id-``,
+    ``amp_run_id_``, or substring ``amp_run_id-`` so reconcile does not false-STALE.
+    """
+    if not amp_run_id:
+        return []
+    dash = f"{amp_run_id}-"
+    under = f"{amp_run_id}_"
+    return [c for c in actual_names if c.startswith(dash) or dash in c or under in c]
+
+
+def _podman_reconcile_state_is_running(status: str) -> bool:
+    """Return True if Podman/ps status text means the container is up for reconcile counts.
+
+    ``podman ps`` JSON may use ``State: running`` or a human ``Status`` like ``Up 2 minutes``;
+    treating only the exact string ``running`` hides real stacks as STOPPED or mis-counts
+    ``running_count`` vs ``list`` / ``services`` filters.
+    """
+    s = (status or "").strip().lower()
+    if s == "running":
+        return True
+    if s.startswith("up "):
+        return True
+    return False
+
+
+def _expand_reconcile_podman_connections(
+    executor: Any,
+    connection_order: List[Optional[str]],
+) -> List[Optional[str]]:
+    """Union rootless and rootful Podman connections for reconcile.
+
+    Manifests may record ``amprealize-dev`` while containers exist only under
+    ``amprealize-dev-root`` (or the reverse). Querying both avoids false STALE
+    deletion of ``environments/*.json``.
+    """
+    if not isinstance(executor, PodmanExecutor):
+        return connection_order
+    expanded: List[Optional[str]] = []
+    seen: Set[Optional[str]] = set()
+    for conn in connection_order:
+        peers: List[Optional[str]] = [conn]
+        if conn:
+            if conn.endswith("-root"):
+                base = conn[:-5]
+                if base and executor.connection_exists(base):
+                    peers.append(base)
+            else:
+                rooted = f"{conn}-root"
+                if executor.connection_exists(rooted):
+                    peers.append(rooted)
+        for p in peers:
+            if p not in seen:
+                seen.add(p)
+                expanded.append(p)
+    # ``podman ps`` in a shell uses no ``--connection`` (Podman default). That default can
+    # differ from the connection saved on the manifest; merge it so reconcile matches
+    # what users see and we do not false-delete ``environments/*.json`` as STALE.
+    if None not in seen:
+        seen.add(None)
+        expanded.append(None)
+    return expanded if expanded else connection_order
 
 
 class BandwidthEnforcer:
@@ -508,10 +623,30 @@ class BreakerAmpService:
         else:
             return data
 
+    def _ensure_podman_socket_mount_env(
+        self, variables: Optional[Dict[str, Any]]
+    ) -> None:
+        """Set ``AMPREALIZE_PODMAN_SOCK_HOST_PATH`` for blueprint volume expansion."""
+        key = "AMPREALIZE_PODMAN_SOCK_HOST_PATH"
+        if str(os.environ.get(key, "")).strip():
+            if variables is not None:
+                variables.setdefault(key, os.environ[key])
+            return
+        if variables and str(variables.get(key, "")).strip():
+            os.environ[key] = str(variables[key]).strip()
+            return
+        from .runtime.podman import discover_podman_socket_host_path_for_mount
+
+        path = discover_podman_socket_host_path_for_mount()
+        os.environ[key] = path
+        if variables is not None:
+            variables.setdefault(key, path)
+
     def _load_blueprint_from_file(
         self, path: Path, *, variables: Optional[Dict[str, Any]] = None
     ) -> Blueprint:
         """Load a blueprint from a file, expanding environment variables."""
+        self._ensure_podman_socket_mount_env(variables)
         with open(path, "r") as f:
             if path.suffix == ".json":
                 data = json.load(f)
@@ -717,6 +852,18 @@ class BreakerAmpService:
 
             self.executor.connection = connection_name
             runtime.podman_connection = connection_name
+
+            # If the target machine is already running, start_machine() never ran so
+            # sync_system_default_connection() was skipped — host CLI default can
+            # still point at another connection (e.g. amprealize-test). Align it
+            # with this environment's machine (matches infra/environments.yaml).
+            try:
+                refreshed = self.executor.get_machine(machine_name)
+                if refreshed and refreshed.running:
+                    preferred = self.executor.resolve_connection_for_machine(machine_name) or connection_name
+                    self.executor.sync_system_default_connection(preferred_connection=preferred)
+            except Exception:
+                pass
 
         self._verify_podman_resources(machine_name, runtime, env_def.name, force=force)
 
@@ -2183,8 +2330,9 @@ class BreakerAmpService:
 
                     # Run container
                     prog.on_service_status(name, ServiceStatus.STARTING)
+                    image_name = spec.get("image")
                     run_config = ContainerRunConfig(
-                        image=spec.get("image"),
+                        image=image_name,
                         name=container_name,
                         ports=spec.get("ports", []),
                         environment=spec.get("environment", {}),
@@ -2196,6 +2344,7 @@ class BreakerAmpService:
                         network_aliases=[name] if network_name else [],
                         privileged=bool(spec.get("privileged", False)),
                         extra_hosts=spec.get("extra_hosts", []),
+                        platform=container_platform_for_image(image_name or ""),
                     )
                     container_id = self.executor.run_container(run_config)
                     outputs[name] = {"container_id": container_id, "status": "running"}
@@ -2243,7 +2392,18 @@ class BreakerAmpService:
                             service=name, description=cmd_description,
                         )
                         if hasattr(self.executor, "exec_in_container"):
-                            output = self.executor.exec_in_container(container_name, cmd)
+                            post_timeout: Optional[float] = None
+                            raw_t = cmd_spec.get("timeout_s")
+                            if raw_t is not None:
+                                try:
+                                    post_timeout = max(10.0, min(float(raw_t), 3600.0))
+                                except (TypeError, ValueError):
+                                    post_timeout = None
+                            output = self.executor.exec_in_container(
+                                container_name,
+                                cmd,
+                                timeout_s=post_timeout,
+                            )
                             self.hooks.emit_metric(
                                 "breakeramp.apply.post_start_command.completed",
                                 plan_id=plan_id, amp_run_id=amp_run_id,
@@ -2271,40 +2431,52 @@ class BreakerAmpService:
 
             # ── DAG scheduler: launch services as their deps become healthy ──
             remaining: Set[str] = set(services.keys())
-            max_workers = min(4, len(services))  # Cap thread count
+            # Use wait(FIRST_COMPLETED) instead of as_completed()+break: breaking out of
+            # as_completed mid-iteration can corrupt its internal queue (IndexError: pop
+            # from empty list on some Python/Rich interleavings).
+            if remaining:
+                max_workers = max(1, min(4, len(remaining)))  # Cap thread count; never 0
 
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                futures: Dict[Any, str] = {}  # future -> service name
+                with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                    futures: Dict[Any, str] = {}  # future -> service name
 
-                def _submit_ready() -> None:
-                    """Submit any services whose deps are all healthy."""
-                    to_submit = []
-                    with service_lock:
-                        for svc in list(remaining):
-                            deps = dep_graph.get(svc, [])
-                            if all(d in healthy_services for d in deps) and svc not in futures.values():
-                                to_submit.append(svc)
-                    for svc in to_submit:
-                        remaining.discard(svc)
-                        fut = pool.submit(_start_service, svc, services[svc])
-                        futures[fut] = svc
+                    def _submit_ready() -> None:
+                        """Submit any services whose deps are all healthy."""
+                        to_submit = []
+                        with service_lock:
+                            for svc in list(remaining):
+                                deps = dep_graph.get(svc, [])
+                                if all(d in healthy_services for d in deps) and svc not in futures.values():
+                                    to_submit.append(svc)
+                        for svc in to_submit:
+                            remaining.discard(svc)
+                            fut = pool.submit(_start_service, svc, services[svc])
+                            futures[fut] = svc
 
-                _submit_ready()  # Seed with zero-dep services
+                    _submit_ready()  # Seed with zero-dep services
 
-                while futures:
-                    # Wait for any service to complete
-                    done_iter = as_completed(futures, timeout=600)
-                    for done_future in done_iter:
-                        svc_name = futures.pop(done_future)
-                        try:
-                            done_future.result()  # Re-raises exceptions
-                            prog.on_step_done(svc_name, service=svc_name)
-                        except Exception:
-                            # Service failed — propagated below
-                            pass
-                        # Submit newly-unblocked services
-                        _submit_ready()
-                        break  # Re-check after each completion
+                    while futures:
+                        done_futures, _ = wait(
+                            set(futures.keys()),
+                            timeout=600,
+                            return_when=FIRST_COMPLETED,
+                        )
+                        if not done_futures:
+                            raise RuntimeError(
+                                "Timed out after 600s waiting for the next service startup step. "
+                                f"Still running: {list(futures.values())}"
+                            )
+                        for done_future in done_futures:
+                            if done_future not in futures:
+                                continue
+                            svc_name = futures.pop(done_future)
+                            try:
+                                done_future.result()  # Re-raises exceptions
+                                prog.on_step_done(svc_name, service=svc_name)
+                            except Exception:
+                                # Service failed — propagated below
+                                pass
+                            _submit_ready()
 
                 # Check for failures
                 if failed_services:
@@ -2693,13 +2865,15 @@ class BreakerAmpService:
     def list_environments(
         self,
         reconcile: bool = True,
-        auto_cleanup: bool = True,
+        auto_cleanup: bool = False,
     ) -> List[Dict[str, Any]]:
         """List all active environments, optionally reconciling with container reality.
 
         Args:
             reconcile: If True, verify containers actually exist and mark stale ones
             auto_cleanup: If True, remove state files for environments with no containers
+                (destructive; default False so read-only callers and flaky Podman cannot
+                wipe ``environments/*.json``)
 
         Returns:
             List of environment status dicts with 'actual_status' field when reconciled
@@ -2707,19 +2881,133 @@ class BreakerAmpService:
         result = []
         stale_paths = []
 
-        # Get actual containers if we need to reconcile
+        env_paths = list(self.environments_dir.glob("*.json"))
+
+        # Get actual containers if we need to reconcile (lightweight name/state map first).
+        # With no state files, skip Podman entirely — nothing to reconcile.
         actual_containers: set[str] = set()
         container_statuses: dict[str, str] = {}  # name -> status ("running", "exited", etc.)
-        if reconcile:
-            try:
-                containers = self.executor.list_containers(all_containers=True)
-                actual_containers = {c.name for c in containers}
-                container_statuses = {c.name: c.status.lower() for c in containers}
-            except Exception:
-                # If we can't list containers (machine not running), skip reconciliation
-                reconcile = False
+        container_id_statuses: dict[str, str] = {}  # 12-char id prefix (lower) -> status
+        if reconcile and env_paths:
+            # Probe each saved manifest for ``runtime.podman_connection`` and merge container
+            # listings per distinct connection. A single default ``podman ps`` can miss stacks
+            # created on another connection (e.g. rootful ``*-root`` vs rootless default); apply
+            # already resolves the right connection onto the manifest — reconcile must honor it
+            # (same motivation as ``_ensure_runtime_ready_from_run_manifest`` for destroy/status).
+            connection_order: List[Optional[str]] = []
+            seen_connections: Set[Optional[str]] = set()
+            for path in env_paths:
+                try:
+                    with open(path, "r") as f:
+                        probe = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    continue
+                rt = probe.get("runtime")
+                conn: Optional[str] = None
+                if isinstance(rt, dict):
+                    raw = rt.get("podman_connection")
+                    if isinstance(raw, str) and raw.strip():
+                        conn = raw.strip()
+                if conn not in seen_connections:
+                    seen_connections.add(conn)
+                    connection_order.append(conn)
 
-        for path in self.environments_dir.glob("*.json"):
+            if not connection_order:
+                connection_order = [None]
+
+            connection_order = _expand_reconcile_podman_connections(
+                self.executor, connection_order
+            )
+
+            prev_connection: Optional[str] = None
+            if hasattr(self.executor, "connection"):
+                prev_connection = getattr(self.executor, "connection")
+
+            reconcile_ok = False
+            used_lightweight_list_map = False
+            try:
+                for conn in connection_order:
+                    if hasattr(self.executor, "connection"):
+                        setattr(self.executor, "connection", conn)
+                    try:
+                        list_map = getattr(self.executor, "list_container_name_state_map", None)
+                        if callable(list_map):
+                            used_lightweight_list_map = True
+                            chunk = dict(list_map())
+                        else:
+                            containers = self.executor.list_containers(all_containers=True)
+                            chunk = {
+                                (c.name or "").strip(): (c.status or "").lower()
+                                for c in containers
+                                if c.name
+                            }
+                        chunk = {
+                            _normalize_podman_container_key(k): v
+                            for k, v in chunk.items()
+                        }
+                        container_statuses.update(chunk)
+                        reconcile_ok = True
+                    except Exception:
+                        continue
+                actual_containers = set(container_statuses.keys())
+            except Exception:
+                reconcile = False
+            finally:
+                if hasattr(self.executor, "connection"):
+                    setattr(self.executor, "connection", prev_connection)
+
+            # ``list_container_name_state_map`` can return empty across connections while
+            # ``list_containers`` still sees rows (template/NDJSON quirks). Merge that view
+            # before deciding every run is STALE.
+            if (
+                reconcile_ok
+                and not container_statuses
+                and used_lightweight_list_map
+                and hasattr(self.executor, "list_containers")
+            ):
+                prev_fb = getattr(self.executor, "connection", None)
+                try:
+                    for conn in connection_order:
+                        if hasattr(self.executor, "connection"):
+                            setattr(self.executor, "connection", conn)
+                        try:
+                            containers = self.executor.list_containers(all_containers=True)
+                            chunk = {
+                                _normalize_podman_container_key((c.name or "").strip()): (
+                                    (c.status or "").lower()
+                                )
+                                for c in containers
+                                if getattr(c, "name", None)
+                            }
+                            container_statuses.update(chunk)
+                            reconcile_ok = True
+                        except Exception:
+                            continue
+                    actual_containers = set(container_statuses.keys())
+                finally:
+                    if hasattr(self.executor, "connection"):
+                        setattr(self.executor, "connection", prev_fb)
+
+            if reconcile_ok:
+                container_id_statuses = _merge_container_id_statuses_from_listing(
+                    self.executor, connection_order
+                )
+
+            if not reconcile_ok:
+                reconcile = False
+                actual_containers = set()
+                container_statuses = {}
+                container_id_statuses = {}
+            elif reconcile_ok and not container_statuses and used_lightweight_list_map:
+                # Fast path plus ``list_containers`` fallback still saw no rows. That often
+                # means the subprocess Podman view does not match reality (connection/socket),
+                # not that every saved run lost all containers. Do not STALE-delete JSON.
+                reconcile = False
+                actual_containers = set()
+                container_statuses = {}
+                container_id_statuses = {}
+
+        for path in env_paths:
             try:
                 with open(path, "r") as f:
                     data = json.load(f)
@@ -2736,13 +3024,43 @@ class BreakerAmpService:
             container_count = 0
             running_count = 0
             if reconcile and amp_run_id:
-                # Containers are named: {amp_run_id}-{service_name}
-                run_containers = [c for c in actual_containers if c.startswith(f"{amp_run_id}-")]
-                container_count = len(run_containers)
-                running_count = sum(
-                    1 for c in run_containers
-                    if container_statuses.get(c, "") == "running"
-                )
+                # Containers are usually ``{amp_run_id}-{service}``; see
+                # ``_podman_container_names_for_amp_run`` for alternate Podman naming.
+                run_containers = _podman_container_names_for_amp_run(amp_run_id, actual_containers)
+                if run_containers:
+                    container_count = len(run_containers)
+                    running_count = sum(
+                        1
+                        for c in run_containers
+                        if _podman_reconcile_state_is_running(container_statuses.get(c, ""))
+                    )
+                else:
+                    id_prefixes: List[str] = []
+                    outs = data.get("environment_outputs")
+                    if isinstance(outs, dict):
+                        for svc_info in outs.values():
+                            if not isinstance(svc_info, dict):
+                                continue
+                            raw_cid = svc_info.get("container_id")
+                            if isinstance(raw_cid, str) and raw_cid.strip():
+                                id_prefixes.append(raw_cid.strip()[:12].lower())
+                    seen_p: Set[str] = set()
+                    matched_statuses: List[str] = []
+                    for p in id_prefixes:
+                        if p in seen_p:
+                            continue
+                        seen_p.add(p)
+                        st = container_id_statuses.get(p, "")
+                        if st:
+                            matched_statuses.append(st)
+                    if matched_statuses:
+                        container_count = len(matched_statuses)
+                        running_count = sum(
+                            1 for st in matched_statuses if _podman_reconcile_state_is_running(st)
+                        )
+                    else:
+                        container_count = 0
+                        running_count = 0
 
                 if container_count == 0:
                     actual_status = "STALE"
@@ -2820,12 +3138,104 @@ class BreakerAmpService:
     description: Local development environment
     default_compliance_tier: standard
     default_lifetime: 90m
+    active_modules: [core, console, whiteboard]
     runtime:
       provider: podman
+      podman_machine: amprealize-dev
+      podman_connection: amprealize-dev
+      auto_init: true
       auto_start: true
     infrastructure:
-            blueprint_id: local-test-suite
+      blueprint_id: local-dev
+      teardown_on_exit: false
+
+  test:
+    description: Local test suite environment
+    default_compliance_tier: dev
+    default_lifetime: 90m
+    runtime:
+      provider: podman
+      podman_machine: amprealize-dev
+      podman_connection: amprealize-dev
+      auto_start: true
+    infrastructure:
+      blueprint_id: local-test-env
       teardown_on_exit: true
+
+  cloud-dev:
+    description: Cloud database development environment (Neon / Supabase)
+    default_compliance_tier: standard
+    default_lifetime: 90m
+    active_modules: [core, console, whiteboard]
+    runtime:
+      provider: podman
+      podman_machine: amprealize-dev
+      podman_connection: amprealize-dev
+      auto_init: true
+      auto_start: true
+    infrastructure:
+      blueprint_id: cloud-dev
+      teardown_on_exit: false
+
+  local-postgres:
+    description: Local Postgres + telemetry profile for BreakerAmp-native observability development
+    default_compliance_tier: standard
+    default_lifetime: 90m
+    active_modules: [core, console, whiteboard]
+    runtime:
+      provider: podman
+      podman_machine: amprealize-dev
+      podman_connection: amprealize-dev
+      auto_init: true
+      auto_start: true
+    infrastructure:
+      blueprint_id: local-dev
+      teardown_on_exit: false
+
+  neon:
+    description: Neon-backed cloud development profile with telemetry DSN passthrough
+    default_compliance_tier: standard
+    default_lifetime: 90m
+    active_modules: [core, console, whiteboard]
+    runtime:
+      provider: podman
+      podman_machine: amprealize-dev
+      podman_connection: amprealize-dev
+      auto_init: true
+      auto_start: true
+    infrastructure:
+      blueprint_id: cloud-dev
+      teardown_on_exit: false
+
+  self-hosted-observability:
+    description: Self-hosted enterprise observability profile backed by local BreakerAmp services
+    default_compliance_tier: strict
+    default_lifetime: 4h
+    active_modules: [core, console, whiteboard, monitoring]
+    runtime:
+      provider: podman
+      podman_machine: amprealize-dev
+      podman_connection: amprealize-dev
+      auto_init: true
+      auto_start: true
+    infrastructure:
+      blueprint_id: local-dev
+      teardown_on_exit: false
+
+  managed-enterprise-observability:
+    description: Managed enterprise observability profile for cloud Postgres plus exporter passthrough
+    default_compliance_tier: strict
+    default_lifetime: 4h
+    active_modules: [core, console, whiteboard, monitoring]
+    runtime:
+      provider: podman
+      podman_machine: amprealize-dev
+      podman_connection: amprealize-dev
+      auto_init: true
+      auto_start: true
+    infrastructure:
+      blueprint_id: cloud-dev
+      teardown_on_exit: false
 
   staging:
     description: Staging environment

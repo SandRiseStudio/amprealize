@@ -1,0 +1,16 @@
+{
+  "name": "amprealize-marketplace",
+  "owner": {
+    "name": "SandRise Studio"
+  },
+  "metadata": {
+    "description": "Amprealize: behavior engine, MCP tools, and agent workflows for Cursor."
+  },
+  "plugins": [
+    {
+      "name": "amprealize",
+      "source": "plugins/amprealize",
+      "description": "MCP server (220+ tools), rules, and skills for behavior retrieval, runs, compliance, and cross-surface parity with Amprealize."
+    }
+  ]
+}

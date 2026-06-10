@@ -52,12 +52,9 @@ const CLARIFICATION_STYLE_ID = 'ga-clarification-ui-styles';
 const CLARIFICATION_STYLES = `
 .ga-clar-panel {
   border-radius: var(--radius-xl, 12px);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  background: linear-gradient(
-    135deg,
-    rgba(255, 251, 235, 0.95) 0%,
-    rgba(254, 243, 199, 0.85) 100%
-  );
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: rgba(255, 251, 235, 0.92);
+  border-top-color: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(12px);
   padding: var(--space-4, 16px);
   display: flex;
@@ -194,7 +191,7 @@ const CLARIFICATION_STYLES = `
   min-height: 80px;
   transition:
     border-color 0.15s cubic-bezier(0.16, 1, 0.3, 1),
-    box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    outline-color 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .ga-clar-input::placeholder {
@@ -206,9 +203,9 @@ const CLARIFICATION_STYLES = `
 }
 
 .ga-clar-input:focus {
-  outline: none;
+  outline: 2px solid rgba(59, 130, 246, 0.28);
+  outline-offset: 1px;
   border-color: var(--color-accent, #3b82f6);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
 .ga-clar-actions {

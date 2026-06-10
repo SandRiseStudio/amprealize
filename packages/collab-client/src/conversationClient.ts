@@ -6,6 +6,7 @@
  */
 
 import type {
+  AgentReplyCompletePayload,
   ConversationMessageEventPayload,
   ConversationParticipantEventPayload,
   ConversationReactionEventPayload,
@@ -73,6 +74,7 @@ interface SendMessageCommand {
   message_type?: MessageType | string;
   structured_payload?: Record<string, unknown> | null;
   parent_id?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 interface EditMessageCommand {
@@ -238,6 +240,7 @@ export class ConversationStreamClient extends TypedEventEmitter<ConversationStre
     message_type?: MessageType | string;
     structured_payload?: Record<string, unknown> | null;
     parent_id?: string | null;
+    metadata?: Record<string, unknown>;
   }): void {
     this.send({
       type: 'message.send',
@@ -245,6 +248,7 @@ export class ConversationStreamClient extends TypedEventEmitter<ConversationStre
       message_type: options.message_type,
       structured_payload: options.structured_payload,
       parent_id: options.parent_id,
+      metadata: options.metadata,
     });
   }
 
@@ -313,7 +317,12 @@ export class ConversationStreamClient extends TypedEventEmitter<ConversationStre
       this.log('WebSocket error');
     };
 
-    this.ws.onclose = (event) => {
+    this.ws.onclose = (event: CloseEvent) => {
+      // Ignore closes from a replaced socket (conversation switch / reconnect race).
+      // Otherwise stale handlers clear the active socket's timers and may spuriously reconnect.
+      if (event.target !== this.ws) {
+        return;
+      }
       this.log('WebSocket closed', event.code, event.reason);
       this.clearTimers();
       this.ws = null;
@@ -337,6 +346,10 @@ export class ConversationStreamClient extends TypedEventEmitter<ConversationStre
       return;
     }
 
+    if (this.config.debug && message.type && message.type !== 'pong' && message.type !== 'heartbeat') {
+      this.log('Recv:', message.type);
+    }
+
     switch (message.type) {
       case 'conversation.ready':
         this.emit('connected', message.payload as ConversationReadyPayload);
@@ -356,7 +369,7 @@ export class ConversationStreamClient extends TypedEventEmitter<ConversationStre
       case 'reaction.removed':
         this.emit('reaction.removed', message.payload as ConversationReactionEventPayload);
         break;
-      case 'typing':
+      case 'typing.indicator':
         this.emit('typing.indicator', message.payload as ConversationTypingPayload);
         break;
       case 'read.receipt':
@@ -369,6 +382,27 @@ export class ConversationStreamClient extends TypedEventEmitter<ConversationStre
         this.emit('participant.left', message.payload as ConversationParticipantEventPayload);
         break;
       case 'pong':
+        break;
+      case 'heartbeat':
+        break;
+      case 'token':
+      case 'reply.started':
+      case 'reply.step':
+      case 'reply.token':
+      case 'structured_start':
+      case 'structured_update':
+      case 'reply.error':
+        // Agent streaming — consumed by SSE; ignore on WS without spamming logs.
+        break;
+      case 'complete':
+      case 'reply.complete':
+        this.emit(
+          'agent.reply.complete',
+          (message.payload ?? {}) as AgentReplyCompletePayload,
+        );
+        break;
+      case 'pin.updated':
+      case 'system.announcement':
         break;
       case 'error':
         this.emit('error', message.code ?? 'UNKNOWN', message.message ?? 'Unknown error');
@@ -445,7 +479,20 @@ export class ConversationStreamClient extends TypedEventEmitter<ConversationStre
   private send(command: ClientCommand): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(command));
-      this.log('Sent:', command.type);
+      if (this.config.debug) {
+        if (command.type === 'message.send') {
+          const meta = (command as { metadata?: Record<string, unknown> }).metadata;
+          this.log('Sent:', command.type, {
+            has_llm_model_id: Boolean(meta && typeof meta.llm_model_id === 'string' && meta.llm_model_id),
+            content_len:
+              typeof (command as { content?: string | null }).content === 'string'
+                ? (command as { content: string }).content.length
+                : 0,
+          });
+        } else if (command.type !== 'ping') {
+          this.log('Sent:', command.type);
+        }
+      }
     }
   }
 

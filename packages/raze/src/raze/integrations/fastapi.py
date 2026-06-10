@@ -88,6 +88,11 @@ class RazeMiddleware(BaseHTTPMiddleware):
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         run_id = request.headers.get("X-Run-ID")
         session_id = request.headers.get("X-Session-ID")
+        web_perf_session = (
+            request.headers.get("X-Web-Perf-Session")
+            or request.headers.get("x-web-perf-session")
+            or ""
+        ).strip() or None
 
         start_time = time.time()
 
@@ -100,16 +105,22 @@ class RazeMiddleware(BaseHTTPMiddleware):
             "client_host": request.client.host if request.client else None,
             "user_agent": request.headers.get("User-Agent"),
         }
+        if web_perf_session:
+            request_context["web_perf_session_id"] = web_perf_session
 
-        self.service.ingest(LogEvent(
-            level=LogLevel.INFO,
-            service=self.service_name,
-            message=f"{request.method} {request.url.path}",
-            run_id=run_id,
-            session_id=session_id,
-            actor_surface="api",
-            context=request_context,
-        ))
+        self.service.ingest_sync(
+            [
+                LogEvent(
+                    level=LogLevel.INFO,
+                    service=self.service_name,
+                    message=f"{request.method} {request.url.path}",
+                    run_id=run_id,
+                    session_id=session_id,
+                    actor_surface="api",
+                    context=request_context,
+                )
+            ]
+        )
 
         try:
             response = await call_next(request)
@@ -132,15 +143,19 @@ class RazeMiddleware(BaseHTTPMiddleware):
                 "duration_ms": round(duration_ms, 2),
             }
 
-            self.service.ingest(LogEvent(
-                level=level,
-                service=self.service_name,
-                message=f"{request.method} {request.url.path} -> {response.status_code}",
-                run_id=run_id,
-                session_id=session_id,
-                actor_surface="api",
-                context=response_context,
-            ))
+            self.service.ingest_sync(
+                [
+                    LogEvent(
+                        level=level,
+                        service=self.service_name,
+                        message=f"{request.method} {request.url.path} -> {response.status_code}",
+                        run_id=run_id,
+                        session_id=session_id,
+                        actor_surface="api",
+                        context=response_context,
+                    )
+                ]
+            )
 
             # Add request ID to response headers
             response.headers["X-Request-ID"] = request_id
@@ -157,15 +172,19 @@ class RazeMiddleware(BaseHTTPMiddleware):
                 "duration_ms": round(duration_ms, 2),
             }
 
-            self.service.ingest(LogEvent(
-                level=LogLevel.ERROR,
-                service=self.service_name,
-                message=f"{request.method} {request.url.path} FAILED: {exc}",
-                run_id=run_id,
-                session_id=session_id,
-                actor_surface="api",
-                context=error_context,
-            ))
+            self.service.ingest_sync(
+                [
+                    LogEvent(
+                        level=LogLevel.ERROR,
+                        service=self.service_name,
+                        message=f"{request.method} {request.url.path} FAILED: {exc}",
+                        run_id=run_id,
+                        session_id=session_id,
+                        actor_surface="api",
+                        context=error_context,
+                    )
+                ]
+            )
 
             raise
 
@@ -203,30 +222,7 @@ def create_log_routes(
     async def ingest_logs(request: LogIngestRequest) -> LogIngestResponse:
         """Ingest a batch of log events."""
         try:
-            log_ids = []
-            for event_input in request.logs:
-                # Build kwargs, omitting None timestamp to use default
-                event_kwargs = {
-                    "level": event_input.level,
-                    "service": event_input.service,
-                    "message": event_input.message,
-                    "run_id": event_input.run_id,
-                    "action_id": event_input.action_id,
-                    "session_id": event_input.session_id,
-                    "actor_surface": event_input.actor_surface,
-                    "context": event_input.context,
-                }
-                if event_input.timestamp is not None:
-                    event_kwargs["timestamp"] = event_input.timestamp
-
-                event = LogEvent(**event_kwargs)
-                service.ingest(event)
-                log_ids.append(event.log_id)
-
-            return LogIngestResponse(
-                ingested_count=len(log_ids),
-                log_ids=log_ids,
-            )
+            return await service.ingest_request(request)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

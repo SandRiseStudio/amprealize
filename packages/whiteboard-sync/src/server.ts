@@ -32,9 +32,14 @@ const roomManager = new RoomManager({
   persistIntervalMs: PERSIST_INTERVAL_MS,
 });
 
-const server = http.createServer((_req, res) => {
+// Optional shared secret for the internal /reload endpoint. When set, callers
+// must send it as a Bearer token. Reuses WHITEBOARD_SERVICE_TOKEN (the same
+// secret the sidecar uses to call the API back). Unset = open (local dev).
+const SERVICE_TOKEN = process.env.WHITEBOARD_SERVICE_TOKEN ?? "";
+
+const server = http.createServer((req, res) => {
   // Health check endpoint
-  if (_req.url === "/healthz") {
+  if (req.method === "GET" && req.url === "/healthz") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
@@ -45,6 +50,37 @@ const server = http.createServer((_req, res) => {
     );
     return;
   }
+
+  // Live agent-push: re-read a room's snapshot from the API and rebroadcast.
+  // POST /reload/whiteboard/{roomId}
+  const reloadMatch =
+    req.method === "POST"
+      ? req.url?.match(/^\/reload\/whiteboard\/([a-zA-Z0-9_-]+)\/?$/)
+      : null;
+  if (reloadMatch) {
+    if (SERVICE_TOKEN) {
+      const auth = req.headers["authorization"];
+      if (auth !== `Bearer ${SERVICE_TOKEN}`) { // gitleaks:allow
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+    }
+    const roomId = reloadMatch[1];
+    roomManager
+      .reloadFromBackend(roomId)
+      .then((result) => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ room_id: roomId, ...result }));
+      })
+      .catch((err) => {
+        log("error", `reload failed for room=${roomId}`, err);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "reload_failed" }));
+      });
+    return;
+  }
+
   res.writeHead(404);
   res.end();
 });

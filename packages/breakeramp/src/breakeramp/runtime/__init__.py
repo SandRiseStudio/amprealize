@@ -13,6 +13,7 @@ from breakeramp.runtime.podman import (
     PodmanError,
     ContainerNotFoundError,
     discover_podman_socket,
+    discover_podman_socket_host_path_for_mount,
 )
 from breakeramp.runtime.state import (
     StateStore,
@@ -27,6 +28,7 @@ __all__ = [
     "PodmanError",
     "ContainerNotFoundError",
     "discover_podman_socket",
+    "discover_podman_socket_host_path_for_mount",
     # State
     "StateStore",
     "InMemoryStateStore",

@@ -328,6 +328,71 @@ const EXECUTION_STYLES = `
   100% { transform: scale(1); opacity: 0.7; }
 }
 
+.ga-knowledge-receipt {
+  margin-top: var(--space-2);
+}
+
+.ga-knowledge-receipt-details {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: var(--radius-lg);
+  background: rgba(15, 23, 42, 0.02);
+  padding: var(--space-2) var(--space-3);
+}
+
+.ga-knowledge-receipt-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-secondary);
+}
+
+.ga-knowledge-receipt-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ga-knowledge-receipt-heading {
+  color: var(--color-text-primary);
+}
+
+.ga-knowledge-receipt-count {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+.ga-knowledge-receipt-panel {
+  margin-top: var(--space-2);
+}
+
+.ga-knowledge-receipt-list {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ga-knowledge-receipt-item {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ga-knowledge-receipt-title {
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+}
+
+.ga-knowledge-receipt-meta {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+}
+
 @media (max-width: 900px) {
   .ga-exec-panel {
     padding: var(--space-3);

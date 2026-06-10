@@ -364,8 +364,126 @@ class TestBandwidthEnforcer:
         assert isinstance(usage, float)
 
 
+class ConnectionSplitExecutor:
+    """Simulates Podman where containers are only visible on a named connection."""
+
+    def __init__(self):
+        self.connection = None
+
+    def list_container_name_state_map(self):
+        if self.connection == "amprealize-dev-root":
+            return {"amp-rootful-run-redis": "running", "amp-rootful-run-api": "running"}
+        return {}
+
+
 class TestListEnvironmentsReconciliation:
     """Tests for list_environments reconciliation with container reality."""
+
+    def test_podman_reconcile_state_recognizes_up_prefix(self):
+        from breakeramp.service import _podman_reconcile_state_is_running
+
+        assert _podman_reconcile_state_is_running("running")
+        assert _podman_reconcile_state_is_running("Up 3 minutes")
+        assert _podman_reconcile_state_is_running("up 2 hours")
+        assert not _podman_reconcile_state_is_running("exited")
+        assert not _podman_reconcile_state_is_running("")
+
+    def test_list_environments_reconcile_by_container_id_when_ps_names_hide_run_id(
+        self,
+        temp_base_dir,
+    ):
+        """Reconcile must use ``environment_outputs[].container_id`` when ``podman ps`` names
+        do not embed ``amp_run_id`` (still same 12-char ID prefix as at apply time)."""
+
+        from breakeramp.executors.base import ContainerInfo
+
+        class _WeirdNameExecutor:
+            connection = None
+
+            def list_container_name_state_map(self):
+                return {"infra-telemetry-7a2": "running", "sidecar-proxy": "running"}
+
+            def list_containers(self, all_containers: bool = False):
+                return [
+                    ContainerInfo(
+                        container_id="7a2b9c1d4e5f",
+                        name="infra-telemetry-7a2",
+                        status="running",
+                        image="timescale",
+                    ),
+                    ContainerInfo(
+                        container_id="8b3c0d2e5f6a",
+                        name="sidecar-proxy",
+                        status="running",
+                        image="alpine",
+                    ),
+                ]
+
+        import json
+
+        rid = "amp-cidonly-70000000-7000-7000-7000-000000000004"
+        env_path = temp_base_dir / "environments" / "amp-cidonly-run.json"
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text(
+            json.dumps(
+                {
+                    "amp_run_id": rid,
+                    "environment": "cloud-dev",
+                    "phase": "APPLIED",
+                    "blueprint_id": "cloud-dev",
+                    "created_at": "2025-01-01T00:00:00",
+                    "runtime": {"provider": "podman", "podman_connection": "amprealize-dev"},
+                    "environment_outputs": {
+                        "telemetry-db": {"container_id": "7a2b9c1d4e5f0123456789abcdef", "status": "running"},
+                        "redis": {"container_id": "8b3c0d2e5f6a0123456789abcdef", "status": "running"},
+                    },
+                }
+            )
+        )
+
+        service = BreakerAmpService(executor=_WeirdNameExecutor(), base_dir=temp_base_dir)
+        result = service.list_environments(reconcile=True, auto_cleanup=False)
+        row = next(r for r in result if r["amp_run_id"] == rid)
+        assert row["actual_status"] == "RUNNING"
+        assert row["container_count"] == 2
+
+    def test_list_environments_reconcile_matches_prefixed_container_names(self, temp_base_dir):
+        """Podman may list ``proj_{amp_run_id}_svc`` instead of ``amp_run_id-svc``."""
+
+        class _ComposeStyleExecutor:
+            connection = None
+
+            def list_container_name_state_map(self):
+                rid = "amp-compose-50000000-5000-5000-5000-000000000002"
+                return {
+                    f"stack_{rid}_redis": "running",
+                    f"stack_{rid}_amprealize-api": "running",
+                    "unrelated": "exited",
+                }
+
+        import json
+
+        env_path = temp_base_dir / "environments" / "amp-compose-run.json"
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        rid = "amp-compose-50000000-5000-5000-5000-000000000002"
+        env_path.write_text(
+            json.dumps(
+                {
+                    "amp_run_id": rid,
+                    "environment": "cloud-dev",
+                    "phase": "APPLIED",
+                    "blueprint_id": "cloud-dev",
+                    "created_at": "2025-01-01T00:00:00",
+                    "runtime": {"provider": "podman", "podman_connection": "amprealize-dev"},
+                }
+            )
+        )
+
+        service = BreakerAmpService(executor=_ComposeStyleExecutor(), base_dir=temp_base_dir)
+        result = service.list_environments(reconcile=True, auto_cleanup=False)
+        row = next(r for r in result if r["amp_run_id"] == rid)
+        assert row["actual_status"] == "RUNNING"
+        assert row["container_count"] == 2
 
     def test_list_environments_empty(self, service):
         """Returns empty list when no environments."""
@@ -391,7 +509,6 @@ class TestListEnvironmentsReconciliation:
             "created_at": "2025-01-01T00:00:00",
         }))
 
-        # List with auto_cleanup=True (default)
         result = service.list_environments(reconcile=True, auto_cleanup=True)
 
         # Stale file should be removed (no containers match)
@@ -428,3 +545,165 @@ class TestListEnvironmentsReconciliation:
             # Cleanup
             if stale_path.exists():
                 stale_path.unlink()
+
+    def test_list_environments_empty_podman_map_preserves_state(self, temp_base_dir):
+        """Empty name/state map across connections must not STALE-delete saved JSON."""
+
+        class _EmptyMapExecutor:
+            connection = None
+
+            def list_container_name_state_map(self):
+                return {}
+
+        import json
+
+        env_path = temp_base_dir / "environments" / "amp-invisible-run.json"
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text(
+            json.dumps(
+                {
+                    "amp_run_id": "amp-invisible-run",
+                    "environment": "cloud-dev",
+                    "phase": "APPLIED",
+                    "blueprint_id": "cloud-dev",
+                    "created_at": "2025-01-01T00:00:00",
+                    "runtime": {"provider": "podman", "podman_connection": "amprealize-dev"},
+                }
+            )
+        )
+
+        service = BreakerAmpService(executor=_EmptyMapExecutor(), base_dir=temp_base_dir)
+        result = service.list_environments(reconcile=True, auto_cleanup=True)
+
+        assert env_path.exists(), "inconclusive reconcile must not delete environment state"
+        row = next(r for r in result if r["amp_run_id"] == "amp-invisible-run")
+        assert row.get("actual_status") is None
+        assert "container_count" not in row
+
+    def test_list_environments_list_containers_fallback_when_map_empty(self, temp_base_dir):
+        """If ``list_container_name_state_map`` is empty, merge from ``list_containers``."""
+
+        from breakeramp.executors.base import ContainerInfo
+
+        class _MapEmptyListCsExecutor:
+            connection = None
+
+            def list_container_name_state_map(self):
+                return {}
+
+            def list_containers(self, all_containers: bool = False):
+                return [
+                    ContainerInfo(
+                        container_id="abc",
+                        name="amp-fallback-run-redis",
+                        status="running",
+                        image="redis",
+                    ),
+                ]
+
+        import json
+
+        env_path = temp_base_dir / "environments" / "amp-fallback-run.json"
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text(
+            json.dumps(
+                {
+                    "amp_run_id": "amp-fallback-run",
+                    "environment": "cloud-dev",
+                    "phase": "APPLIED",
+                    "blueprint_id": "cloud-dev",
+                    "created_at": "2025-01-01T00:00:00",
+                    "runtime": {"provider": "podman", "podman_connection": "amprealize-dev"},
+                }
+            )
+        )
+
+        service = BreakerAmpService(executor=_MapEmptyListCsExecutor(), base_dir=temp_base_dir)
+        result = service.list_environments(reconcile=True, auto_cleanup=True)
+        row = next(r for r in result if r["amp_run_id"] == "amp-fallback-run")
+        assert row["actual_status"] == "RUNNING"
+        assert row["container_count"] == 1
+        assert env_path.exists()
+
+    def test_list_environments_both_list_paths_empty_preserves_state(self, temp_base_dir):
+        """When map + list_containers return nothing, do not STALE-delete (visibility gap)."""
+
+        class _BothEmptyExecutor:
+            connection = None
+
+            def list_container_name_state_map(self):
+                return {}
+
+            def list_containers(self, all_containers: bool = False):
+                return []
+
+        import json
+
+        env_path = temp_base_dir / "environments" / "amp-both-empty-run.json"
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text(
+            json.dumps(
+                {
+                    "amp_run_id": "amp-both-empty-run",
+                    "environment": "cloud-dev",
+                    "phase": "APPLIED",
+                    "blueprint_id": "cloud-dev",
+                    "created_at": "2025-01-01T00:00:00",
+                    "runtime": {"provider": "podman", "podman_connection": "amprealize-dev"},
+                }
+            )
+        )
+
+        service = BreakerAmpService(executor=_BothEmptyExecutor(), base_dir=temp_base_dir)
+        service.list_environments(reconcile=True, auto_cleanup=True)
+        assert env_path.exists()
+
+    def test_list_environments_reconcile_uses_saved_podman_connection(self, temp_base_dir):
+        """Saved runtime.podman_connection must be used so stacks are not marked STALE."""
+        import json
+
+        env_path = temp_base_dir / "environments" / "amp-rootful-run.json"
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text(
+            json.dumps(
+                {
+                    "amp_run_id": "amp-rootful-run",
+                    "environment": "cloud-dev",
+                    "phase": "APPLIED",
+                    "blueprint_id": "cloud-dev",
+                    "created_at": "2025-01-01T00:00:00",
+                    "runtime": {
+                        "provider": "podman",
+                        "podman_machine": "amprealize-dev",
+                        "podman_connection": "amprealize-dev-root",
+                    },
+                }
+            )
+        )
+
+        ex = ConnectionSplitExecutor()
+        service = BreakerAmpService(executor=ex, base_dir=temp_base_dir)
+
+        result = service.list_environments(reconcile=True, auto_cleanup=True)
+        assert env_path.exists(), "state file must not be purged when containers match saved connection"
+        row = next(r for r in result if r["amp_run_id"] == "amp-rootful-run")
+        assert row["actual_status"] == "RUNNING"
+        assert row["container_count"] == 2
+        assert row["running_count"] == 2
+
+    def test_expand_reconcile_podman_connections_root_peer(self):
+        """Reconcile queries rootless + rootful peers when both connections exist."""
+        from breakeramp.executors.podman import PodmanExecutor
+        from breakeramp.service import _expand_reconcile_podman_connections
+
+        ex = PodmanExecutor()
+
+        def fake_exists(name: str) -> bool:
+            return name in ("amprealize-dev", "amprealize-dev-root")
+
+        ex.connection_exists = fake_exists  # type: ignore[method-assign]
+        assert _expand_reconcile_podman_connections(ex, ["amprealize-dev"]) == [
+            "amprealize-dev",
+            "amprealize-dev-root",
+            None,
+        ]

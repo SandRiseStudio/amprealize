@@ -22,7 +22,7 @@ on:
         default: false
         type: boolean
       publish_cursor:
-        description: 'Publish to Cursor Extension Store'
+        description: 'Validate Cursor plugin bundle (MCP+rules+skills) and print marketplace submit steps'
         required: false
         default: false
         type: boolean
@@ -343,12 +343,119 @@ jobs:
           retention-days: 30
 
   # ============================================================================
-  # Service Parity Tests (Critical)
+  # Service Parity Tests (Critical) — Postgres + Redis + telemetry + metrics
+  # so DSN-gated parity tests run instead of skipping (aligns with test-python).
   # ============================================================================
   test-parity:
     name: Service Parity Tests
     runs-on: ubuntu-latest
     needs: [security-scan]
+    env:
+      DATABASE_URL: postgresql://amprealize_behavior:behavior_test_pass@localhost:6433/amprealize_behavior
+      AMPREALIZE_ALEMBIC_DATABASE_URL: postgresql://amprealize_behavior:behavior_test_pass@localhost:6433/amprealize_behavior
+      AMPREALIZE_ALEMBIC_SCHEMA_READY: "1"
+      AMPREALIZE_TEST_PER_SERVICE_PG_DATABASES: "0"
+      REDIS_HOST: localhost
+      REDIS_PORT: "6479"
+      AMPREALIZE_PG_HOST_BEHAVIOR: localhost
+      AMPREALIZE_PG_PORT_BEHAVIOR: "6433"
+      AMPREALIZE_PG_USER_BEHAVIOR: amprealize_behavior
+      AMPREALIZE_PG_PASS_BEHAVIOR: behavior_test_pass
+      AMPREALIZE_PG_DB_BEHAVIOR: amprealize_behavior
+      AMPREALIZE_PG_HOST_WORKFLOW: localhost
+      AMPREALIZE_PG_PORT_WORKFLOW: "6433"
+      AMPREALIZE_PG_USER_WORKFLOW: amprealize_behavior
+      AMPREALIZE_PG_PASS_WORKFLOW: behavior_test_pass
+      AMPREALIZE_PG_DB_WORKFLOW: amprealize_behavior
+      AMPREALIZE_PG_HOST_ACTION: localhost
+      AMPREALIZE_PG_PORT_ACTION: "6433"
+      AMPREALIZE_PG_USER_ACTION: amprealize_behavior
+      AMPREALIZE_PG_PASS_ACTION: behavior_test_pass
+      AMPREALIZE_PG_DB_ACTION: amprealize_behavior
+      AMPREALIZE_PG_HOST_RUN: localhost
+      AMPREALIZE_PG_PORT_RUN: "6433"
+      AMPREALIZE_PG_USER_RUN: amprealize_behavior
+      AMPREALIZE_PG_PASS_RUN: behavior_test_pass
+      AMPREALIZE_PG_DB_RUN: amprealize_behavior
+      AMPREALIZE_PG_HOST_COMPLIANCE: localhost
+      AMPREALIZE_PG_PORT_COMPLIANCE: "6433"
+      AMPREALIZE_PG_USER_COMPLIANCE: amprealize_behavior
+      AMPREALIZE_PG_PASS_COMPLIANCE: behavior_test_pass
+      AMPREALIZE_PG_DB_COMPLIANCE: amprealize_behavior
+      AMPREALIZE_PG_HOST_AUTH: localhost
+      AMPREALIZE_PG_PORT_AUTH: "6433"
+      AMPREALIZE_PG_USER_AUTH: amprealize_behavior
+      AMPREALIZE_PG_PASS_AUTH: behavior_test_pass
+      AMPREALIZE_PG_DB_AUTH: amprealize_behavior
+      AMPREALIZE_PG_HOST_TELEMETRY: localhost
+      AMPREALIZE_PG_PORT_TELEMETRY: "6438"
+      AMPREALIZE_PG_USER_TELEMETRY: amprealize_telemetry
+      AMPREALIZE_PG_PASS_TELEMETRY: telemetry_test_pass
+      AMPREALIZE_PG_DB_TELEMETRY: amprealize_telemetry
+      AMPREALIZE_PG_HOST_METRICS: localhost
+      AMPREALIZE_PG_PORT_METRICS: "6439"
+      AMPREALIZE_PG_USER_METRICS: amprealize_metrics_test
+      AMPREALIZE_PG_PASS_METRICS: metrics_test_pass
+      AMPREALIZE_PG_DB_METRICS: amprealize_metrics_test
+      AMPREALIZE_METRICS_PG_DSN: postgresql://amprealize_metrics_test:metrics_test_pass@localhost:6439/amprealize_metrics_test
+      AMPREALIZE_BEHAVIOR_PG_DSN: postgresql://amprealize_behavior:behavior_test_pass@localhost:6433/amprealize_behavior
+
+    services:
+      postgres-behavior:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: amprealize_behavior
+          POSTGRES_PASSWORD: behavior_test_pass
+          POSTGRES_DB: amprealize_behavior
+        ports:
+          - 6433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --memory 256m
+
+      postgres-telemetry:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: amprealize_telemetry
+          POSTGRES_PASSWORD: telemetry_test_pass
+          POSTGRES_DB: amprealize_telemetry
+        ports:
+          - 6438:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --memory 256m
+
+      postgres-metrics:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: amprealize_metrics_test
+          POSTGRES_PASSWORD: metrics_test_pass
+          POSTGRES_DB: amprealize_metrics_test
+        ports:
+          - 6439:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --memory 256m
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6479:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 3s
+          --health-retries 5
+          --memory 128m
 
     steps:
       - name: Checkout repository
@@ -359,10 +466,25 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev postgresql-client redis-tools
+
+      - name: Wait for services
+        run: |
+          for port in 6433 6438 6439; do
+            timeout 60 bash -c "until pg_isready -h localhost -p $port; do sleep 1; done" || exit 1
+          done
+          timeout 30 bash -c "until redis-cli -h localhost -p 6479 ping; do sleep 1; done" || exit 1
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,semantic]"
+          pip install -e ".[dev,postgres,telemetry,semantic]"
+
+      - name: Run Alembic migrations
+        run: python scripts/run_alembic_migrations.py
 
       - name: Run all parity tests
         run: |
@@ -388,6 +510,70 @@ jobs:
           name: parity-coverage-report
           path: parity-coverage-report.txt
           retention-days: 30
+
+  # ============================================================================
+  # Telemetry warehouse — Postgres integration (GUIDEAI-1238 / GUIDEAI-1189)
+  # ============================================================================
+  observability-telemetry-integration:
+    name: Observability Telemetry Warehouse (integration)
+    runs-on: ubuntu-latest
+    needs: [security-scan]
+
+    env:
+      AMPREALIZE_PG_HOST_TELEMETRY: localhost
+      AMPREALIZE_PG_PORT_TELEMETRY: "6438"
+      AMPREALIZE_PG_USER_TELEMETRY: amprealize_telemetry
+      AMPREALIZE_PG_PASS_TELEMETRY: telemetry_test_pass
+      AMPREALIZE_PG_DB_TELEMETRY: amprealize_telemetry
+      TELEMETRY_DATABASE_URL: postgresql://amprealize_telemetry:telemetry_test_pass@localhost:6438/amprealize_telemetry
+      AMPREALIZE_TELEMETRY_PG_DSN: postgresql://amprealize_telemetry:telemetry_test_pass@localhost:6438/amprealize_telemetry
+
+    services:
+      postgres-telemetry:
+        image: timescale/timescaledb:latest-pg16
+        env:
+          POSTGRES_USER: amprealize_telemetry
+          POSTGRES_PASSWORD: telemetry_test_pass
+          POSTGRES_DB: amprealize_telemetry
+        ports:
+          - 6438:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --memory 256m
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION_DEFAULT }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,postgres,telemetry]"
+
+      - name: Wait for telemetry Postgres
+        run: |
+          timeout 60 bash -c "until pg_isready -h localhost -p 6438; do sleep 1; done"
+
+      - name: Apply telemetry Alembic migrations
+        run: alembic -c alembic.telemetry.ini upgrade head
+
+      - name: Run observability warehouse integration tests
+        run: |
+          pytest tests/test_observability_telemetry_integration.py \
+            --run-integration -v --tb=short --timeout=120
 
   # ============================================================================
   # MCP Server Validation
@@ -507,6 +693,7 @@ jobs:
       - pre-commit
       - test-python
       - test-parity
+      - observability-telemetry-integration
       - test-mcp-server
       - test-dashboard
       - test-extension
@@ -519,6 +706,7 @@ jobs:
           echo "✅ Pre-commit hooks: PASSED"
           echo "✅ Python tests (3.10, 3.11, 3.12): PASSED"
           echo "✅ Service parity tests: PASSED"
+          echo "✅ Observability telemetry warehouse integration: PASSED"
           echo "✅ MCP server validation: PASSED"
           echo "✅ Dashboard build: PASSED"
           echo "✅ VS Code extension: PASSED"
@@ -562,16 +750,32 @@ jobs:
           vsce publish --allow-missing-repository
           echo "✅ Successfully published to VSCode Marketplace!"
 
-      - name: Publish to Cursor Extension Store
+      - name: Validate Cursor Marketplace plugin (Git-based bundle)
         if: github.event.inputs.publish_cursor == 'true'
-        env:
-          CURSOR_TOKEN: ${{ secrets.CURSOR_TOKEN }}
-        working-directory: extension
         run: |
-          echo "📦 Publishing Amprealize extension to Cursor Store..."
-          # TODO: Add Cursor extension publishing when available
-          # vsce publish --target cursor --allow-missing-repository || true
-          echo "✅ Cursor extension publishing ready!"
+          set -euo pipefail
+          python3 << 'PY'
+          import json
+          from pathlib import Path
+          root = Path(".")
+          paths = [
+              root / ".cursor-plugin" / "marketplace.json",
+              root / "plugins" / "amprealize" / ".cursor-plugin" / "plugin.json",
+              root / "plugins" / "amprealize" / "mcp.json",
+          ]
+          for p in paths:
+              json.load(p.open())
+              print(f"OK: {p}")
+          PY
+          test -f plugins/amprealize/assets/logo.png
+          test -f plugins/amprealize/README.md
+          test -n "$(find plugins/amprealize/rules -name '*.mdc' -print -quit)"
+          test -n "$(find plugins/amprealize/skills -name 'SKILL.md' -print -quit)"
+          echo ""
+          echo "Cursor Marketplace plugins are submitted as a public Git repo (manual review)."
+          echo "Submit or update: https://cursor.com/marketplace/publish"
+          echo "Plugin root in this repo: plugins/amprealize/"
+          echo "See: plugins/amprealize/README.md"
 
       - name: Create GitHub Release
         if: github.event.inputs.publish_vscode == 'true' || github.event.inputs.publish_cursor == 'true'
@@ -582,19 +786,11 @@ jobs:
           tag_name: v${{ github.event.inputs.version || '1.0.0' }}
           release_name: Release ${{ github.event.inputs.version || '1.0.0' }}
           body: |
-            Amprealize IDE Extension v${{ github.event.inputs.version || '1.0.0' }}
+            Amprealize release v${{ github.event.inputs.version || '1.0.0' }}
 
-            🎉 New features:
-            - Complete AI agent orchestration
-            - Real-time execution tracking
-            - Interactive compliance management
-            - Enterprise-grade authentication
+            **VS Code extension (when published):** https://marketplace.visualstudio.com/items?itemName=amprealize.amprealize-ide-extension
 
-            📦 Available in:
-            - VSCode Marketplace: https://marketplace.visualstudio.com/items?itemName=amprealize.amprealize-ide-extension
-            - Cursor Extension Store: https://marketplace.cursor.sh/items/amprealize.amprealize-ide-extension
-
-            🔗 Installation: `code --install-extension amprealize.amprealize-ide-extension`
+            **Cursor:** Install the [VSIX](https://code.visualstudio.com/docs/editor/extension-marketplace#_install-from-a-vsix) from workflow artifacts, or use the **Cursor Marketplace plugin** (MCP + rules + skills) from this repository — see [plugins/amprealize/README.md](https://github.com/SandRiseStudio/amprealize/blob/main/plugins/amprealize/README.md) and submit/refresh via [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish).
           draft: false
           prerelease: false
 

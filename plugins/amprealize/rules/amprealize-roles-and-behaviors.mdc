@@ -1,0 +1,13 @@
+---
+description: Amprealize agent roles and behavior-conditioned execution
+alwaysApply: false
+globs: "**/*"
+---
+
+# Amprealize roles and behaviors
+
+Use **Student** for routine execution following established patterns; **Teacher** for examples, reviews, and documentation; **Metacognitive Strategist** for novel problems, RCAs, and proposing behaviors.
+
+Retrieve relevant behaviors before non-trivial tasks when integrated with Amprealize (`behaviors.getForTask` / BCI). Cite **behavior name + role** when following handbook guidance.
+
+Full detail: repository [`AGENTS.md`](../../AGENTS.md) and [`CLAUDE.md`](../../CLAUDE.md).

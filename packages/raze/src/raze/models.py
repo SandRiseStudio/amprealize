@@ -27,7 +27,11 @@ class LogLevel(str, Enum):
     @classmethod
     def from_string(cls, value: str) -> "LogLevel":
         """Parse log level from string, case-insensitive."""
-        return cls(value.upper())
+        normalized = value.strip().upper()
+        # Web console and some clients use syslog-style "WARN"; map to WARNING.
+        if normalized == "WARN":
+            normalized = "WARNING"
+        return cls(normalized)
 
     def __ge__(self, other: "LogLevel") -> bool:
         order = list(LogLevel)

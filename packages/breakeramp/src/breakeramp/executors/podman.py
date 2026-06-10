@@ -5,6 +5,7 @@ protocol using Podman as the container runtime.
 """
 
 import json
+import logging
 import os
 import platform
 import shutil
@@ -12,7 +13,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .base import (
     CleanupResult,
@@ -26,6 +27,71 @@ from .base import (
     ResourceInfo,
     ResourceUsage,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def resolve_podman_connection_label(
+    base_machine_name: str,
+    *,
+    connection_exists: Callable[[str], bool],
+) -> Optional[str]:
+    """Return an existing Podman connection name for *base_machine_name*.
+
+    Podman may register only ``<machine>-root`` (rootful) on some hosts; prefer
+    the base name when present, otherwise the ``-root`` variant.
+    """
+    if not base_machine_name:
+        return None
+    if connection_exists(base_machine_name):
+        return base_machine_name
+    rooted = f"{base_machine_name}-root"
+    if connection_exists(rooted):
+        return rooted
+    return None
+
+
+def recommend_podman_cli_default_connection(
+    machines: List[MachineInfo],
+    *,
+    connection_exists: Callable[[str], bool],
+) -> Optional[str]:
+    """Pick ``podman system connection default`` target for Amprealize workflows.
+
+    Prefer ``amprealize-dev`` whenever it is running (primary dev + cloud-dev + test
+    stacks all target this machine). If only ``amprealize-test`` is running, use that
+    connection. When no machine is running, prefer an existing ``amprealize-dev``
+    connection (or ``amprealize-dev-root``), then ``amprealize-test`` if present.
+    """
+    by_name = {m.name: m for m in machines}
+    dev = by_name.get("amprealize-dev")
+    test = by_name.get("amprealize-test")
+    dev_running = dev is not None and dev.running
+    test_running = test is not None and test.running
+
+    if dev_running and test_running:
+        chosen = resolve_podman_connection_label("amprealize-dev", connection_exists=connection_exists)
+        if chosen:
+            return chosen
+        chosen = resolve_podman_connection_label("amprealize-test", connection_exists=connection_exists)
+        if chosen:
+            return chosen
+        return None
+    if dev_running:
+        chosen = resolve_podman_connection_label("amprealize-dev", connection_exists=connection_exists)
+        if chosen:
+            return chosen
+    if test_running:
+        chosen = resolve_podman_connection_label("amprealize-test", connection_exists=connection_exists)
+        if chosen:
+            return chosen
+    chosen = resolve_podman_connection_label("amprealize-dev", connection_exists=connection_exists)
+    if chosen:
+        return chosen
+    chosen = resolve_podman_connection_label("amprealize-test", connection_exists=connection_exists)
+    if chosen:
+        return chosen
+    return None
 
 
 class PodmanExecutor(ResourceCapableExecutor):
@@ -71,11 +137,137 @@ class PodmanExecutor(ResourceCapableExecutor):
         """
         self.connection = connection
 
+    @staticmethod
+    def _parse_podman_ps_json_stdout(stdout: Optional[str]) -> List[Dict[str, Any]]:
+        """Parse ``podman ps --format json`` stdout.
+
+        Some Podman builds emit a JSON array; others emit **NDJSON** (one object
+        per line). Parsing only the full buffer with :func:`json.loads` yields
+        nothing for NDJSON and breaks ``list_containers`` / reconcile (false STALE
+        environment deletion).
+        """
+        text = (stdout or "").strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [x for x in parsed if isinstance(x, dict)]
+            if isinstance(parsed, dict):
+                return [parsed]
+        except json.JSONDecodeError:
+            pass
+        rows: List[Dict[str, Any]] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                rows.append(obj)
+        return rows
+
+    @staticmethod
+    def _container_name_from_ps_row(row: Dict[str, Any]) -> str:
+        names = row.get("Names")
+        if isinstance(names, list) and names:
+            first = names[0]
+            return str(first).strip() if first is not None else ""
+        if isinstance(names, str):
+            return names.strip()
+        single = row.get("Name")
+        return str(single).strip() if single else ""
+
+    @staticmethod
+    def _container_state_from_ps_row(row: Dict[str, Any]) -> str:
+        raw = row.get("State", row.get("Status", "unknown"))
+        if raw is None:
+            return "unknown"
+        return str(raw)
+
+    @staticmethod
+    def _coerce_timeout_s(raw: Optional[str], default: float, lo: float, hi: float) -> float:
+        if raw is None or not str(raw).strip():
+            val = default
+        else:
+            try:
+                val = float(raw)
+            except ValueError:
+                val = default
+        return max(lo, min(hi, val))
+
+    def _podman_cli_timeout_s(self) -> float:
+        """Default cap for routine podman calls (ps, inspect, system df, …)."""
+        return self._coerce_timeout_s(os.environ.get("BREAKERAMP_PODMAN_TIMEOUT"), 90.0, 10.0, 600.0)
+
+    def _podman_machine_timeout_s(self) -> float:
+        """Longer cap for ``podman machine`` lifecycle and SSH fallback."""
+        return self._coerce_timeout_s(os.environ.get("BREAKERAMP_PODMAN_MACHINE_TIMEOUT"), 180.0, 30.0, 1200.0)
+
+    def _podman_image_timeout_s(self) -> float:
+        return self._coerce_timeout_s(os.environ.get("BREAKERAMP_PODMAN_IMAGE_TIMEOUT"), 600.0, 60.0, 3600.0)
+
+    def _podman_build_timeout_s(self) -> float:
+        return self._coerce_timeout_s(os.environ.get("BREAKERAMP_PODMAN_BUILD_TIMEOUT"), 1800.0, 120.0, 7200.0)
+
+    def _podman_stats_timeout_s(self) -> float:
+        """``podman stats`` can wedge when the remote proxy is unhealthy; keep this tight."""
+        return self._coerce_timeout_s(os.environ.get("BREAKERAMP_PODMAN_STATS_TIMEOUT"), 45.0, 5.0, 300.0)
+
+    def _timeout_for_podman_args(self, args: List[str]) -> float:
+        """Pick a subprocess timeout based on the podman subcommand."""
+        if not args:
+            return self._podman_cli_timeout_s()
+        first = args[0]
+        if first == "machine":
+            return self._podman_machine_timeout_s()
+        if first == "stats":
+            return self._podman_stats_timeout_s()
+        if first in ("pull", "push"):
+            return self._podman_image_timeout_s()
+        if first == "build":
+            return self._podman_build_timeout_s()
+        return self._podman_cli_timeout_s()
+
+    def _run_subprocess_timed(
+        self,
+        cmd: List[str],
+        *,
+        capture_output: bool,
+        text: bool,
+        timeout: float,
+    ) -> subprocess.CompletedProcess:
+        """Run ``subprocess.run`` with ``timeout``; map expiry to a failed CompletedProcess."""
+        try:
+            return subprocess.run(
+                cmd,
+                capture_output=capture_output,
+                text=text,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as e:
+            out = ""
+            err_msg = (
+                f"podman command timed out after {timeout}s "
+                f"(set BREAKERAMP_PODMAN_TIMEOUT / BREAKERAMP_PODMAN_MACHINE_TIMEOUT)"
+            )
+            if capture_output and text:
+                out = e.stdout if isinstance(e.stdout, str) else (e.stdout or "") or ""
+                err_tail = e.stderr if isinstance(e.stderr, str) else (e.stderr or "") or ""
+                if str(err_tail).strip():
+                    err_msg = f"{err_msg}: {str(err_tail).strip()[:512]}"
+            return subprocess.CompletedProcess(cmd, 124, out, err_msg)
+
     def _run_podman(
         self,
         args: List[str],
         check: bool = True,
-        capture_output: bool = True
+        capture_output: bool = True,
+        *,
+        timeout_override: Optional[float] = None,
     ) -> subprocess.CompletedProcess:
         """Execute a podman command.
 
@@ -83,6 +275,8 @@ class PodmanExecutor(ResourceCapableExecutor):
             args: Command arguments (without 'podman' prefix)
             check: Whether to raise on non-zero exit
             capture_output: Whether to capture stdout/stderr
+            timeout_override: When set, use this subprocess timeout (seconds)
+                instead of the default derived from the podman subcommand.
 
         Returns:
             Completed process result
@@ -95,10 +289,15 @@ class PodmanExecutor(ResourceCapableExecutor):
             cmd.extend(["--connection", self.connection])
         cmd.extend(args)
 
-        result = subprocess.run(
+        if timeout_override is not None:
+            timeout_s = max(10.0, min(float(timeout_override), 3600.0))
+        else:
+            timeout_s = self._timeout_for_podman_args(args)
+        result = self._run_subprocess_timed(
             cmd,
             capture_output=capture_output,
-            text=True
+            text=True,
+            timeout=timeout_s,
         )
 
         # Always attempt recovery for connection errors, regardless of check flag
@@ -113,10 +312,11 @@ class PodmanExecutor(ResourceCapableExecutor):
                 switched = self._try_switch_connection_variant_for_current_machine()
                 if switched:
                     recovery_notes.append(f"switched connection to '{self.connection}'")
-                    retry = subprocess.run(
+                    retry = self._run_subprocess_timed(
                         cmd,
                         capture_output=capture_output,
                         text=True,
+                        timeout=timeout_s,
                     )
                     if retry.returncode == 0:
                         return retry
@@ -126,10 +326,11 @@ class PodmanExecutor(ResourceCapableExecutor):
                 recovered = self._recover_remote_proxy()
                 if recovered:
                     recovery_notes.append("restarted podman machine")
-                    retry = subprocess.run(
+                    retry = self._run_subprocess_timed(
                         cmd,
                         capture_output=capture_output,
                         text=True,
+                        timeout=timeout_s,
                     )
                     if retry.returncode == 0:
                         return retry
@@ -179,10 +380,12 @@ class PodmanExecutor(ResourceCapableExecutor):
 
         cmd = ["podman"]
         cmd.extend(args)
-        result = subprocess.run(
+        timeout_s = self._timeout_for_podman_args(args)
+        result = self._run_subprocess_timed(
             cmd,
             capture_output=capture_output,
             text=True,
+            timeout=timeout_s,
         )
         if check and result.returncode != 0:
             raise ExecutorError(
@@ -233,10 +436,11 @@ class PodmanExecutor(ResourceCapableExecutor):
     def list_connections(self) -> List[Dict[str, Any]]:
         """List configured Podman connections on the host."""
         try:
-            result = subprocess.run(
+            result = self._run_subprocess_timed(
                 ["podman", "system", "connection", "list", "--format", "json"],
                 capture_output=True,
                 text=True,
+                timeout=self._podman_cli_timeout_s(),
             )
             if result.returncode != 0 or not result.stdout.strip():
                 return []
@@ -293,6 +497,56 @@ class PodmanExecutor(ResourceCapableExecutor):
             if isinstance(conn, dict) and conn.get("Name") == name:
                 return True
         return False
+
+    def recommend_system_default_connection(self) -> Optional[str]:
+        """Resolve host CLI default connection name for Amprealize Podman machines."""
+        try:
+            machines = self.list_machines()
+        except Exception:
+            machines = []
+        return recommend_podman_cli_default_connection(
+            machines,
+            connection_exists=self.connection_exists,
+        )
+
+    def sync_system_default_connection(self, preferred_connection: Optional[str] = None) -> bool:
+        """Run ``podman system connection default`` to match running machines.
+
+        If *preferred_connection* is set and that machine is running, use it
+        (after resolving ``-root``) so ``breakeramp apply`` aligns the host CLI
+        with ``infra/environments.yaml`` even when the machine was already up.
+
+        Otherwise when both ``amprealize-dev`` and ``amprealize-test`` are running,
+        prefer **test**; if only one is running, select that connection so bare
+        ``podman`` hits a live socket.
+        """
+        try:
+            name: Optional[str] = None
+            if preferred_connection:
+                base = preferred_connection.replace("-root", "")
+                try:
+                    machines = self.list_machines()
+                except Exception:
+                    machines = []
+                by_name = {m.name: m for m in machines}
+                mach = by_name.get(base)
+                if mach is not None and mach.running:
+                    name = self.resolve_connection_for_machine(base)
+                    if not name and self.connection_exists(preferred_connection):
+                        name = preferred_connection
+            if not name:
+                name = self.recommend_system_default_connection()
+            if not name:
+                return False
+            result = self._run_subprocess_timed(
+                ["podman", "system", "connection", "default", name],
+                capture_output=True,
+                text=True,
+                timeout=self._podman_cli_timeout_s(),
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
 
     def _try_switch_connection_variant_for_current_machine(self) -> bool:
         """Try switching between <machine> and <machine>-root connections.
@@ -351,8 +605,15 @@ class PodmanExecutor(ResourceCapableExecutor):
                 return self._auto_init_and_start_machine()
             return False
 
+        machine_timeout = self._podman_machine_timeout_s()
+
         def run_local(cmd: List[str]) -> subprocess.CompletedProcess:
-            return subprocess.run(cmd, capture_output=True, text=True)
+            return self._run_subprocess_timed(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=machine_timeout,
+            )
 
         # Stop other running machines first when macOS enforces single active VM.
         try:
@@ -387,15 +648,17 @@ class PodmanExecutor(ResourceCapableExecutor):
 
         # Give the proxy a moment to come up.
         time.sleep(2.0)
+        self.sync_system_default_connection()
         return True
 
     def _get_any_machine_name(self) -> Optional[str]:
         """Get any machine name from the list (even if not running)."""
         try:
-            result = subprocess.run(
+            result = self._run_subprocess_timed(
                 ["podman", "machine", "list", "--format", "json"],
                 capture_output=True,
                 text=True,
+                timeout=self._podman_machine_timeout_s(),
             )
             if result.returncode != 0 or not result.stdout.strip():
                 return None
@@ -443,6 +706,7 @@ class PodmanExecutor(ResourceCapableExecutor):
             started = run_local(["podman", "machine", "start", existing])
             if started.returncode == 0:
                 time.sleep(2.0)  # Give proxy time to come up
+                self.sync_system_default_connection()
                 return True
             # If start failed, the machine may be in a bad state
             logger.warning(f"Failed to start existing machine '{existing}', attempting recovery...")
@@ -452,6 +716,7 @@ class PodmanExecutor(ResourceCapableExecutor):
             started = run_local(["podman", "machine", "start", existing])
             if started.returncode == 0:
                 time.sleep(2.0)
+                self.sync_system_default_connection()
                 return True
             return False
 
@@ -481,6 +746,7 @@ class PodmanExecutor(ResourceCapableExecutor):
 
         # Give the proxy time to come up
         time.sleep(2.0)
+        self.sync_system_default_connection()
         logger.info(f"Podman machine '{machine_name}' started successfully")
         return True
 
@@ -495,10 +761,11 @@ class PodmanExecutor(ResourceCapableExecutor):
 
     def _get_running_machine_name(self) -> Optional[str]:
         try:
-            result = subprocess.run(
+            result = self._run_subprocess_timed(
                 ["podman", "machine", "list", "--format", "json"],
                 capture_output=True,
                 text=True,
+                timeout=self._podman_machine_timeout_s(),
             )
             if result.returncode != 0 or not result.stdout.strip():
                 return None
@@ -530,10 +797,11 @@ class PodmanExecutor(ResourceCapableExecutor):
         ssh_cmd = ["podman", "machine", "ssh", machine_name, "--", "podman"]
         ssh_cmd.extend(args)
 
-        result = subprocess.run(
+        result = self._run_subprocess_timed(
             ssh_cmd,
             capture_output=capture_output,
             text=True,
+            timeout=self._podman_machine_timeout_s(),
         )
         if check and result.returncode != 0:
             stdout = result.stdout.strip() if result.stdout else ""
@@ -771,6 +1039,9 @@ class PodmanExecutor(ResourceCapableExecutor):
         if config.privileged:
             args.append("--privileged")
 
+        if config.platform:
+            args.extend(["--platform", config.platform])
+
         args.extend(["--name", config.name])
 
         # Network
@@ -901,16 +1172,26 @@ class PodmanExecutor(ResourceCapableExecutor):
         self,
         container_id: str,
         command: List[str],
-        workdir: Optional[str] = None
+        workdir: Optional[str] = None,
+        *,
+        timeout_s: Optional[float] = None,
     ) -> str:
-        """Execute a command in a running container."""
+        """Execute a command in a running container.
+
+        Args:
+            container_id: Container name or ID
+            command: argv for ``podman exec``
+            workdir: ``-w`` working directory inside the container
+            timeout_s: Subprocess timeout for this exec (seconds); when omitted,
+                Podman CLI timeout defaults apply (see BREAKERAMP_PODMAN_TIMEOUT).
+        """
         args = ["exec"]
         if workdir:
             args.extend(["-w", workdir])
         args.append(container_id)
         args.extend(command)
 
-        result = self._run_podman(args)
+        result = self._run_podman(args, timeout_override=timeout_s)
         return result.stdout
 
     def copy_to_container(
@@ -1046,6 +1327,7 @@ class PodmanExecutor(ResourceCapableExecutor):
                 pass
             else:
                 raise
+        self.sync_system_default_connection()
 
     def stop_machine(self, name: str) -> None:
         """Stop a Podman machine.
@@ -1061,6 +1343,7 @@ class PodmanExecutor(ResourceCapableExecutor):
                 pass
             else:
                 raise
+        self.sync_system_default_connection()
 
     def init_machine(
         self,
@@ -1326,21 +1609,97 @@ class PodmanExecutor(ResourceCapableExecutor):
         if result.returncode != 0:
             return []
 
-        try:
-            containers = json.loads(result.stdout or "[]")
-        except json.JSONDecodeError:
-            return []
+        containers = self._parse_podman_ps_json_stdout(result.stdout)
 
         return [
             ContainerInfo(
-                container_id=c.get("Id", "")[:12],
-                name=c.get("Names", [""])[0] if isinstance(c.get("Names"), list) else c.get("Names", ""),
-                status=c.get("State", "unknown"),
-                image=c.get("Image", ""),
+                container_id=str(c.get("Id") or c.get("id") or "")[:12],
+                name=self._container_name_from_ps_row(c),
+                status=self._container_state_from_ps_row(c),
+                image=str(c.get("Image", "") or ""),
                 created=c.get("Created"),
             )
             for c in containers
         ]
+
+    def _list_container_name_state_map_via_json(self) -> Dict[str, str]:
+        """Fallback when lightweight ``ps --format`` is unavailable."""
+        rows = self.list_containers(all_containers=True)
+        return {(r.name or "").strip(): (r.status or "").lower() for r in rows if r.name}
+
+    def list_container_name_state_map(self) -> Dict[str, str]:
+        """Map container name -> lowercased state without full ``ps`` JSON (reconcile / insights).
+
+        Uses a narrow Go template so ``breakeramp list`` stays fast with many containers.
+        Falls back to :meth:`list_containers` if the template is rejected by Podman.
+        """
+        fmt = "{{if .Names}}{{index .Names 0}}{{end}}\t{{.State}}"
+        args = ["ps", "-a", "--noheading", "--format", fmt]
+        result = self._run_podman(args, check=False)
+        if result.returncode != 0:
+            return self._list_container_name_state_map_via_json()
+
+        out: Dict[str, str] = {}
+        raw_out = result.stdout or ""
+        for line in raw_out.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if "\t" not in line:
+                continue
+            name, state = line.split("\t", 1)
+            name = name.strip()
+            if name:
+                out[name] = state.strip().lower()
+
+        # Empty stdout from the lightweight template path must still fall back to
+        # ``ps --format json``. Some Podman/connection combinations return rc=0 with
+        # no lines here while containers exist; treating that as "no containers"
+        # breaks reconcile (false STALE, deleted ``environments/*.json``).
+        if not out:
+            return self._list_container_name_state_map_via_json()
+        return out
+
+    def _sum_running_container_memory_batch_mb(self) -> float:
+        """Sum RSS-style memory from all running containers in one ``podman stats`` call."""
+        result = self._run_podman(
+            ["stats", "--no-stream", "--format", "json"],
+            check=False,
+        )
+        if result.returncode != 0 or not (result.stdout or "").strip():
+            return 0.0
+        text = (result.stdout or "").strip()
+        rows: List[Dict[str, Any]] = []
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                rows = [data]
+            elif isinstance(data, list):
+                rows = [r for r in data if isinstance(r, dict)]
+            else:
+                rows = []
+        except json.JSONDecodeError:
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict):
+                    rows.append(obj)
+
+        total = 0.0
+        for stats in rows:
+            if not isinstance(stats, dict):
+                continue
+            mem_usage = stats.get("MemUsage", "0 / 0")
+            if "/" not in mem_usage:
+                continue
+            used, _ = mem_usage.split("/", 1)
+            total += self._parse_size_to_mb(used.strip())
+        return total
 
     # =========================================================================
     # Network Management
@@ -1846,23 +2205,45 @@ class PodmanExecutor(ResourceCapableExecutor):
         except json.JSONDecodeError:
             return {"total_mb": 0, "reclaimable_mb": 0, "images": [], "containers": [], "volumes": []}
 
+        if isinstance(data, list):
+            data = {
+                str(item.get("Type", "")): item
+                for item in data
+                if isinstance(item, dict) and item.get("Type")
+            }
+        if not isinstance(data, dict):
+            return {"total_mb": 0, "reclaimable_mb": 0, "images": [], "containers": [], "volumes": []}
+
         # Parse sizes (podman returns bytes)
         total_bytes = 0
         reclaimable_bytes = 0
 
-        images = data.get("Images", [])
-        containers = data.get("Containers", [])
-        volumes = data.get("Volumes", [])
+        images_section = data.get("Images", [])
+        containers_section = data.get("Containers", [])
+        volumes_section = data.get("Volumes", [])
+        images = images_section.get("Images", []) if isinstance(images_section, dict) else images_section
+        containers = (
+            containers_section.get("Containers", [])
+            if isinstance(containers_section, dict)
+            else containers_section
+        )
+        volumes = volumes_section.get("Volumes", []) if isinstance(volumes_section, dict) else volumes_section
 
         for img in images:
+            if not isinstance(img, dict):
+                continue
             total_bytes += img.get("Size", 0) or 0
             reclaimable_bytes += img.get("Reclaimable", 0) or 0
 
         for container in containers:
+            if not isinstance(container, dict):
+                continue
             total_bytes += container.get("Size", 0) or 0
             reclaimable_bytes += container.get("RWSize", 0) or 0
 
         for volume in volumes:
+            if not isinstance(volume, dict):
+                continue
             total_bytes += volume.get("Size", 0) or 0
             reclaimable_bytes += volume.get("Reclaimable", 0) or 0
 
@@ -1906,16 +2287,8 @@ class PodmanExecutor(ResourceCapableExecutor):
         # Get disk usage
         disk_info = self.get_disk_usage()
 
-        # Estimate memory usage from running containers
-        memory_used_mb = 0
-        running_containers = self.list_containers(all_containers=False)
-        for container in running_containers:
-            # Try to get container stats
-            try:
-                stats = self.get_container_stats(container.container_id)
-                memory_used_mb += stats.get("memory_mb", 0)
-            except ExecutorError:
-                pass
+        # One batched stats read for all running containers (avoids N× podman stats).
+        memory_used_mb = self._sum_running_container_memory_batch_mb()
 
         return {
             "memory_total_mb": machine.memory_mb or 0,
@@ -2022,19 +2395,23 @@ class PodmanExecutor(ResourceCapableExecutor):
             - insights: Dict of resource name -> ResourceInsight
             - summary: Formatted summary string
         """
-        from .insights import ResourceInsightAnalyzer
+        from ..insights import ResourceInsightAnalyzer
 
         resources = self.get_machine_resources(machine_name)
 
-        # Get container health for additional context
-        health_summary = self.get_container_health_summary()
-        container_health = {}
-        for container in health_summary.get("running", []):
-            container_health[container.name] = "running"
-        for container in health_summary.get("exited", []):
-            container_health[container.name] = "exited"
-        for container in health_summary.get("dead", []):
-            container_health[container.name] = "dead"
+        # Single lightweight container listing (avoid a second full ``ps -a`` JSON pass).
+        # Match :meth:`get_container_health_summary` + prior mapping: only running/exited/dead
+        # (paused/other were not passed to the analyzer before).
+        name_state = self.list_container_name_state_map()
+        container_health: Dict[str, str] = {}
+        for cname, raw_state in name_state.items():
+            s = (raw_state or "").lower().strip()
+            if s == "running":
+                container_health[cname] = "running"
+            elif s == "exited":
+                container_health[cname] = "exited"
+            elif s == "dead":
+                container_health[cname] = "dead"
 
         # Analyze resources
         analyzer = ResourceInsightAnalyzer()

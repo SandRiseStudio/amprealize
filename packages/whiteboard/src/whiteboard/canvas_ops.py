@@ -92,6 +92,25 @@ _BASELINE_STORE: Dict[str, Any] = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _to_rich_text(text: str) -> Dict[str, Any]:
+    """Build a tldraw ``richText`` document from a plain string.
+
+    Mirrors ``@tldraw/tlschema``'s ``toRichText`` (4.5.9): one paragraph per
+    line. tldraw 4.x stores note/text content as ``props.richText`` (a TipTap /
+    ProseMirror doc), not the legacy ``props.text`` string — passing ``text``
+    fails validation (``Unexpected property``).
+    """
+    content: List[Dict[str, Any]] = []
+    for line in (text or "").split("\n"):
+        if line:
+            content.append({"type": "paragraph", "content": [{"type": "text", "text": line}]})
+        else:
+            content.append({"type": "paragraph"})
+    if not content:
+        content.append({"type": "paragraph"})
+    return {"type": "doc", "content": content}
+
+
 def _new_id() -> str:
     """Return a tldraw-compatible record id prefixed with ``shape:``."""
     return f"shape:{uuid.uuid4().hex[:16]}"
@@ -233,14 +252,16 @@ def add_sticky_note(
         "type": "note",
         "props": {
             "color": color,
+            "labelColor": "black",
             "size": DEFAULT_TEXT_SIZE,
-            "text": text,
+            "richText": _to_rich_text(text),
             "font": "draw",
             "align": "middle",
             "verticalAlign": "middle",
             "growY": 0,
             "url": "",
             "fontSizeAdjustment": 0,
+            "scale": 1,
         },
     }
     if x is not None:
@@ -269,11 +290,12 @@ def add_text_annotation(
         "props": {
             "color": color,
             "size": DEFAULT_TEXT_SIZE,
-            "text": text,
+            "richText": _to_rich_text(text),
             "font": "draw",
-            "align": "start",
+            "textAlign": "start",
             "autoSize": True,
             "w": 300,
+            "scale": 1,
         },
     }
     if x is not None:

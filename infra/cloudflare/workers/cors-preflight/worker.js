@@ -39,7 +39,7 @@ const ALLOWED_ORIGINS = [
 const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   "Access-Control-Allow-Headers":
-    "Authorization, Content-Type, X-Requested-With, X-Tenant-Id",
+    "Authorization, Content-Type, X-Requested-With, X-Tenant-Id, X-Web-Perf-Session",
   "Access-Control-Allow-Credentials": "true",
   "Access-Control-Max-Age": "86400",
 };

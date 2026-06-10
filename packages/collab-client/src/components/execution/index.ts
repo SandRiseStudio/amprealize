@@ -9,3 +9,5 @@ export type {
   ClarificationPanelProps,
   ClarificationQuestion,
 } from './ClarificationPanel.js';
+export { KnowledgeRetrievalSummary } from './KnowledgeRetrievalSummary.js';
+export type { KnowledgeRetrievalSummaryProps } from './KnowledgeRetrievalSummary.js';

@@ -13,11 +13,29 @@ import asyncio
 import logging
 import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def _darwin_podman_connection_socket_unusable_for_vm_bind_mount(socket_path: str) -> bool:
+    """Return True if ``socket_path`` is the macOS-side Podman Machine API socket.
+
+    ``podman machine inspect`` exposes a gvproxy/SSH-forwarded path under
+    ``/var/folders/.../T/podman/*.sock`` that exists on the Mac but cannot be
+    bind-mounted into containers running *inside* the Podman VM (Podman reports
+    ``statfs`` errors). For those mounts use the guest path
+    ``/run/user/<uid>/podman/podman.sock`` instead.
+    """
+    if sys.platform != "darwin":
+        return False
+    norm = socket_path.replace("\\", "/")
+    if "/var/folders/" in norm and "/podman/" in norm:
+        return True
+    return norm.rstrip("/").endswith("-api.sock")
 
 
 class PodmanError(Exception):
@@ -123,6 +141,71 @@ def discover_podman_socket() -> str:
 
     # Default fallback
     return "unix:///run/podman/podman.sock"
+
+
+def discover_podman_socket_host_path_for_mount() -> str:
+    """Resolve a host filesystem path to the Podman API socket for compose bind mounts.
+
+    BreakerAmp ``podman-socket-proxy`` services mount this path into the sidecar.
+    Discovery avoids a hard-coded ``/run/user/501/...`` UID so Linux and Podman
+    Machine hosts resolve correctly.
+
+    Does **not** read ``AMPREALIZE_PODMAN_SOCK_HOST_PATH`` (BreakerAmp sets that from
+    Honors ``PODMAN_SOCKET_PATH`` when it points at an existing socket that can be
+    bind-mounted into the Podman Linux VM (on macOS, not the gvproxy API socket under
+    ``/var/folders/.../podman/``).
+
+    When ``PODMAN_HOST`` is ``tcp://...`` there is no local socket; returns the
+    conventional Linux user path (``/run/user/<uid>/podman/podman.sock``) for
+    blueprint expansion even if the file is absent yet.
+    """
+    env_sock = (os.environ.get("PODMAN_SOCKET_PATH") or "").strip()
+    if env_sock.startswith("unix://"):
+        env_sock = env_sock[7:]
+    if env_sock.startswith("/") and os.path.exists(env_sock):
+        if not _darwin_podman_connection_socket_unusable_for_vm_bind_mount(env_sock):
+            return env_sock
+
+    if os.environ.get("PODMAN_HOST", "").strip().lower().startswith("tcp"):
+        return f"/run/user/{os.getuid()}/podman/podman.sock"
+
+    try:
+        result = subprocess.run(
+            ["podman", "machine", "info", "--format", "{{.Host.CurrentMachine}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            machine_name = result.stdout.strip()
+            result = subprocess.run(
+                [
+                    "podman",
+                    "machine",
+                    "inspect",
+                    machine_name,
+                    "--format",
+                    "{{.ConnectionInfo.PodmanSocket.Path}}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                socket_path = result.stdout.strip()
+                if os.path.exists(socket_path) and not _darwin_podman_connection_socket_unusable_for_vm_bind_mount(
+                    socket_path
+                ):
+                    return socket_path
+    except Exception as e:
+        logger.debug("Podman machine socket path discovery failed: %s", e)
+
+    for path in ("/run/podman/podman.sock", f"/run/user/{os.getuid()}/podman/podman.sock"):
+        if os.path.exists(path):
+            return path
+
+    # Podman Machine Linux guest often uses UID 501 on macOS hosts
+    return "/run/user/501/podman/podman.sock"
 
 
 class PodmanClient:

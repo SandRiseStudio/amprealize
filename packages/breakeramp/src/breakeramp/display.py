@@ -6,11 +6,13 @@ showing per-service status, elapsed times, and phase progress.
 Implements the ProgressCallback protocol from models.py.
 """
 
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from rich.console import Console, Group
 from rich.live import Live
+from rich.markup import escape
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.spinner import Spinner
@@ -110,26 +112,27 @@ def render_summary(
 
     # Service URLs
     for name, port in sorted(service_ports.items(), key=lambda x: x[1]):
+        safe_name = escape(name)
         # Well-known HTTP ports
         if port in (8000, 8080, 8443, 3000, 5173, 5000, 9090):
             scheme = "https" if port == 8443 else "http"
-            lines.append(f"  [{STYLE_HEADER}]{name:<14}[/{STYLE_HEADER}] {scheme}://localhost:{port}")
+            lines.append(f"  [{STYLE_HEADER}]{safe_name:<14}[/{STYLE_HEADER}] {scheme}://localhost:{port}")
         else:
-            lines.append(f"  [{STYLE_HEADER}]{name:<14}[/{STYLE_HEADER}] localhost:{port}")
+            lines.append(f"  [{STYLE_HEADER}]{safe_name:<14}[/{STYLE_HEADER}] localhost:{port}")
 
     if amp_run_id:
         lines.append("")
-        lines.append(f"  [{STYLE_DIM}]Run ID  {amp_run_id}[/{STYLE_DIM}]")
+        lines.append(f"  [{STYLE_DIM}]Run ID  {escape(amp_run_id)}[/{STYLE_DIM}]")
 
     if warnings:
         lines.append("")
         for w in warnings:
-            lines.append(f"  [{STYLE_WARNING}]⚠ {w}[/{STYLE_WARNING}]")
+            lines.append(f"  [{STYLE_WARNING}]⚠ {escape(w)}[/{STYLE_WARNING}]")
 
     if failed_services:
         lines.append("")
         for svc in failed_services:
-            lines.append(f"  [{STYLE_FAILED}]✗ {svc}[/{STYLE_FAILED}]")
+            lines.append(f"  [{STYLE_FAILED}]✗ {escape(svc)}[/{STYLE_FAILED}]")
 
     border = STYLE_FAILED if failed_services else STYLE_HEALTHY
     return Panel(
@@ -176,7 +179,7 @@ class LiveProgressDisplay:
 
     Usage::
 
-        display = LiveProgressDisplay(console=console)
+        display = LiveProgressDisplay(console=Console(file=sys.stdout))
         display.set_services(["db", "redis", "api"], ports={"db": 5432, "redis": 6379, "api": 8000})
         with display:
             service.apply(request, progress=display)
@@ -204,6 +207,10 @@ class LiveProgressDisplay:
         self._warnings: List[str] = []
         self._errors: List[str] = []
         self._verbose_lines: List[str] = []
+        # Serialize mutations + repaint: apply workers call progress from threads while
+        # Rich Live's auto-refresh renders; also unescaped "[...]" in service detail breaks
+        # Text.from_markup (IndexError: pop from empty list).
+        self._lock = threading.RLock()
 
     @property
     def quiet(self) -> bool:
@@ -219,87 +226,101 @@ class LiveProgressDisplay:
     ) -> None:
         """Pre-register services for display before the Live context starts."""
         ports = ports or {}
-        self._service_order = list(names)
-        self._services = {
-            name: _ServiceState(name, port=ports.get(name, 0))
-            for name in names
-        }
+        with self._lock:
+            self._service_order = list(names)
+            self._services = {
+                name: _ServiceState(name, port=ports.get(name, 0))
+                for name in names
+            }
 
     # -- Context manager (Rich Live) ------------------------------------------
 
     def __enter__(self) -> "LiveProgressDisplay":
-        self._start_time = time.monotonic()
-        if not self._quiet:
-            self._live = Live(
-                self._render(),
-                console=self._console,
-                refresh_per_second=8,
-                transient=True,
-            )
-            self._live.__enter__()
+        with self._lock:
+            self._start_time = time.monotonic()
+            if not self._quiet:
+                self._live = Live(
+                    self._render(),
+                    console=self._console,
+                    refresh_per_second=8,
+                    transient=True,
+                )
+                self._live.__enter__()
         return self
 
     def __exit__(self, *args: Any) -> None:
-        if self._live is not None:
-            self._live.__exit__(*args)
-            self._live = None
+        with self._lock:
+            if self._live is not None:
+                self._live.__exit__(*args)
+                self._live = None
 
     # -- ProgressCallback implementation --------------------------------------
 
     def on_phase(self, phase: str, description: str, total_steps: int = 0) -> None:
-        self._phase = phase
-        self._phase_desc = description
-        self._phase_total = total_steps
-        self._phase_done = 0
-        self._refresh()
+        with self._lock:
+            self._phase = phase
+            self._phase_desc = description
+            self._phase_total = total_steps
+            self._phase_done = 0
+            self._refresh_unlocked()
 
     def on_step(self, step: str, description: str, *, service: Optional[str] = None) -> None:
-        if self._verbose:
-            self._verbose_lines.append(f"  {description}")
-            # Cap verbose buffer
-            if len(self._verbose_lines) > 50:
-                self._verbose_lines = self._verbose_lines[-30:]
-        self._refresh()
+        with self._lock:
+            if self._verbose:
+                self._verbose_lines.append(f"  {description}")
+                # Cap verbose buffer
+                if len(self._verbose_lines) > 50:
+                    self._verbose_lines = self._verbose_lines[-30:]
+            self._refresh_unlocked()
 
     def on_step_done(self, step: str, *, duration_s: float = 0.0, service: Optional[str] = None, detail: str = "") -> None:
-        self._phase_done += 1
-        if detail and not self.quiet:
-            self._verbose_lines.append(f"  {step}: {detail}")
-        self._refresh()
+        with self._lock:
+            self._phase_done += 1
+            if detail and not self.quiet:
+                self._verbose_lines.append(f"  {step}: {detail}")
+            self._refresh_unlocked()
 
     def on_service_status(self, service: str, status: ServiceStatus, detail: str = "") -> None:
-        state = self._services.get(service)
-        if state is None:
-            # Dynamically discovered service
-            state = _ServiceState(service)
-            self._services[service] = state
-            self._service_order.append(service)
+        with self._lock:
+            state = self._services.get(service)
+            if state is None:
+                # Dynamically discovered service
+                state = _ServiceState(service)
+                self._services[service] = state
+                self._service_order.append(service)
 
-        old_status = state.status
-        state.status = status
-        state.detail = detail
+            old_status = state.status
+            state.status = status
+            state.detail = detail
 
-        # Track timing
-        if old_status == ServiceStatus.WAITING and status != ServiceStatus.WAITING:
-            state.start_time = time.monotonic()
-        if status in (ServiceStatus.HEALTHY, ServiceStatus.FAILED):
-            state.end_time = time.monotonic()
+            # Track timing
+            if old_status == ServiceStatus.WAITING and status != ServiceStatus.WAITING:
+                state.start_time = time.monotonic()
+            if status in (ServiceStatus.HEALTHY, ServiceStatus.FAILED):
+                state.end_time = time.monotonic()
 
-        self._refresh()
+            self._refresh_unlocked()
 
     def on_warning(self, message: str) -> None:
-        self._warnings.append(message)
-        self._refresh()
+        with self._lock:
+            self._warnings.append(message)
+            self._refresh_unlocked()
 
     def on_error(self, message: str, *, service: Optional[str] = None) -> None:
-        self._errors.append(message)
-        self._refresh()
+        with self._lock:
+            self._errors.append(message)
+            self._refresh_unlocked()
 
     # -- Rendering ------------------------------------------------------------
 
-    def _refresh(self) -> None:
+    def _refresh_unlocked(self) -> None:
+        """Repaint Live; caller must hold ``self._lock``."""
         if self._live is not None:
             self._live.update(self._render())
+
+    def _refresh(self) -> None:
+        with self._lock:
+            self._refresh_unlocked()
 
     def _render(self) -> Group:
         """Build the full Rich renderable for Live."""
@@ -340,7 +361,9 @@ class LiveProgressDisplay:
 
                 icon, icon_style = STATUS_ICONS.get(state.status, ("?", "white"))
                 label = STATUS_LABELS.get(state.status, str(state.status.value))
-                detail = state.detail or label
+                raw_detail = state.detail or label
+                safe_name = escape(name)
+                safe_detail = escape(raw_detail)
 
                 # Port display
                 port_str = f":{state.port}" if state.port else ""
@@ -359,8 +382,8 @@ class LiveProgressDisplay:
                     parts.append(
                         Text.from_markup(
                             f"  [{icon_style}]{icon}[/{icon_style}]"
-                            f" [{icon_style}]{name:<22}[/{icon_style}]"
-                            f" [{icon_style}]{detail:<14}[/{icon_style}]"
+                            f" [{icon_style}]{safe_name:<22}[/{icon_style}]"
+                            f" [{icon_style}]{safe_detail:<14}[/{icon_style}]"
                             f" [{STYLE_DIM}]{port_str:<8}[/{STYLE_DIM}]"
                             f" [{dur_style}]{dur:>8}[/{dur_style}]"
                         )
@@ -368,7 +391,7 @@ class LiveProgressDisplay:
                 elif state.status == ServiceStatus.FAILED:
                     parts.append(
                         Text.from_markup(
-                            f"  [{STYLE_FAILED}]{icon} {name:<22} {detail:<14}[/{STYLE_FAILED}]"
+                            f"  [{STYLE_FAILED}]{icon} {safe_name:<22} {safe_detail:<14}[/{STYLE_FAILED}]"
                             f" [{STYLE_DIM}]{port_str:<8}[/{STYLE_DIM}]"
                             f" [{dur_style}]{dur:>8}[/{dur_style}]"
                         )
@@ -376,7 +399,7 @@ class LiveProgressDisplay:
                 elif state.status == ServiceStatus.HEALTHY:
                     parts.append(
                         Text.from_markup(
-                            f"  [{STYLE_HEALTHY}]{icon} {name:<22} {detail:<14}[/{STYLE_HEALTHY}]"
+                            f"  [{STYLE_HEALTHY}]{icon} {safe_name:<22} {safe_detail:<14}[/{STYLE_HEALTHY}]"
                             f" [{STYLE_DIM}]{port_str:<8}[/{STYLE_DIM}]"
                             f" [{dur_style}]{dur:>8}[/{dur_style}]"
                         )
@@ -385,7 +408,7 @@ class LiveProgressDisplay:
                     # Waiting
                     parts.append(
                         Text.from_markup(
-                            f"  [{STYLE_WAITING}]{icon} {name:<22} {detail:<14}"
+                            f"  [{STYLE_WAITING}]{icon} {safe_name:<22} {safe_detail:<14}"
                             f" {port_str:<8}    —[/{STYLE_WAITING}]"
                         )
                     )
@@ -402,11 +425,11 @@ class LiveProgressDisplay:
         if self._verbose and self._verbose_lines:
             parts.append(Text(""))
             for line in self._verbose_lines[-5:]:
-                parts.append(Text.from_markup(f"  [{STYLE_DIM}]{line}[/{STYLE_DIM}]"))
+                parts.append(Text.from_markup(f"  [{STYLE_DIM}]{escape(line)}[/{STYLE_DIM}]"))
 
         # Warnings
         for w in self._warnings[-3:]:
-            parts.append(Text.from_markup(f"  [{STYLE_WARNING}]⚠ {w}[/{STYLE_WARNING}]"))
+            parts.append(Text.from_markup(f"  [{STYLE_WARNING}]⚠ {escape(w)}[/{STYLE_WARNING}]"))
 
         return Group(*parts)
 
@@ -418,20 +441,23 @@ class LiveProgressDisplay:
 
         service_ports: Dict[str, int] = {}
         failed: List[str] = []
-        for name in self._service_order:
-            state = self._services.get(name)
-            if state is None:
-                continue
-            if state.status == ServiceStatus.FAILED:
-                failed.append(name)
-            if state.port:
-                service_ports[name] = state.port
+        with self._lock:
+            order = list(self._service_order)
+            warnings_copy = list(self._warnings) if self._warnings else None
+            for name in order:
+                state = self._services.get(name)
+                if state is None:
+                    continue
+                if state.status == ServiceStatus.FAILED:
+                    failed.append(name)
+                if state.port:
+                    service_ports[name] = state.port
 
         summary = render_summary(
             total_duration_s=total_duration,
             service_ports=service_ports,
             amp_run_id=amp_run_id,
-            warnings=self._warnings if self._warnings else None,
+            warnings=warnings_copy,
             failed_services=failed if failed else None,
         )
         self._console.print(summary)
@@ -444,7 +470,8 @@ class LiveProgressDisplay:
 
     @property
     def has_failures(self) -> bool:
-        return any(
-            s.status == ServiceStatus.FAILED
-            for s in self._services.values()
-        )
+        with self._lock:
+            return any(
+                s.status == ServiceStatus.FAILED
+                for s in self._services.values()
+            )

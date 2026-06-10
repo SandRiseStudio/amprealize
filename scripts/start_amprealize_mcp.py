@@ -23,17 +23,13 @@ def main() -> int:
     preferred_python = _venv_python(repo_root)
     current_python = Path(sys.executable).resolve()
 
-    reexec_done = (
-        os.environ.get("AMPREALIZE_MCP_REEXEC") == "1"
-        or os.environ.get("AMPREALIZE_MCP_REEXEC") == "1"
-    )
+    reexec_done = os.environ.get("AMPREALIZE_MCP_REEXEC") == "1"
     if (
         preferred_python is not None
         and current_python != preferred_python.resolve()
         and not reexec_done
     ):
         env = dict(os.environ)
-        env["AMPREALIZE_MCP_REEXEC"] = "1"
         env["AMPREALIZE_MCP_REEXEC"] = "1"
         os.execve(
             str(preferred_python),
@@ -62,17 +58,23 @@ def main() -> int:
     # so the child process inherits correct DSNs instead of .env localhost
     # defaults.  The child's mcp_server.py also applies context at import
     # time as a belt-and-suspenders measure.
-    try:
-        from amprealize.context import apply_context_to_environment as _apply_ctx
-        _apply_ctx(force=True)
-        # Propagate the now-overwritten env vars into the dict we'll pass
-        for key in list(env):
-            if "DSN" in key or key == "DATABASE_URL" or key == "TELEMETRY_DATABASE_URL":
-                current = os.environ.get(key)
-                if current:
-                    env[key] = current
-    except Exception as exc:
-        print(f"[start_amprealize_mcp] context bridge warning: {exc}", file=sys.stderr)
+    if os.environ.get("AMPREALIZE_MCP_SKIP_CONTEXT_BRIDGE", "").lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        try:
+            from amprealize.context import apply_context_to_environment as _apply_ctx
+            _apply_ctx(force=True)
+            # Propagate the now-overwritten env vars into the dict we'll pass
+            for key in list(env):
+                if "DSN" in key or key == "DATABASE_URL" or key == "TELEMETRY_DATABASE_URL":
+                    current = os.environ.get(key)
+                    if current:
+                        env[key] = current
+        except Exception as exc:
+            print(f"[start_amprealize_mcp] context bridge warning: {exc}", file=sys.stderr)
 
     os.chdir(repo_root)
     os.execve(

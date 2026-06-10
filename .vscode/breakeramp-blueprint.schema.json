@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.amprealize.dev/breakeramp/blueprint.schema.json",
+  "title": "BreakerAmp Blueprint",
+  "description": "Workspace schema for BreakerAmp development blueprints.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "version", "services"],
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "version": {
+      "type": ["string", "number"]
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/service"
+      }
+    },
+    "volumes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["object", "null"],
+        "additionalProperties": true
+      }
+    },
+    "networks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["object", "null"],
+        "additionalProperties": true
+      }
+    }
+  },
+  "$defs": {
+    "service": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["image"],
+      "properties": {
+        "image": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean", "null"]
+          }
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "command": {
+          "type": ["string", "array"],
+          "items": {
+            "type": "string"
+          }
+        },
+        "healthcheck": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "healthcheck_timeout_s": {
+          "type": "number"
+        },
+        "post_start_commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["command"],
+            "properties": {
+              "command": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": {
+                "type": "string"
+              },
+              "timeout_s": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -120,8 +120,8 @@ services:
     ports:
       - "8888:8888"
     volumes:
-      # Mount the Podman socket from the VM (Fedora CoreOS user 501)
-      - "/run/user/501/podman/podman.sock:/run/podman/podman.sock"
+      # Mount the Podman socket from the VM (see AMPREALIZE_PODMAN_SOCK_HOST_PATH)
+      - "${AMPREALIZE_PODMAN_SOCK_HOST_PATH:-/run/user/501/podman/podman.sock}:/run/podman/podman.sock"
     command:
       - "tcp-listen:8888,reuseaddr,fork"
       - "unix-connect:/run/podman/podman.sock"
@@ -166,6 +166,10 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
+      TOGETHER_API_KEY: "${TOGETHER_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      FIREWORKS_API_KEY: "${FIREWORKS_API_KEY:-}"
       # Worker tuning
       WORKER_HEARTBEAT_INTERVAL_S: "30"
       WORKER_CLAIM_TIMEOUT_MS: "300000"  # 5 minutes per job claim
@@ -218,7 +222,7 @@ services:
     healthcheck_timeout_s: 60
 
   amprealize-api:
-    image: docker.io/library/python:3.11-slim-bookworm
+    image: "${AMPREALIZE_API_IMAGE:-docker.io/library/python:3.11-slim-bookworm}"
     module: console
     ports:
       - "${AMPREALIZE_API_PORT:-8000}:8000"
@@ -235,8 +239,16 @@ services:
     command:
       - "sh"
       - "-c"
-      - "pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue && uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers ${AMPREALIZE_API_WORKERS:-1} --log-level info"
+      - |
+        set -e
+        W="${AMPREALIZE_API_WORKERS:-1}"
+        if [ "${AMPREALIZE_API_SKIP_PIP:-}" = "1" ]; then
+          exec uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers "$W" --log-level info
+        fi
+        pip install -e . -e ./packages/raze -e ./packages/breakeramp -e ./packages/execution-queue
+        exec uvicorn amprealize.api:app --host 0.0.0.0 --port 8000 --workers "$W" --log-level info
     environment:
+      AMPREALIZE_API_SKIP_PIP: "${AMPREALIZE_API_SKIP_PIP:-}"
       # Podman API for workspace provisioning (when using queue mode)
       PODMAN_HOST: "${PODMAN_HOST:-tcp://host.containers.internal:8888}"
       # =========================================================================
@@ -265,7 +277,10 @@ services:
       AMPREALIZE_AGENT_REGISTRY_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dexecution,auth,board,behavior,workflow,consent,audit,public"
       AMPREALIZE_MESSAGING_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dmessaging,auth,execution,board,behavior,workflow,consent,audit,public"
       AMPREALIZE_METRICS_PG_DSN: "postgresql://${AMPREALIZE_PG_USER:-amprealize}:${AMPREALIZE_PG_PASS:-amprealize_dev}@amprealize-db:5432/${AMPREALIZE_PG_DB:-amprealize}?options=-csearch_path%3Dauth,execution,board,behavior,workflow,consent,audit,public"
+      # Telemetry warehouse (TimescaleDB service `telemetry-db` above). Required for PostgresTelemetrySink + api.http.completed.
       AMPREALIZE_TELEMETRY_PG_DSN: "postgresql://${AMPREALIZE_PG_USER_TELEMETRY:-telemetry}:${AMPREALIZE_PG_PASS_TELEMETRY:-telemetry_dev}@telemetry-db:5432/${AMPREALIZE_PG_DB_TELEMETRY:-telemetry}"
+      # Sampled REST latency events (`api.http.completed` → telemetry DB). Default 1 for dev; set host AMPREALIZE_API_HTTP_TELEMETRY_SAMPLE_RATE=0.1 if volume is high.
+      AMPREALIZE_API_HTTP_TELEMETRY_SAMPLE_RATE: "${AMPREALIZE_API_HTTP_TELEMETRY_SAMPLE_RATE:-1}"
 
       # =========================================================================
       # OAuth settings (loaded from .env.google-oauth and .env.github-oauth)
@@ -316,10 +331,18 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
-      # BYOK (Bring Your Own Key) credential encryption - required for persistent storage
-      BYOK_ENCRYPTION_KEY: "${BYOK_ENCRYPTION_KEY:-F8mx5M0oI4byBM353Yu5dtcz8d4AxlEKl1cBf2FW0Y4=}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
+      TOGETHER_API_KEY: "${TOGETHER_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      FIREWORKS_API_KEY: "${FIREWORKS_API_KEY:-}"
+      # BYOK encryption: set explicitly for stable local BYOK (see amprealize.llm.byok_policy).
+      BYOK_ENCRYPTION_KEY: "${BYOK_ENCRYPTION_KEY:-}"
+      AMPREALIZE_REQUIRE_BYOK_ENCRYPTION: "${AMPREALIZE_REQUIRE_BYOK_ENCRYPTION:-0}"
       # Performance instrumentation (0 disables).
       AMPREALIZE_PERF_LOG: "${AMPREALIZE_PERF_LOG:-1}"
+
+      # Chat: targeted workspace fetch (Phase B). Set on host .env — forwarded here.
+      AMPREALIZE_ENABLE_CHAT_WORKSPACE_TARGETED_FETCH: "${AMPREALIZE_ENABLE_CHAT_WORKSPACE_TARGETED_FETCH:-false}"
     healthcheck_timeout_s: 90
     post_start_commands:
       # Run Alembic migrations to create all schemas and tables
@@ -375,6 +398,13 @@ services:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      NVIDIA_API_KEY: "${NVIDIA_API_KEY:-}"
+      TOGETHER_API_KEY: "${TOGETHER_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      FIREWORKS_API_KEY: "${FIREWORKS_API_KEY:-}"
+
+      # Chat: targeted workspace fetch (Phase B). Set on host .env — forwarded here.
+      AMPREALIZE_ENABLE_CHAT_WORKSPACE_TARGETED_FETCH: "${AMPREALIZE_ENABLE_CHAT_WORKSPACE_TARGETED_FETCH:-false}"
     healthcheck:
       test: ["CMD-SHELL", "grep -r amprealize.mcp_server /proc/*/cmdline >/dev/null 2>&1 || exit 1"]
       interval: 15s
