@@ -79,7 +79,7 @@
         "required": ["id", "role", "surface"]
       }
     },
-    "required": ["behavior_id", "version", "actor"]
+    "required": ["behavior_id", "version"]
   },
   "outputSchema": {
     "type": "object",

@@ -7,14 +7,14 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user"
+        "description": "ID of the user (optional, uses session)"
       },
       "org_id": {
         "type": "string",
         "description": "Organization ID"
       }
     },
-    "required": ["user_id", "org_id"]
+    "required": ["org_id"]
   },
   "outputSchema": {
     "type": "object",

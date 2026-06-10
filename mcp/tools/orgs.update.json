@@ -7,7 +7,7 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user performing the action (required for authorization)"
+        "description": "ID of the user performing the action (optional, uses session)"
       },
       "org_id": {
         "type": "string",
@@ -42,7 +42,7 @@
         "description": "Organization metadata to update"
       }
     },
-    "required": ["user_id", "org_id"]
+    "required": ["org_id"]
   },
   "outputSchema": {
     "type": "object",

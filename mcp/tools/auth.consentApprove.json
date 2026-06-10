@@ -4,7 +4,7 @@
   "description": "Approve a pending consent request, granting the requested scopes to the requesting agent/client. This completes the device authorization flow.",
   "inputSchema": {
     "type": "object",
-    "required": ["user_code", "approver"],
+    "required": ["user_code"],
     "properties": {
       "user_code": {
         "type": "string",
@@ -12,7 +12,7 @@
       },
       "approver": {
         "type": "string",
-        "description": "Identifier of the user approving the consent request."
+        "description": "Identifier of the user approving the consent request (optional, uses session identity)."
       },
       "roles": {
         "type": "array",

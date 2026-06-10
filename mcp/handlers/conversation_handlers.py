@@ -12,7 +12,11 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from amprealize.conversation_contracts import ConversationScope, MessageType
+from amprealize.conversation_contracts import (
+    ConversationScope,
+    MessageType,
+    normalize_conversation_scope,
+)
 from amprealize.services.conversation_service import (
     AccessDeniedError,
     ConversationNotFoundError,
@@ -69,14 +73,16 @@ def handle_create_conversation(
 ) -> Dict[str, Any]:
     """MCP Tool: conversations.create"""
     project_id = arguments.get("project_id")
-    if not project_id:
-        return {"success": False, "error": "project_id is required"}
-
     scope_str = arguments.get("scope", "project_room")
     try:
-        scope = ConversationScope(scope_str)
+        scope = normalize_conversation_scope(ConversationScope(scope_str))
     except ValueError:
         return {"success": False, "error": f"Invalid scope: {scope_str}"}
+
+    if scope.is_project_scoped and not project_id:
+        return {"success": False, "error": f"{scope.value} requires project_id"}
+    if scope.is_global and project_id:
+        return {"success": False, "error": f"{scope.value} must not include project_id"}
 
     user_id = _get_user_id(arguments)
     org_id = _get_org_id(arguments)
@@ -93,7 +99,7 @@ def handle_create_conversation(
         return {
             "success": True,
             "conversation": _serialize_dict(conv.to_dict()),
-            "message": f"Conversation created in project {project_id}",
+            "message": f"Conversation created with scope {scope.value}",
         }
     except ConversationServiceError as exc:
         return {"success": False, "error": str(exc)}
@@ -105,23 +111,41 @@ def handle_list_conversations(
 ) -> Dict[str, Any]:
     """MCP Tool: conversations.list"""
     project_id = arguments.get("project_id")
-    if not project_id:
-        return {"success": False, "error": "project_id is required"}
 
     user_id = _get_user_id(arguments)
     org_id = _get_org_id(arguments)
     scope_str = arguments.get("scope")
-    scope = ConversationScope(scope_str) if scope_str else None
+    scopes_raw = arguments.get("scopes")
+    scopes_list: Optional[list] = None
+    if isinstance(scopes_raw, list) and scopes_raw:
+        scopes_list = scopes_raw
+    elif scopes_raw is not None and not isinstance(scopes_raw, list):
+        return {"success": False, "error": "scopes must be an array of scope strings when provided"}
 
-    convs, total = service.list_conversations(
-        project_id=project_id,
-        user_id=user_id,
-        org_id=org_id,
-        scope=scope,
-        include_archived=arguments.get("include_archived", False),
-        limit=arguments.get("limit", 50),
-        offset=arguments.get("offset", 0),
-    )
+    try:
+        if scopes_list:
+            scopes = [normalize_conversation_scope(ConversationScope(s)) for s in scopes_list]
+            scope = None
+        else:
+            scopes = None
+            scope = normalize_conversation_scope(ConversationScope(scope_str)) if scope_str else None
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+
+    try:
+        convs, total = service.list_conversations(
+            project_id=project_id,
+            user_id=user_id,
+            org_id=org_id,
+            scope=scope,
+            scopes=scopes,
+            include_archived=arguments.get("include_archived", False),
+            limit=arguments.get("limit", 50),
+            offset=arguments.get("offset", 0),
+            include_total=arguments.get("include_total", True),
+        )
+    except ConversationServiceError as exc:
+        return {"success": False, "error": str(exc)}
     return {
         "success": True,
         "conversations": [_serialize_dict(c.to_dict()) for c in convs],
@@ -171,6 +195,37 @@ def handle_archive_conversation(
         return {"success": False, "error": str(exc)}
 
 
+def handle_update_conversation(
+    service: ConversationService,
+    arguments: Dict[str, Any],
+) -> Dict[str, Any]:
+    """MCP Tool: conversations.update"""
+    conversation_id = arguments.get("conversation_id")
+    if not conversation_id:
+        return {"success": False, "error": "conversation_id is required"}
+
+    patch: Dict[str, Any] = {}
+    if "title" in arguments:
+        patch["title"] = arguments.get("title")
+    if not patch:
+        return {"success": False, "error": "No fields to update"}
+
+    try:
+        conv = service.patch_conversation(
+            conversation_id,
+            user_id=_get_user_id(arguments),
+            org_id=_get_org_id(arguments),
+            patch=patch,
+        )
+        return {"success": True, "conversation": _serialize_dict(conv.to_dict())}
+    except ConversationNotFoundError as exc:
+        return {"success": False, "error": str(exc)}
+    except AccessDeniedError as exc:
+        return {"success": False, "error": str(exc)}
+    except ConversationServiceError as exc:
+        return {"success": False, "error": str(exc)}
+
+
 # ============================================================================
 # Message Handlers
 # ============================================================================
@@ -204,6 +259,7 @@ def handle_send_message(
             run_id=arguments.get("run_id"),
             behavior_id=arguments.get("behavior_id"),
             work_item_id=arguments.get("work_item_id"),
+            resource_links=arguments.get("resource_links"),
             metadata=arguments.get("metadata"),
             org_id=_get_org_id(arguments),
         )
@@ -231,8 +287,10 @@ def handle_list_messages(
         user_id=_get_user_id(arguments),
         org_id=_get_org_id(arguments),
         parent_id=arguments.get("parent_id"),
+        include_thread_replies=bool(arguments.get("include_thread_replies")),
         limit=arguments.get("limit", 50),
         offset=arguments.get("offset", 0),
+        include_total=arguments.get("include_total", True),
     )
     return {
         "success": True,
@@ -493,6 +551,7 @@ CONVERSATION_HANDLERS = {
     "conversations.create": handle_create_conversation,
     "conversations.list": handle_list_conversations,
     "conversations.get": handle_get_conversation,
+    "conversations.update": handle_update_conversation,
     "conversations.archive": handle_archive_conversation,
 }
 

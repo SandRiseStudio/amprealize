@@ -10,7 +10,7 @@
     "properties": {
       "project_id": {
         "type": "string",
-        "description": "Project ID to check model availability for. Required for project-level credential resolution."
+        "description": "Project ID for project-scoped BYOK resolution. Omit for platform/org/user-only availability (same as REST /api/v1/config/models)."
       },
       "org_id": {
         "type": "string",
@@ -23,11 +23,10 @@
       },
       "provider_filter": {
         "type": "string",
-        "enum": ["anthropic", "openai", "openrouter", "local"],
-        "description": "Optional filter to only return models from a specific provider."
+        "description": "Optional filter to only return models from a specific provider (e.g. anthropic, openai, nvidia)."
       }
     },
-    "required": ["project_id"],
+    "required": [],
     "additionalProperties": false
   },
   "outputSchema": {

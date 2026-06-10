@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "executionConnector.verifyConnection",
+  "description": "Check local execution connector presence on this API instance. depth=socket tests outbound WebSocket registration; depth=invoke additionally runs a bounded list_dir probe via tool.invoke (same semantics as GET /api/v1/execution-connector/connection-status). Requires feature.local_execution_connector.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "User to check (optional, uses session user_id when authenticated)"
+      },
+      "depth": {
+        "type": "string",
+        "description": "socket (default) or invoke — invoke performs delegated-tool round-trip probe against connector workdir"
+      }
+    },
+    "required": []
+  }
+}

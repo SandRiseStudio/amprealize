@@ -27,7 +27,7 @@
         "description": "Number of boards to skip for pagination"
       }
     },
-    "required": ["project_id"]
+    "required": []
   },
   "outputSchema": {
     "type": "object",

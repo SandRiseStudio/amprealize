@@ -7,7 +7,12 @@
     "properties": {
       "domain": {
         "type": "string",
-        "enum": ["research", "infra", "ai-learning"],
+        "enum": [
+          "research",
+          "infra",
+          "ai-learning",
+          "platform"
+        ],
         "description": "Wiki domain"
       },
       "page_type": {
@@ -19,6 +24,8 @@
         "description": "Optional filter by folder (e.g., \"reference\", \"troubleshooting\")"
       }
     },
-    "required": ["domain"]
+    "required": [
+      "domain"
+    ]
   }
 }

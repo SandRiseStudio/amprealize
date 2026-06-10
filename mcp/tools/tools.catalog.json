@@ -1,0 +1,34 @@
+{
+  "name": "tools.catalog",
+  "description": "Search all Amprealize MCP tools, including inactive groups, and return exact original names, Cursor-normalized names, input fields, required fields, and activation metadata. Use this instead of reading manifests or guessing calls.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "group": {
+        "type": "string",
+        "description": "Optional tool group id, for example work_items, projects, wiki, research, behaviors, authorization."
+      },
+      "query": {
+        "type": "string",
+        "description": "Optional search text matched against tool names, descriptions, and groups."
+      },
+      "use_case": {
+        "type": "string",
+        "description": "Optional natural-language use case for narrowing tool discovery."
+      },
+      "include_inactive": {
+        "type": "boolean",
+        "description": "Include tools from inactive groups so agents can discover what to activate.",
+        "default": true
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum tools to return.",
+        "minimum": 1,
+        "maximum": 200,
+        "default": 50
+      }
+    },
+    "required": []
+  }
+}

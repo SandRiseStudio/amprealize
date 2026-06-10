@@ -33,16 +33,21 @@
       },
       "limit": {
         "type": "integer",
-        "default": 100,
+        "default": 25,
         "minimum": 1,
-        "maximum": 500,
-        "description": "Maximum number of items to return"
+        "maximum": 100,
+        "description": "Maximum number of items to return. Defaults to 25 for fast MCP chat responses; use workItems.get for full details"
       },
       "offset": {
         "type": "integer",
         "default": 0,
         "minimum": 0,
         "description": "Number of items to skip for pagination"
+      },
+      "brief": {
+        "type": "boolean",
+        "default": true,
+        "description": "Return compact summary records. Set false to include full descriptions, metadata, checklist, attachments, and timestamps for every row"
       }
     }
   },

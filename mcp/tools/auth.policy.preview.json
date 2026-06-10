@@ -4,9 +4,9 @@
   "description": "Evaluate a potential tool invocation against the current policy bundle without mutating state.",
   "inputSchema": {
     "type": "object",
-    "required": ["agent_id", "tool_name", "scopes"],
+    "required": ["tool_name", "scopes"],
     "properties": {
-      "agent_id": {"type": "string"},
+      "agent_id": {"type": "string", "description": "Registered agent identifier (optional, uses session identity)."},
       "user_id": {"type": "string"},
       "tool_name": {"type": "string"},
       "scopes": {

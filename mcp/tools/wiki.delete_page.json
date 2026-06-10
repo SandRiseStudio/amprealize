@@ -7,7 +7,12 @@
     "properties": {
       "domain": {
         "type": "string",
-        "enum": ["research", "infra", "ai-learning"],
+        "enum": [
+          "research",
+          "infra",
+          "ai-learning",
+          "platform"
+        ],
         "description": "Wiki domain"
       },
       "page_path": {
@@ -15,6 +20,9 @@
         "description": "Path relative to wiki/<domain>/"
       }
     },
-    "required": ["domain", "page_path"]
+    "required": [
+      "domain",
+      "page_path"
+    ]
   }
 }

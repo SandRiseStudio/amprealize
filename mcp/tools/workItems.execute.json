@@ -29,12 +29,17 @@
         "type": "string",
         "description": "Optional model ID to override agent's default model (e.g., 'claude-opus-4-5', 'gpt-5-2')"
       },
+      "execution_workspace_kind": {
+        "type": "string",
+        "description": "cloud_git (default) or local_connector (requires paired daemon and feature flag)",
+        "enum": ["cloud_git", "local_connector"]
+      },
       "user_id": {
         "type": "string",
         "description": "User ID initiating the execution"
       }
     },
-    "required": ["work_item_id", "project_id"]
+    "required": ["work_item_id"]
   },
   "output": {
     "description": "Returns execution status with run_id, status, phase, and metrics",

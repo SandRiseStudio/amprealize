@@ -4,7 +4,7 @@
   "description": "Create a new label for a project. Labels are used to categorize and filter work items.",
   "inputSchema": {
     "type": "object",
-    "required": ["project_id", "name"],
+    "required": ["name"],
     "properties": {
       "project_id": {
         "type": "string",

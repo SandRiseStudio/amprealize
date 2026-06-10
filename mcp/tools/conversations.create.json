@@ -1,24 +1,24 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "name": "conversations.create",
-  "description": "Create a new conversation in a project. Supports project rooms and agent direct messages.",
+  "description": "Create a global or project conversation. Legacy agent_dm input is accepted and normalized to dm.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "project_id": {
         "type": "string",
-        "description": "Project ID to create the conversation in (required)"
+        "description": "Project ID to create the conversation in. Required for project-scoped conversations; omit for global_user_home or global_personal_thread."
       },
       "scope": {
         "type": "string",
-        "enum": ["project_room", "agent_dm"],
+        "enum": ["project_room", "agent_dm", "global_user_home", "global_personal_thread", "project_space", "dm", "group_chat", "work_item_thread", "run_thread"],
         "default": "project_room",
         "description": "Conversation scope type"
       },
       "title": {
         "type": "string",
         "maxLength": 500,
-        "description": "Optional conversation title (required for topic scope)"
+        "description": "Optional conversation title"
       },
       "participant_ids": {
         "type": "array",
@@ -34,7 +34,7 @@
         "description": "Optional organization ID for multi-tenant context"
       }
     },
-    "required": ["project_id"]
+    "required": []
   },
   "outputSchema": {
     "type": "object",

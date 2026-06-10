@@ -7,14 +7,14 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user"
+        "description": "ID of the user (optional, uses session)"
       },
       "project_id": {
         "type": "string",
         "description": "Project ID to switch to"
       }
     },
-    "required": ["user_id", "project_id"]
+    "required": ["project_id"]
   },
   "outputSchema": {
     "type": "object",

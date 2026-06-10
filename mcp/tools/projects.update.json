@@ -7,7 +7,7 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user performing the action (required for authorization)"
+        "description": "ID of the user performing the action (optional, uses session)"
       },
       "project_id": {
         "type": "string",
@@ -43,7 +43,7 @@
         "description": "Project metadata to update"
       }
     },
-    "required": ["user_id", "project_id"]
+    "required": ["project_id"]
   },
   "outputSchema": {
     "type": "object",

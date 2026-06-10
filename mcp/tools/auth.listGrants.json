@@ -4,9 +4,9 @@
   "description": "List active and historical grants for an agent and optional user scope.",
   "inputSchema": {
     "type": "object",
-    "required": ["agent_id"],
+    "required": [],
     "properties": {
-      "agent_id": {"type": "string", "description": "Registered agent identifier."},
+      "agent_id": {"type": "string", "description": "Registered agent identifier (optional, uses session identity)."},
       "user_id": {"type": "string", "description": "Filter by human user id."},
       "tool_name": {"type": "string", "description": "Filter by tool/action identifier."},
       "include_expired": {"type": "boolean", "default": false},

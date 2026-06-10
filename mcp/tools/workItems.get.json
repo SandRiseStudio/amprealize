@@ -12,6 +12,11 @@
       "org_id": {
         "type": "string",
         "description": "Optional organization ID for multi-tenant context"
+      },
+      "brief": {
+        "type": "boolean",
+        "default": false,
+        "description": "Return a compact summary instead of the full work item record."
       }
     },
     "required": ["item_id"]

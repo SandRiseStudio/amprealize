@@ -7,7 +7,7 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user performing the action (required for authorization)"
+        "description": "ID of the user performing the action (optional, uses session)"
       },
       "org_id": {
         "type": "string",
@@ -24,7 +24,7 @@
         "description": "Role to assign to the new member"
       }
     },
-    "required": ["user_id", "org_id", "target_user_id"]
+    "required": ["org_id", "target_user_id"]
   },
   "outputSchema": {
     "type": "object",

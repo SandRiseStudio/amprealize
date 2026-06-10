@@ -7,7 +7,7 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user performing the action (required for authorization)"
+        "description": "ID of the user performing the action (optional, uses session)"
       },
       "project_id": {
         "type": "string",
@@ -19,11 +19,11 @@
       },
       "role": {
         "type": "string",
-        "enum": ["owner", "admin", "maintainer", "developer", "viewer"],
+        "enum": ["owner", "maintainer", "contributor", "viewer"],
         "description": "New role to assign"
       }
     },
-    "required": ["user_id", "project_id", "target_user_id", "role"]
+    "required": ["project_id", "target_user_id", "role"]
   },
   "outputSchema": {
     "type": "object",

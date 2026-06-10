@@ -18,7 +18,7 @@
         "description": "Project ID (required)"
       }
     },
-    "required": ["work_item_id", "project_id"]
+    "required": ["work_item_id"]
   },
   "output": {
     "description": "Returns detailed execution status",

@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "traces.runs",
+  "description": "List run-level observability summaries from warehouse views for a project (parity with POST /api/v1/observability/traces/runs). Requires VIEW_RUNS on project_id when permission service is configured.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_id": {
+        "type": "string",
+        "description": "Project scope for observability rows (optional, uses session project_id)"
+      },
+      "run_id": {
+        "type": "string",
+        "description": "Filter to a single run"
+      },
+      "since": {
+        "type": "string",
+        "description": "ISO timestamp or relative window (e.g. 7d) — lower bound"
+      },
+      "until": {
+        "type": "string",
+        "description": "ISO timestamp or relative window — upper bound"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 50,
+        "description": "Max rows"
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000,
+        "default": 0,
+        "description": "Pagination offset"
+      }
+    },
+    "additionalProperties": false,
+    "required": []
+  }
+}

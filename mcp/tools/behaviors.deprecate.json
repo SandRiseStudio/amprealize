@@ -39,7 +39,7 @@
         "description": "Actor must have deprecation authority"
       }
     },
-    "required": ["behavior_id", "version", "effective_to", "actor"]
+    "required": ["behavior_id", "version", "effective_to"]
   },
   "outputSchema": {
     "type": "object",

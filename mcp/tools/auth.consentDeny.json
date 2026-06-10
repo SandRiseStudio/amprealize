@@ -4,7 +4,7 @@
   "description": "Deny a pending consent request, rejecting the requested scopes. The requesting agent/client will receive a denial response.",
   "inputSchema": {
     "type": "object",
-    "required": ["user_code", "approver"],
+    "required": ["user_code"],
     "properties": {
       "user_code": {
         "type": "string",
@@ -12,7 +12,7 @@
       },
       "approver": {
         "type": "string",
-        "description": "Identifier of the user denying the consent request."
+        "description": "Identifier of the user denying the consent request (optional, uses session identity)."
       },
       "reason": {
         "type": "string",

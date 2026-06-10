@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "resources.analyze",
+  "description": "Answer read-only natural-language questions about accessible Amprealize resources across projects, boards, work items, runs, agents, behaviors, wiki pages, settings, users, orgs, files, credentials, and conversations.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Natural-language resource question to answer"
+      },
+      "project_id": {
+        "type": "string",
+        "description": "Optional project scope. Uses session context when omitted."
+      },
+      "org_id": {
+        "type": "string",
+        "description": "Optional organization scope. Uses session context when omitted."
+      },
+      "conversation_scope": {
+        "type": "string",
+        "description": "Optional conversation scope hint for resource analysis"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": { "type": "boolean" },
+      "content": { "type": "string" },
+      "answer_type": { "type": "string" },
+      "query_plan": { "type": "object" },
+      "structured_payload": { "type": "object" },
+      "rows": { "type": "array", "items": { "type": "object" } },
+      "trace_steps": { "type": "array", "items": { "type": "object" } },
+      "metadata": { "type": "object" }
+    }
+  }
+}

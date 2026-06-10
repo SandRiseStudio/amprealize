@@ -45,7 +45,7 @@
         "description": "Optional organization ID for multi-tenant context"
       }
     },
-    "required": ["project_id", "name"]
+    "required": ["name"]
   },
   "outputSchema": {
     "type": "object",

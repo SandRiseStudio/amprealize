@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "name": "context.setOrg",
-  "description": "Switch the current organization context. All subsequent operations will be scoped to this organization. The user must be a member of the target organization. Note: org_id is optional - users can operate without an org context.",
+  "description": "Switch the current organization context. All subsequent operations will be scoped to this organization. The user must be a member of the target organization. Use context.clearContext to operate without an org context.",
   "inputSchema": {
     "type": "object",
     "properties": {

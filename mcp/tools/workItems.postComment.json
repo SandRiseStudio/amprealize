@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "name": "workItems.postComment",
-  "description": "Post a comment on a work item. Comments can be from users or agents and optionally link to execution runs.",
+  "description": "Post a comment on a work item. Comments can be from users or agents and optionally link to execution runs. author_id is optional when MCP session context or user_id identifies the author.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -17,7 +17,7 @@
       },
       "author_id": {
         "type": "string",
-        "description": "ID of the comment author - user ID or agent ID (required)"
+        "description": "ID of the comment author - user ID or agent ID. Optional when user_id or MCP session user_id is available."
       },
       "author_type": {
         "type": "string",
@@ -39,7 +39,7 @@
       },
       "user_id": {
         "type": "string",
-        "description": "User ID performing the action (for audit logging)"
+        "description": "User ID performing the action (for audit logging). Also used as author_id when author_id is omitted."
       },
       "actor_role": {
         "type": "string",
@@ -50,7 +50,7 @@
         "description": "Surface the action is performed from (e.g., 'mcp', 'web', 'cli')"
       }
     },
-    "required": ["work_item_id", "body", "author_id"]
+    "required": ["work_item_id", "body"]
   },
   "outputSchema": {
     "type": "object",

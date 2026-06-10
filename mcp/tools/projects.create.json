@@ -7,7 +7,7 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user performing the action (auto-injected from session if authenticated)"
+        "description": "ID of the user performing the action (optional, uses session)"
       },
       "org_id": {
         "type": "string",

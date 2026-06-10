@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "executionConnector.revokeDevice",
+  "description": "Revoke a device token (POST /api/v1/execution-connector/devices:revoke).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "device_token": {
+        "type": "string",
+        "description": "Device token to revoke"
+      }
+    },
+    "required": []
+  }
+}
