@@ -65,7 +65,9 @@ This validates:
 
 ### Cursor
 
-Cursor's MCP config uses a different format from VS Code:
+**Option A — Marketplace plugin (rules + skills + portable MCP):** This repository includes a Cursor plugin bundle under [`plugins/amprealize/`](plugins/amprealize/README.md) (manifest at `.cursor-plugin/marketplace.json`). Install locally via symlink to `~/.cursor/plugins/local/` for testing; publish the **repository URL** at [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish) (Git-based, reviewed by Cursor). See [`plugins/amprealize/README.md`](plugins/amprealize/README.md).
+
+**Option B — Manual MCP JSON:** Cursor's MCP config uses a different format from VS Code:
 - **Requires** `"type": "stdio"` (VS Code infers it; Cursor does not)
 - **Does not support** `cwd` -- use `${workspaceFolder}` interpolation instead
 - **Supports** `envFile` to load `.env` files natively
@@ -86,6 +88,8 @@ Example `.cursor/mcp.json` for a **clone** (launcher script):
 ```
 
 For **pip-only** workspaces, `init` emits the same shape with `"args": ["-m", "amprealize.mcp_server"]` and `command` pointing at your venv or system `python` / `python3` (Windows: `.venv/Scripts/python.exe` when present).
+
+**Protocol icons:** On MCP `initialize`, the server adds `serverInfo.icons` using a bundled PNG as a `data:image/png;base64,...` URI. Optional overrides: `AMPREALIZE_MCP_ICON_URL` (must be `https://...`) or `AMPREALIZE_MCP_ICON_PATH` (local PNG read by the server and encoded as `data:` — never `file:`). Whether Cursor displays this in **Tools & MCPs** depends on the client version.
 
 Debug MCP issues in Cursor: open the Output panel (Cmd+Shift+U) and select "MCP Logs".
 

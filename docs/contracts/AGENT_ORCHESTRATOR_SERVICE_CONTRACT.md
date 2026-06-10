@@ -1,7 +1,7 @@
 # AgentOrchestratorService Contract
 
 ## Purpose
-Enable runtime assignment and switching of functional agents (Engineering, Product, Finance, Security, etc.) across the Strategist → Teacher → Student pipeline so every run inherits the correct playbooks, behaviors, and compliance guardrails. The service exposes a single orchestration contract that all surfaces (Web, REST API, CLI, MCP, VS Code) must use when selecting or overriding agents, keeping telemetry and audit evidence consistent with `PRD_NEXT_STEPS.md` and `AGENTS.md`.
+Enable runtime assignment and switching of functional agents (Engineering, Product, Finance, Security, Data Science, etc.) across the Strategist → Teacher → Student pipeline so every run inherits the correct playbooks, behaviors, and compliance guardrails. The service exposes a single orchestration contract that all surfaces (Web, REST API, CLI, MCP, VS Code) must use when selecting or overriding agents, keeping telemetry and audit evidence consistent with `PRD_NEXT_STEPS.md` and `AGENTS.md`.
 
 ## Services & Endpoints
 - **gRPC Service:** `amprealize.agentorchestrator.v1.AgentOrchestratorService`
@@ -13,7 +13,7 @@ Enable runtime assignment and switching of functional agents (Engineering, Produ
 ### `AgentPersona`
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `agent_id` | string | Yes | Canonical agent slug (e.g., `engineering`, `product`, `finance`). |
+| `agent_id` | string | Yes | Canonical agent slug (e.g., `engineering`, `product`, `finance`, `data_science`). |
 | `display_name` | string | Yes | Human readable name. |
 | `role_alignment` | enum | Yes | `STRATEGIST|TEACHER|STUDENT|MULTI_ROLE`. |
 | `default_behaviors` | string[] | Yes | Behavior IDs automatically injected when the agent is selected. |

@@ -98,6 +98,28 @@ The platform must embody these qualities in every interaction:
 
 10. **Never use purple, Gradients, or shadows** - Explicit requirement. Never use the color purple (or similar colors), gradients, or shadows.
 
+### Amprealize Chat UX North Star
+
+Amprealize Chat is the flagship expression of the collaboration experience. It should feel like a premium workspace foundation with magical mission-control moments: fast like Raycast, polished like Linear, collaborative like Figma, and lightly futuristic through restrained frosted-glass surfaces.
+
+Chat-specific requirements:
+
+1. **Bottom-first command surface** — Global chat starts as a stable frosted bottom dock, expands into a peek sheet, then opens into a full glass chat window that can be dragged once expanded.
+
+2. **Glassmorphism with discipline** — Use translucent panes, blur, saturation, crisp borders, edge highlights, and ambient background fields. Do not use purple, gradients, or shadows to create depth.
+
+3. **Live inline work objects** — Plans, runs, work items, files, and agent/tool actions should appear as inline cards that update in place. The first hero cards are work item cards and run cards.
+
+4. **Magic composer** — The composer behaves like chat plus command palette plus agent launcher plus attachment brain. It supports natural language, `@` users/agents, `#` resources, contextual quick chips, and smart attachments.
+
+5. **Adaptive agent presence** — Agents feel alive through subtle avatars, activity trails, typing/working states, tool-use chips, and handoff moments. Presence stays quiet by default and becomes more theatrical only during active planning or execution.
+
+6. **Speed rituals** — Chat opens immediately, sends optimistically, streams responses with a typewriter/materializing effect, uses skeletons instead of blocking spinners, and keeps all interaction feedback under 100ms.
+
+7. **Tiered recovery** — Resource/action failures become inline recovery cards, normal chat failures get conversational explanations, and minor UI issues use quiet toasts. Errors should guide instead of dead-ending.
+
+8. **Accessible delight** — Every magical moment must preserve contrast, keyboard control, screen-reader labels, visible focus states, and reduced-motion behavior.
+
 ### Animation & Motion Design System
 
 ```css

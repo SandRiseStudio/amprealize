@@ -40,6 +40,8 @@
 - [BCI in Amprealize](in-practice/bci-in-amprealize.md) — intermediate (internal)
 - [Context Composition in Amprealize](in-practice/context-composition.md) — intermediate (internal)
 - [Agent Orchestration in Amprealize](in-practice/agent-orchestration.md) — advanced (internal)
+- [LLM Routing in Amprealize](in-practice/llm-routing-in-amprealize.md) — advanced (internal)
+- [Principal data science in Amprealize chat](in-practice/principal-data-science-in-chat.md) — intermediate (internal)
 
 ## Learning Paths
 

@@ -600,6 +600,8 @@ CORS_ORIGINS = ["https://amprealize.example.com"]
 CORS_ORIGINS = ["http://localhost:3000", "http://localhost:8000"]
 ```
 
+Allowed cross-origin **request** headers (FastAPI `CORSMiddleware`, nginx `@cors_preflight`, and the Cloudflare preflight worker) include `Authorization`, `Content-Type`, `X-Requested-With`, `X-Tenant-Id`, and `X-Web-Perf-Session` (web console dashboard perf correlation).
+
 **Rate Limiting (Recommended):**
 ```python
 # Add to api.py for production deployment

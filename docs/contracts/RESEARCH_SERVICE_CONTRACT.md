@@ -70,7 +70,7 @@ The Research Service provides a **standardized, automated pipeline** for evaluat
 
 | Input Type | Handler | Library | Notes |
 |------------|---------|---------|-------|
-| URL (arxiv, blog, etc.) | `WebIngester` | `httpx` + `beautifulsoup4` | Extracts main content, strips nav/ads |
+| URL (arxiv, blog, etc.) | `URLIngester` | Python stdlib HTTP + HTML parser | Extracts text with SSRF protections, redirect limits, content-type checks, body-size limits, and timeouts |
 | URL (arxiv PDF) | `ArxivIngester` | `arxiv` API | Fetches metadata + PDF, extracts text |
 | Markdown file | `MarkdownIngester` | Built-in | Direct read, preserves structure |
 | PDF file | `PDFIngester` | `pymupdf` (fitz) | Extracts text with layout awareness |
@@ -450,6 +450,22 @@ amprealize research batch-evaluate --input papers.txt --output results/
 | `research.search` | Search evaluated papers | `query`, `verdict?`, `min_score?` |
 | `research.get` | Get paper details | `paper_id`, `include_report?` |
 | `research.compare` | Compare multiple papers | `paper_ids[]` |
+
+### Research Work Items
+
+Research work items use the standard board `work_items.metadata` JSON field for their source URL:
+
+```json
+{
+  "item_type": "research",
+  "title": "Evaluate Metacognitive Reuse for Amprealize",
+  "metadata": {
+    "research_url": "https://arxiv.org/abs/2509.13237"
+  }
+}
+```
+
+The board contracts normalize top-level `research_url`, `researchUrl`, and `Research URL` aliases into `metadata.research_url`. When a research item is executed, the execution gateway resolves the builtin AI Research agent by registry slug `ai_research`, rejects arbitrary `agent_id_override` values, builds an `EvaluatePaperRequest(source=<research_url>, source_type=URL, title_override=<work item title>)`, and stores the evaluation result and markdown report on the run metadata.
 
 ### MCP Registration
 

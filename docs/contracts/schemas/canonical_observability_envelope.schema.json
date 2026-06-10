@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amprealize:schemas:canonical_observability_envelope:v1",
+  "title": "Canonical observability envelope",
+  "description": "JSON Schema for the in-memory / exporter-safe canonical record shape aligned with amprealize.observability_contracts.ObservabilityRecord and subclasses. Does not include Timescale-only columns (payload, data_class, retention_until, flattened correlation columns); see observability_timescale_schema() for warehouse rows.",
+  "x-amprealize-contract": "CANONICAL_TRACE_CONTRACT.md",
+  "x-amprealize-schema-version": "1.0.0",
+  "type": "object",
+  "required": [
+    "record_id",
+    "kind",
+    "name",
+    "timestamp",
+    "correlation",
+    "status",
+    "sensitivity"
+  ],
+  "properties": {
+    "record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "trace",
+        "span",
+        "event",
+        "generation",
+        "tool_call",
+        "action",
+        "artifact",
+        "behavior_candidate",
+        "outcome"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "correlation": {
+      "$ref": "#/$defs/observabilityCorrelation"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "started",
+        "completed",
+        "failed",
+        "denied",
+        "skipped"
+      ]
+    },
+    "sensitivity": {
+      "type": "string",
+      "enum": [
+        "metadata",
+        "summary",
+        "restricted",
+        "raw"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ended_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_ms": {
+      "type": "number"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "model_id": {
+      "type": "string"
+    },
+    "input_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "output_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cost_usd": {
+      "type": "number"
+    },
+    "latency_ms": {
+      "type": "number"
+    },
+    "first_token_latency_ms": {
+      "type": "number"
+    },
+    "prompt_summary": {
+      "type": "string"
+    },
+    "output_summary": {
+      "type": "string"
+    },
+    "tool_name": {
+      "type": "string"
+    },
+    "call_id": {
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "type": "number"
+    },
+    "input_summary": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "output_summary": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "action_type": {
+      "type": "string"
+    },
+    "target_resource_type": {
+      "type": "string"
+    },
+    "target_resource_id": {
+      "type": "string"
+    },
+    "artifact_type": {
+      "type": "string"
+    },
+    "artifact_id": {
+      "type": "string"
+    },
+    "uri": {
+      "type": "string"
+    },
+    "candidate_id": {
+      "type": "string"
+    },
+    "source_trace_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "outcome_type": {
+      "type": "string"
+    },
+    "outcome_ref": {
+      "type": "string"
+    },
+    "resource_type": {
+      "type": "string"
+    },
+    "resource_id": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "generation"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "correlation": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/observabilityCorrelation"
+              },
+              {
+                "required": [
+                  "model_id"
+                ],
+                "properties": {
+                  "model_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "observabilityCorrelation": {
+      "type": "object",
+      "description": "Shared correlation object; export-ready records require trace_id, span_id, project_id, and surface for all kinds; generation additionally requires correlation.model_id (see allOf on root schema).",
+      "required": [
+        "trace_id",
+        "span_id",
+        "project_id",
+        "surface"
+      ],
+      "properties": {
+        "trace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "span_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_span_id": {
+          "type": "string"
+        },
+        "org_id": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "conversation_id": {
+          "type": "string"
+        },
+        "message_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "cycle_id": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        },
+        "action_id": {
+          "type": "string"
+        },
+        "tool_call_id": {
+          "type": "string"
+        },
+        "llm_call_id": {
+          "type": "string"
+        },
+        "behavior_id": {
+          "type": "string"
+        },
+        "actor_id": {
+          "type": "string"
+        },
+        "actor_role": {
+          "type": "string"
+        },
+        "surface": {
+          "type": "string",
+          "minLength": 1
+        },
+        "permission_action": {
+          "type": "string"
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "queue_job_id": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

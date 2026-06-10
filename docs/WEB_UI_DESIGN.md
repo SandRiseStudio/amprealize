@@ -3,7 +3,7 @@
 > **Status:** Epic 13 - Multi-Tenant Platform
 > **Author:** Amprealize Platform Team
 > **Created:** 2025-12-02
-> **Last Updated:** 2025-12-02
+> **Last Updated:** 2026-05-05 (typography: Fontsource self-host, variable Plex + Space Grotesk)
 
 
 > **2026-1-09: Please refer to COLLAB_SAAS_REQUIREMENTS.md for updated full feature requirements.**
@@ -11,6 +11,7 @@
 ## Table of Contents
 
 - [Overview](#overview)
+- [Typography (web-console)](#typography-web-console)
 - [Technology Stack](#technology-stack)
 - [Architecture](#architecture)
 - [Page Layouts](#page-layouts)
@@ -20,6 +21,7 @@
 - [Responsive Design](#responsive-design)
 - [Accessibility](#accessibility)
 - [Performance Optimization](#performance-optimization)
+- [Loading and data-fetch UX](#loading-and-data-fetch-ux)
 - [Development Workflow](#development-workflow)
 
 ---
@@ -42,6 +44,24 @@ The Amprealize web UI is a modern, real-time collaborative platform featuring:
 3. **Progressive Enhancement** - Core features work without JS, enhanced with interactivity
 4. **Mobile-Responsive** - Full feature parity on mobile devices
 5. **Accessibility** - WCAG AA compliance, keyboard navigation, screen reader support
+
+---
+
+## Typography (web-console)
+
+The shipped console uses a **layered** system so dense UI stays readable while shell and hero titles feel more distinctive.
+
+| Token | Role | Face |
+|-------|------|------|
+| `--font-sans` | Body, tables, forms, chat, wiki prose | **IBM Plex Sans Variable** (+ system UI fallbacks) |
+| `--font-display` | Page titles, auth panel `<h1>`, wiki article title, dashboard titles | **Space Grotesk Variable** (falls back to `--font-sans`) |
+| `--font-mono` | IDs, code, traces | **IBM Plex Mono** (+ monospace fallbacks) |
+
+**Source of truth:** [`web-console/src/styles/design-system.css`](../web-console/src/styles/design-system.css) defines `--font-sans`, `--font-mono`, `--font-display` and utilities `.font-sans`, `.font-mono`, `.font-display` (same as the matching `var(--font-*)`). **Do not** add new `font-family` stacks in component CSS—use `var(--font-sans)`, `var(--font-mono)`, or `var(--font-display)` (or the utilities on markup). `body` in design-system and [`App.css`](../web-console/src/App.css) both use `var(--font-sans)` so the main shell and legacy route fallbacks stay aligned.
+
+**Loading (low-latency):** Fonts are **self-hosted** via [Fontsource](https://fontsource.org/) packages bundled with the Vite build—no `fonts.googleapis.com` / `fonts.gstatic.com` round trips. [`web-console/src/fonts.css`](../web-console/src/fonts.css) imports variable **IBM Plex Sans** and **Space Grotesk** (`wght.css`, one woff2 per unicode slice the browser needs) plus static Latin **IBM Plex Mono** at 400/500/600. Imported from [`web-console/src/main.tsx`](../web-console/src/main.tsx) and the nested [`web-console/dashboard/src/main.tsx`](../web-console/dashboard/src/main.tsx) (which also imports `design-system.css` so dashboard `:root` can use the same tokens) before app CSS. Enterprise mirrors the same layout under `amprealize-enterprise/web-console/`.
+
+**Guidelines:** Use `--font-display` only at **title scale** (roughly `clamp(1rem, …, 2rem)` and up). Do not apply the display face to long markdown bodies, table cells, or small uppercase labels.
 
 ---
 
@@ -462,6 +482,8 @@ web-console/                      # Existing Preact + Vite app
 **Route:** `/[org_slug]/[project_slug]/runs`
 
 **Purpose:** Monitor agent executions with real-time progress
+
+**Knowledge retrieval receipt:** Work-item execution panels (OSS and enterprise) and the chat **Run summary** card may show a collapsible **Knowledge sources** list when the execution payload includes `trace_summary.knowledge_retrieval` (bounded list of retrieval spans: channel, phase, title). Data is sourced from run metadata `knowledge_retrieval_receipt` on the server.
 
 **Layout:**
 ```
@@ -1496,6 +1518,73 @@ server {
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
 }
 ```
+
+---
+
+## Loading and data-fetch UX
+
+**Goal:** One predictable story per surface—users should not see unrelated chrome “pop in” at different times (e.g. sidebar projects after the main pane, or plain “Loading…” while auth already showed a full skeleton).
+
+### Four layout scopes
+
+1. **App / route (lazy `React.lazy`)** — User may still see the persistent shell; the **main column** should use a **skeleton** that matches `.workspace-main` padding, not a bare text line.
+2. **Full-screen auth / callback** — Full chrome skeleton or focused spinner (see `ProtectedRoute`, OAuth flows).
+3. **Page body** — Keep **stable chrome** (titles, filters where possible); skeleton **only the variable list/grid**.
+4. **Overlays (drawers, modals, chat)** — Paint shell immediately; skeleton **inside** the panel.
+
+Shared primitives live under `web-console/src/components/loading/` (e.g. `RouteMainColumnSkeleton`, `SidebarProjectsSkeleton`). Prefer `animate-shimmer` / duration tokens from `design-system.css`.
+
+### Three data signals (do not conflate)
+
+| Signal | Typical React Query | User-visible rule |
+|--------|---------------------|-------------------|
+| **Initial load** | `isPending` or “no cached `data` yet” | Skeleton or empty-region placeholder that **matches final layout width**; avoid full-page spinners for lists. |
+| **Background refresh** | `isFetching && !isPending` | **Non-blocking**: subtle progress, dimmed stale hint, or control-level state—**do not** replace an existing list with a full skeleton. |
+| **Mutation** | `mutation.isPending` | **Inline** on the triggering control only; optional toast on completion. |
+
+### Forbidden patterns
+
+- Replacing populated lists with skeletons on **background** refetch.
+- Multiple competing `aria-live="assertive"` regions on one screen; prefer **one** polite status per scope.
+- Route `Suspense` fallback that ignores shell geometry (plain centered “Loading…”).
+
+### Board page status priority
+
+When structure is loading, show **“Loading board…”** in sticky chrome above the board skeleton. When the shell is ready but the first work-item page is still empty, show **“Loading work items…”** under the same chrome (toolbar may already be visible). Background hydration uses existing subtle affordances (`aria-busy` on the page, filter refresh control)—do not duplicate loud messaging.
+
+### React Query defaults (web console)
+
+`QueryClient` in `App.tsx` sets global `staleTime` and `retry`. **Per-query** tuning is allowed (e.g. polling hooks). Prefer:
+
+- **`refetchOnWindowFocus`**: default `true` (TanStack default) unless a specific heavy list opts out—document exceptions next to the hook.
+- **Filter changes**: consider `placeholderData` / `keepPreviousData` only when hydration logic is proven safe (board work items use custom progressive hydration—review before changing). `useWorkItems` wires `WORK_ITEMS_LIST_PLACEHOLDER_DATA` (`keepPreviousData`) in `web-console/src/api/boards.ts` with an inline contract comment; regression guard: `web-console/src/test/boardsWorkItemsQueryPolicy.test.ts`.
+
+### Route / surface loading checklist (shared primitives)
+
+| Surface | Component / pattern |
+|---------|------------------------|
+| Lazy route chunks | `RouteMainColumnSkeleton` (`App.tsx` Suspense fallback) |
+| Sidebar projects | `SidebarProjectsSkeleton` when `useProjects` is pending |
+| Board chrome | `BoardPage` sticky status copy + existing board skeleton |
+| Agent registry column | `AgentRegistryListSkeleton` |
+| Work item drawer body | `WorkItemDrawerBodySkeleton` |
+| Dashboard stat + project grids | `DashboardStatCardSkeleton`, `DashboardProjectCardSkeleton` (require `Dashboard.css` on the page) |
+| Wiki sidebar tree | `wiki-skeleton` rows + `role="status"` on sidebar while loading |
+| Wiki article main pane | `wiki-skeleton` blocks + `role="status"` / `aria-busy` on `wiki-article-pane` (OSS) or `<main>` (enterprise) |
+| Project overview boards grid | `ProjectBoardCardGridSkeleton` inside `boards-grid` with `role="status"` while fetching |
+| Work item drawer activity feed | `CompactLoadingShimmer` while comments load |
+| Execution status card (collab widgets) | `CompactLoadingShimmer` instead of bare “Loading…” |
+| Conversation sidebar list | `CompactLoadingShimmer` while conversations load |
+| Messages virtual list | `msg-list-spinner` + `role="status"` on `msg-list-loading` |
+| Security settings / feature flags | `CompactLoadingShimmer` in section shells (replaces plain “Loading…”) |
+| Settings hub / user profile (auth gate) | `CompactLoadingShimmer` while `useAuth` has no `userId` yet (`SettingsHubPage`, `UserProfilePage`) |
+| Whiteboard lobby grids | `LoadingSkeleton` with `role="status"` and `aria-label` per section |
+| Trace summaries + span tree | `TraceExplorerPanelSkeleton` |
+
+### Accessibility
+
+- `role="status"` + `aria-live="polite"` for page-level messages; `aria-busy` on containers during initial load.
+- Respect **`prefers-reduced-motion`** on loading primitives (static blocks or reduced animation).
 
 ---
 

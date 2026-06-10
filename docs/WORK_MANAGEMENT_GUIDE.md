@@ -11,8 +11,8 @@ This document defines how AI agents use the Amprealize platform to plan and mana
 - Dogfood the platform: Amprealize tracks its own development, exposing real bugs and UX gaps.
 
 ## 2. Required Rules
-- Use only `goal`, `feature`, and `task` item types (previously called `epic` and `story`).
-- The `bug` type is also available for defect tracking.
+- Use `goal`, `feature`, `task`, `bug`, and `research` item types. Legacy `epic` maps to `goal`; legacy `story` maps to `feature`.
+- Use `research` for article or paper evaluation. Research items may be assigned to any user or agent, but agent execution is restricted to the out-of-the-box AI Research agent.
 - All implementation work must be tracked in Amprealize, except trivial fixes under 30 minutes.
 - If a trivial fix exceeds 30 minutes, create a Amprealize item immediately.
 - Platform bugs discovered during development must be tracked as items on the Amprealize Platform Issues board (see §3.1).
@@ -26,7 +26,7 @@ All work item titles must follow the Amprealize Work Item Standard (GWS):
 - **Uppercase start**: Titles begin with a capital letter
 - **Imperative verb phrases**: "Add X", "Implement Y", "Fix Z"
 - **5-120 characters**: Letters, numbers, spaces, basic punctuation
-- **Hierarchy**: goal → feature → task/bug (set `parent_id` accordingly)
+- **Hierarchy**: goal → feature → task/bug (set `parent_id` accordingly); `research` is flexible and can be linked wherever the source adds context.
 - **Sizing**: Use `points` (not `story_points`)
 - **Depth levels**: `goal_only` | `goal_and_features` | `full`
 
@@ -77,6 +77,7 @@ mcp_amprealize_behaviors_getfortask(task_description="...", role="Student")
 
 # Create work items
 mcp_amprealize_workitems_create(item_type="task", project_id="proj-b575d734aa37", title="...")
+mcp_amprealize_workitems_create(item_type="research", project_id="proj-b575d734aa37", title="Evaluate Metacognitive Reuse", research_url="https://example.com/paper")
 
 # List work items
 mcp_amprealize_workitems_list(project_id="proj-b575d734aa37")
@@ -121,6 +122,13 @@ breakeramp restart --all
 
 # Or restart only unhealthy containers (default)
 breakeramp restart
+
+# Restart one service by the name shown in `breakeramp fresh`
+breakeramp restart amprealize-api
+
+# If more than one environment is active, choose explicitly
+breakeramp restart --env test amprealize-api
+breakeramp restart <run-id> -s amprealize-api
 ```
 
 #### Full environment rebuild (clean slate)
@@ -141,7 +149,7 @@ breakeramp fresh --force
 breakeramp fresh --skip-backup
 ```
 
-The API container reinstalls Python dependencies on startup. This can take 30–60 seconds. Poll the health endpoint before proceeding.
+The API container reinstalls Python dependencies on startup (unless you use a **baked image** with `AMPREALIZE_API_SKIP_PIP=1`; see below). This can take 30–60 seconds. Poll the health endpoint before proceeding.
 
 ### 5.2 Health Checks
 
@@ -156,6 +164,47 @@ curl -sS -m 5 http://localhost:8000/health
 ```
 
 Wait until both return HTTP 200 before making API calls. The gateway may return 502 while the API is still starting.
+
+**BreakerAmp helpers** (avoid guessing when the stack is ready):
+
+```bash
+# Poll until the gateway succeeds (default timeout 300s)
+breakeramp wait-health
+
+# Strict: require JSON status "healthy" (not just HTTP 200)
+breakeramp wait-health --strict
+
+# Also require direct API :8000/health to succeed
+breakeramp wait-health --direct-api
+
+# After restart, block until health passes
+breakeramp restart amprealize-api --wait
+
+# Same options as wait-health
+breakeramp restart amprealize-api --wait --wait-strict --wait-direct-api --wait-timeout 600
+```
+
+Override URLs if ports differ: `--gateway-health-url`, `--api-health-url`, or env `AMPREALIZE_GATEWAY_HEALTH_URL` / `AMPREALIZE_GATEWAY_URL` (base for default `/health`).
+
+**Shell fallback** (no BreakerAmp):
+
+```bash
+until curl -sf -m 5 http://localhost:8080/health >/dev/null; do sleep 2; done
+echo "Gateway OK"
+```
+
+**Faster restarts — baked API image** (optional): build once so the container skips `pip install` on every start.
+
+```bash
+# From amprealize repo root
+podman build -f deployment/Dockerfile.api-dev -t localhost/amprealize-api-dev:latest .
+
+export AMPREALIZE_API_IMAGE=localhost/amprealize-api-dev:latest
+export AMPREALIZE_API_SKIP_PIP=1
+# Recreate or re-apply the stack so amprealize-api picks up the image and env
+```
+
+Rebuild the image when `pyproject.toml` or dependency packages change. The dev stack still bind-mounts the repo at `/app`.
 
 ### 5.3 Database Access
 Direct PostgreSQL access for debugging and workarounds:
@@ -248,27 +297,55 @@ The default blueprint for development is `local-test-suite`, which includes thes
 
 #### CLI Quick Reference
 
-| Command | Description |
-|---|---|
-| `breakeramp up` | Plan + apply in one step (idempotent; reuses existing env) |
-| `breakeramp plan <env>` | Preview resource requirements before provisioning |
-| `breakeramp apply --plan-id <id>` | Provision the planned environment |
-| `breakeramp status [<run-id>]` | Check status and health of running environment |
-| `breakeramp restart [--all]` | Restart containers (unhealthy only, or all) |
-| `breakeramp stop` | Stop containers without removing them |
-| `breakeramp destroy <run-id>` | Tear down a specific environment |
-| `breakeramp fresh` | Nuke everything + bring up clean environment |
-| `breakeramp nuke` | Remove all containers, networks, processes |
-| `breakeramp list` | List all tracked environments |
-| `breakeramp blueprints` | List available blueprints |
-| `breakeramp validate [<path>]` | Validate environments.yaml configuration |
-| `breakeramp resources` | Show resource usage of running environment |
-| `breakeramp cleanup` | Clean up stale/orphaned resources |
-| `breakeramp backup [--tag TAG]` | Back up all running PostgreSQL databases to `~/.amprealize/backups/` |
-| `breakeramp restore [BACKUP_NAME]` | Restore databases from a backup (latest if omitted) |
-| `breakeramp backups` | List all available database backups |
-| `breakeramp plan-for-tests` | Plan an environment optimized for test runs |
-| `breakeramp run-tests` | Run tests in an BreakerAmp-managed environment |
+Prefer the standalone `breakeramp` binary for infrastructure work. `amprealize infra` is a project-aware wrapper, and `amprealize breakeramp` is an older service-wrapper surface for plan/apply/status/destroy plus machine helpers.
+
+Primary human workflow:
+```bash
+breakeramp up cloud-dev
+breakeramp list
+breakeramp services
+breakeramp restart --env cloud-dev amprealize-api
+breakeramp resources
+breakeramp cleanup --dry-run
+breakeramp fresh cloud-dev
+```
+
+Agent/script workflow:
+```bash
+breakeramp list --json
+breakeramp services --json
+breakeramp status <run-id> --json
+breakeramp resources --json
+breakeramp cleanup --dry-run --json
+```
+
+#### BreakerAmp Command Matrix
+
+| Category | Command | Purpose | Human Use Case | Agent/Script Use Case | Risk | JSON Support | Preferred Usage |
+|---|---|---|---|---|---|---|---|
+| Configure | `breakeramp configure` | Create starter BreakerAmp config files. | First-time package setup. | Bootstrap config in a known directory. | Low | No | Canonical standalone setup command; `amprealize breakeramp bootstrap` is wrapper-only legacy setup. |
+| Configure | `breakeramp validate [path]` | Validate `environments.yaml`. | Check config before `up` or CI. | Preflight generated config. | Low | Yes | Run before changing environment definitions. |
+| Configure | `breakeramp blueprints` | List available built-in and local blueprints. | Discover stack options. | Inventory supported stacks. | Low | Yes | Use `--json` for tools. |
+| Configure | `breakeramp version` | Show package version. | Verify install. | Assert CLI availability. | Low | No | Support command. |
+| Lifecycle | `breakeramp up [env]` | Plan and apply in one step, reusing active envs unless forced. | Default start command. | Start dev/test env with stable defaults. | Medium | No | Primary command for humans. |
+| Lifecycle | `breakeramp plan <env>` | Preview resource requirements and plan ID. | Review before advanced apply. | Generate plan artifact. | Low | Output file via `--output` | Advanced workflow; prefer `up` for day-to-day. |
+| Lifecycle | `breakeramp apply --plan-id <id>` | Provision a planned environment. | Advanced two-step deployment. | Deterministic plan/apply automation. | Medium | No | Pair with `plan`; prefer `up` unless plan review is needed. |
+| Lifecycle | `breakeramp list` | Show current/actionable environments. | See active runs and next action. | Use `--json` to choose status/restart/cleanup. | Low | Yes | Hides stopped historical runs by default; use `--all` for history. |
+| Lifecycle | `breakeramp services` | Show service-level state across active environments. | Find service names, ports, and restart target. | Use `--json` for container IDs, images, ports, restart commands. | Low | Yes | Primary command for multi-environment service decisions. |
+| Lifecycle | `breakeramp status <run-id>` | Inspect one run's phase and health checks. | Troubleshoot one environment. | Decide restart/cleanup/destroy for one run. | Low | Yes | Use run ID from `list` or `services`. |
+| Lifecycle | `breakeramp wait-health` | Poll `http://localhost:8080/health` until success. | Know when login/OAuth is safe after API boot. | CI or local script gate; optional `--strict`, `--direct-api`. | Low | Yes | Set `AMPREALIZE_GATEWAY_URL` if not on 8080. |
+| Lifecycle | `breakeramp restart [target]` | Restart containers; optional `--wait` to poll health after. | Restart service by name; add `--wait` to block until gateway is up. | Target `--env` or run ID; combine with `--wait` for automation. | Medium | Yes | Use `--env <env> <service>` when multiple envs are active. |
+| Lifecycle | `breakeramp stop [run-id]` | Stop containers while preserving state and volumes. | Pause an environment. | Free CPU/memory without data loss. | Medium | Yes | Prefer before destructive cleanup when state should remain. |
+| Lifecycle | `breakeramp destroy <run-id>` | Tear down a specific environment. | Remove one run. | Targeted teardown with explicit run ID. | High | Yes | Use `--force` for scripts; `--interactive` for humans. |
+| Capacity | `breakeramp resources` | Show Podman machine/resource status and recommendation. | Decide whether cleanup or host action is needed. | Read `recommendation` from `--json`. | Low | Yes | Run before `cleanup`, `fresh`, or `nuke` when resources look suspect. |
+| Hygiene | `breakeramp cleanup` | Remove stale safe-to-delete resources. | Free disk without rebuilding everything. | Always preview with `--dry-run --json`. | Medium | Yes | Safe middle ground; default preserves database/cache volumes. |
+| Disaster/Rebuild | `breakeramp fresh [env]` | Nuke all BreakerAmp resources and rebuild one environment. | Clean-slate local rebuild. | Gated rebuild after dry-run/confirmation policy. | Very High | No | Prefer after backup; use `--force` only when intentionally non-interactive. |
+| Disaster/Rebuild | `breakeramp nuke` | Remove live containers, networks, state, and processes while preserving Podman machine by default. | Last-resort full reset. | Gated destructive operation after dry-run/reporting. | Very High | Yes | Use `--dry-run --json` first; default removes BreakerAmp state. |
+| Data Safety | `breakeramp backup` | Back up running PostgreSQL databases. | Save state before migration/rebuild. | Create pre-change restore point. | Low | Yes | Auto-runs before `fresh`/`nuke` unless skipped. |
+| Data Safety | `breakeramp backups` | List stored backups. | Choose restore point. | Discover latest backup. | Low | Yes | Support command. |
+| Data Safety | `breakeramp restore [backup]` | Restore databases from backup. | Recover local data. | Gated data restore. | High | Yes | Require explicit backup selection for automation. |
+| Test Environments | `breakeramp plan-for-tests` | Plan a test-optimized environment. | Inspect test infra requirements. | CI/test orchestration planning. | Low | Yes | Advanced test workflow. |
+| Test Environments | `breakeramp run-tests` | Run tests inside BreakerAmp-managed infrastructure. | Local or CI test execution. | Test runner integration. | Medium | Yes | Prefer `./scripts/run_tests.sh --breakeramp` for repo-wide suites. |
 
 #### Common Workflows
 
@@ -284,15 +361,24 @@ curl -sS -m 5 http://localhost:8000/health
 **Day-to-day development:**
 ```bash
 breakeramp restart          # Restart unhealthy containers after reboot
-breakeramp status           # Check what's running and health status
+breakeramp list             # Show current/actionable environments only
+breakeramp list --all       # Include stopped historical runs
+breakeramp services         # Show service-level status across running environments
+breakeramp services --verbose  # Include container/image/restart columns
+breakeramp services --env test  # Show services for one environment
+breakeramp status           # Check one environment's running services and health
 breakeramp resources        # Monitor resource usage
 ```
 
 **Debugging infra issues:**
 ```bash
 breakeramp status           # See which containers are unhealthy
-breakeramp restart -s amprealize-api  # Restart specific service
-breakeramp fresh            # Nuclear option: rebuild everything
+breakeramp restart amprealize-api     # Restart specific service by displayed name
+breakeramp restart --env test amprealize-api  # Disambiguate when dev/test are both up
+breakeramp restart -s amprealize-api  # Equivalent explicit service flag
+breakeramp cleanup --dry-run --json   # Preview safe cleanup for agents/scripts
+breakeramp nuke             # Remove containers, state, networks, processes; preserve Podman VM
+breakeramp fresh            # Nuclear option: nuke + rebuild everything
 ```
 
 **Database backup & restore:**
@@ -323,6 +409,25 @@ DB_CONTAINER=$(podman ps --format '{{.Names}}' | grep amprealize-db)
 # Use breakeramp status for structured info
 breakeramp status --json
 ```
+
+#### Wrapper and MCP Surface Alignment
+
+Use these surfaces intentionally:
+
+| Surface | Role | Current Coverage | Guidance |
+|---|---|---|---|
+| `breakeramp` | Canonical infrastructure CLI. | Full command surface. | Use for all local infra management and documentation examples. |
+| `amprealize infra` | Project-aware provider wrapper. | `up`, `down`, `status`, `resources`, `reset`, `configure`. | Keep as a thin wrapper that delegates to `breakeramp`, Docker Compose, or external providers. Avoid adding different semantics for same-named actions. |
+| `amprealize breakeramp` | Legacy/service wrapper. | `plan`, `apply`, `status`, `destroy`, `bootstrap`, `cleanup`, machine helpers. | Treat `bootstrap` and machine commands as wrapper-only Amprealize conveniences unless promoted into standalone BreakerAmp. Prefer standalone `breakeramp configure` for package setup. |
+| MCP tools | Agent-safe operation surface. | Plan/apply/status/destroy/configure/list-blueprints/list-environments. | Add read-only tools first (`services`, `resources`, `validate`, `backups list`), then gated lifecycle tools. |
+
+Recommended MCP exposure:
+
+| Capability | MCP Exposure | Safety Gate |
+|---|---|---|
+| `services`, `resources`, `validate`, `blueprints`, `backups list` | Expose directly as non-destructive read tools. | No confirmation required; include structured JSON-equivalent output. |
+| `restart`, `stop`, `cleanup --dry-run` | Expose as operational tools. | Require environment/run targeting for multi-env contexts; cleanup execution must be separate from dry-run. |
+| `cleanup` execute, `destroy`, `fresh`, `nuke`, `restore`, machine stop/remove | Expose only if needed. | Require explicit confirmation fields, target IDs, and a prior dry-run/backup reference where applicable. |
 
 ## 6. Authentication
 
@@ -514,6 +619,24 @@ iid = item.get("item_id", item.get("id"))
 }
 ```
 
+`research` (flexible parent, requires Research URL):
+```json
+{
+  "item_type": "research",
+  "project_id": "proj-b575d734aa37",
+  "board_id": "523b3a4f-4157-4fd1-b5e9-93437eca6009",
+  "parent_id": "<optional_goal_or_feature_or_task_item_id>",
+  "title": "Evaluate Metacognitive Reuse for Amprealize",
+  "description": "Review the paper and produce an Amprealize fit assessment",
+  "priority": "medium",
+  "metadata": {
+    "research_url": "https://arxiv.org/abs/2509.13237"
+  }
+}
+```
+
+When a `research` item is started, the execution gateway resolves the builtin AI Research agent from the agent registry by slug `ai_research`. Caller-provided agent overrides are rejected unless they resolve to that builtin agent.
+
 ## 8. MCP Tools for Self-Management
 
 Amprealize MCP tools are available directly in VS Code Copilot Chat. Key tools for platform self-management:
@@ -521,7 +644,7 @@ Amprealize MCP tools are available directly in VS Code Copilot Chat. Key tools f
 ### 8.1 Work Item Management
 | Tool | Purpose |
 |------|---------|
-| `mcp_amprealize_workitems_create` | Create goals, features, tasks |
+| `mcp_amprealize_workitems_create` | Create goals, features, tasks, bugs, and research items |
 | `mcp_amprealize_workitems_list` | List and filter work items |
 | `mcp_amprealize_workitems_execute` | Execute a work item via GEP |
 | `mcp_amprealize_workitem_executewithtracking` | Execute with progress tracking |

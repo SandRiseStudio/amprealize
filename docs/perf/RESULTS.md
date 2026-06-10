@@ -105,35 +105,51 @@ Observed several `status=499` entries (client cancelled) on duplicate
 presence calls, confirming those requests sat in the uvicorn queue
 long enough for the browser to abandon them.
 
-## Why we're not raising `--workers` (yet)
+## Multi-worker uvicorn (fixed, 2026-04-30)
 
-Tried `--workers=4`. Login "worked" (dashboard renders) but on the very
-next fetch the user is bounced to `/login`. Root cause, from API logs:
+Previously, with `--workers=4`, OAuth login appeared to work but the
+next request bounced to `/login` because new sessions lived only in
+the in-memory `DeviceFlowManager` while middleware preferred
+`postgres_device_store` when present.
 
+**Changes now on disk:** when `PostgresDeviceFlowStore` is configured,
+OAuth completion and refresh flows **write through** Postgres first
+(see `_refresh_access_tokens_composite` and OAuth callback paths in
+[`amprealize/api.py`](../../amprealize/api.py)). Multiple workers can
+share sessions; re-bench with `AMPREALIZE_API_WORKERS=4` after deploy.
+
+## Interpreting `boards.bootstrap` perf logs
+
+Bootstrap logs `boards.bootstrap` with structured fields (grep API
+`perf` / JSON logs for event name `boards.bootstrap`):
+
+| Field | Meaning |
+|-------|---------|
+| `t_board_ms` | `get_board_with_columns` |
+| `t_items_ms` | Full-board list (capped) + first-page slice when rollups included; **or** first-page list only when `include_rollups=false` |
+| `t_rollups_ms` | In-memory rollups when `include_rollups=true` (`preloaded_items`); **0** when rollups deferred to `GET …/progress-rollups` |
+
+Use these to confirm whether time is dominated by the list query vs
+rollup CPU vs board metadata.
+
+## Measuring board load phases (after each deploy)
+
+With `AMPREALIZE_PERF_LOG=1` and API logs from `amprealize-api` (Podman
+name suffix `amprealize-api`):
+
+```bash
+podman logs "$(podman ps --filter name=amprealize-api --format '{{.Names}}' | head -1)" 2>&1 \
+  | grep -E 'endpoint=boards\.bootstrap|endpoint=work_items\.batch_pages|endpoint=progress_rollups\.list'
 ```
-AuthMiddleware: Validating ga_* token via device_flow_manager
-device_flow_manager returned: None
-Auth failed (non-enforcing): Invalid device flow token
-```
 
-`container.device_flow_manager.create_session_from_oauth()`
-([amprealize/api.py:6729](../../amprealize/api.py)) writes the new
-session into the per-process in-memory `DeviceFlowManager`. A
-PostgresDeviceFlowStore exists but the **write path does not use it**
-— only the read path (middleware) prefers postgres. With multiple
-workers, writes land on worker A's memory; the next request hits
-B/C/D, which have no record of the session.
-
-This is a latent bug, pre-existing, independent of the perf work.
-Filing a separate issue. Until fixed, we can't turn on multiple
-workers in cloud-dev without breaking auth.
+- **Phase A (batch-pages perf):** lines with `endpoint=work_items.batch_pages` and `t_total_ms`, `chunk_count`, `item_count`.
+- **Phase B (deferred rollups):** `boards.bootstrap` should show **low or zero `t_rollups_ms`**; a separate **`progress_rollups.list`** line appears for the follow-up rollup request.
+- **Phase C/D (rollup CPU + parallel batch):** compare `progress_rollups.list` `t_total_ms` before/after; batch-pages wall time should drop vs sequential when multiple offsets are used (under multi-worker / I/O overlap).
 
 ## Recommendations, ranked
 
-1. **Fix device-flow multi-worker bug, then run `--workers=4`.** Highest
-   expected impact for the dashboard/board pages. Fix is to route
-   `create_session_from_oauth` / `approve_user_code` through the
-   postgres store when available, same as the read path does.
+1. **Run `--workers=4` in perf stacks** now that device-flow sessions
+   are Postgres-backed when the store exists; re-measure dashboard/board.
 2. **Instrument and attack `/api/v1/projects/agents*`.** It's the
    largest remaining single-call cost (2.5–3 s server-side per call)
    and the board page fires 3 concurrent presence requests + 1 list
@@ -158,7 +174,11 @@ Implementation changes (safe, gated, reversible):
 
 - `web-console/src/api/capabilities.ts`
 - `web-console/src/telemetry/raze.ts`
-- `web-console/src/api/boards.ts` (lines 887–904)
+- `web-console/src/api/boards.ts` (bootstrap `include_rollups=false`, batch-pages, hydration bench)
+- `amprealize/services/board_service.py` (parallel `list_work_items_board_pages`, shared `children_by_parent` rollups)
+- `amprealize/services/board_api_v2.py` (`work_items.batch_pages` **perf_log**)
+- `amprealize/api.py` (multi-worker-safe device OAuth + token refresh via Postgres store)
+- `docs/perf/EXPLAIN_BOARD_WORK_ITEMS.md` (how to verify `list_work_items` plans and migration `20260415_board_item_perf_indexes`)
 
 Instrumentation / harness (dev-only, `AMPREALIZE_PERF_LOG`-gated):
 
@@ -735,6 +755,19 @@ Neither is in scope for this audit.
   `web-console` still issues single-id lookups on project-detail pages.
   The batched path is live for the dashboard; cleanup deferred until
   the enterprise client migrates.
+
+### Board bootstrap + `useWorkItems` (2026-04-30)
+
+`useBoardBootstrap` seeds TanStack cache with the first work-item page and
+sets `WorkItemsMeta.seededFromBootstrap`. Without that flag, a warm partial
+cache matched `shouldResyncAllWorkItemPages` and triggered serial
+`fetchAllWorkItemsPaged`, undoing parallel background hydration. See
+[`web-console/src/api/boards.ts`](../../web-console/src/api/boards.ts) and
+[`boardWorkItemsResync.test.ts`](../../web-console/src/test/boardWorkItemsResync.test.ts).
+
+**Client bench (opt-in):** set `localStorage['amprealize.boardLoadBench'] = '1'`, reload a board, and read DevTools console lines tagged `[boardLoadBench]` (bootstrap, `useWorkItems` path, full-page walk, and progressive hydration waves). `performance.mark('perf:board:…')` entries are emitted for the Performance panel. Enterprise `web-console` mirrors the same flag and events.
+
+**Chat thread bench:** in Vite dev builds, `[chatLoadBench]` logs are **on by default** (disable with `localStorage['amprealize.chatLoadBench'] = '0'`). In production builds, opt in with `'1'`. Filter the console on `[chatLoadBench]` for REST phases (`conversation_list_fetch`, `conversation_detail_fetch`, `messages_page_fetch`), `ws_connected`, and `thread_first_paint`. Enterprise `web-console` mirrors the same behavior and `perf:chat:…` marks. Each `messages_page_fetch` includes TanStack `direction` (`forward` / `backward`) and a monotonic `fetch_seq` for correlation. Message history queries use `refetchOnWindowFocus: false` so tab focus does not re-hit the API (live updates still arrive on the WebSocket). Delayed refetches scheduled after **sending** a message (to catch missed assistant replies if WebSocket drops) are **cancelled when you leave that conversation** or close the chat panel, so they no longer spam `messages_page_fetch` in the background.
 
 ## Raw run folders
 

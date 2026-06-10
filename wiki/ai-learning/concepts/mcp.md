@@ -10,7 +10,7 @@ tags:
   - protocols
   - tools
   - integrations
-last_updated: 2026-04-23
+last_updated: 2026-04-24
 sources:
   - "Anthropic — MCP Specification (2024–2026): https://modelcontextprotocol.io/specification/latest"
   - "MCP Introduction: https://modelcontextprotocol.io/docs/getting-started/intro"
@@ -89,6 +89,23 @@ One of MCP's key advantages over static function calling: when a client connects
 - Tools can be added to a server without redeploying clients
 - The model selects tools based on their descriptions, not hardcoded logic
 - A single client can connect to dozens of servers and present a unified tool catalog
+
+## Amprealize In Practice: Startup Guidance
+
+Amprealize now treats MCP discovery as an explicit onboarding surface, not just a raw list of schemas. New agent sessions should call `tools.guide` first to receive the canonical startup protocol, then use `tools.catalog` to search all active and inactive tools by group or use case.
+
+Authorization is part of that startup protocol. Agents should call `auth.authStatus` before any non-auth Amprealize tool call. If the access token is expired but refreshable, they should call `auth.refreshToken` and re-check status. If login is needed, they should call `auth.deviceLogin` or `auth.deviceInit` followed by `auth.devicePoll`. In Amprealize MCP agent/unit contexts, the device login/init path is approved automatically after the auth tool call, so agents should not ask a human to visit the verification URL unless polling explicitly cannot complete and the tool says manual consent is required.
+
+Repo parity is also part of the startup protocol. Amprealize has an OSS `amprealize` checkout and an `amprealize-enterprise` checkout (often sibling directories on disk; set `AMPREALIZE_ENTERPRISE_REPO_PATH` when not). Agents should implement platform work/features in both repos unless the user explicitly says OSS-only or Enterprise-only, then validate and summarize both sides.
+
+This avoids two common agent failures:
+
+- Guessing normalized tool names like `workitems_get` without knowing the original MCP name is `workItems.get`
+- Assuming a tool does not exist because its group has not yet been activated
+- Continuing to call protected tools after an unauthorized/auth expired response instead of authenticating and retrying
+- Updating only one Amprealize repo when the work should have been mirrored across OSS and Enterprise
+
+The runtime catalog returns both `original_name` and `normalized_name`, input fields, required fields, active status, and the group to activate. This keeps discovery model-friendly while preserving the lazy-loading strategy that keeps the active tool set small.
 
 ## Transport
 

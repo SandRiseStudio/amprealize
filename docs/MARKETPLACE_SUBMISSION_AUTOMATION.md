@@ -173,9 +173,20 @@ publish-vscode-marketplace:
         echo "📱 Version: ${{ github.event.inputs.version || github.ref_name }}"
 ```
 
-## Cursor Extension Store Automation
+## Cursor IDE distribution (extensions vs marketplace plugins)
 
-### Cursor Submission Strategy
+There are two different “Cursor” distribution paths in this project:
+
+| Path | What it is | How it ships |
+|------|------------|----------------|
+| **VS Code extension** (`extension/`) | Same extension API as VS Code; Activity Bar views, commands, webviews | **VSIX** → Visual Studio Marketplace (`vsce publish`). Cursor can install many extensions from **Open VSX**; use **Install from VSIX** as needed. |
+| **Cursor Marketplace plugin** (`plugins/amprealize/`) | Bundles **MCP** (`mcp.json`), **rules** (`.mdc`), **skills** (`SKILL.md`) per [Cursor plugin reference](https://cursor.com/docs/reference/plugins.md) | **Public Git repository** submitted at [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish) — not a VSIX upload to a “Cursor Store.” |
+
+Maintainers: validate the plugin bundle with `workflow_dispatch` → **Validate Cursor plugin bundle** (`publish_cursor: true`) on CI; see [`plugins/amprealize/README.md`](../plugins/amprealize/README.md).
+
+The YAML blocks below for **Cursor Extension Store** / `cursor-vsce` were exploratory and are **not** the current Cursor Marketplace model; keep them only as historical reference.
+
+## Cursor Extension Store Automation (historical / superseded)
 
 **🔄 Planned Implementation:**
 Based on research, Cursor uses similar submission process to VSCode but with different publisher account and review process.

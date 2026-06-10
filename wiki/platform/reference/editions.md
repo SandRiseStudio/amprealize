@@ -61,8 +61,10 @@ OSS and Premium editions have no enforced caps.
 
 ## Repository Layout
 
+Typical checkout: two sibling directories under one parent (e.g. `~/Main/amprealize` and `~/Main/amprealize-enterprise`). Set `AMPREALIZE_ENTERPRISE_REPO_PATH` only when enterprise is not next to OSS.
+
 ```
-/Users/nick/Main/
+your-workspace/
 ├── amprealize/                  # OSS (Apache 2.0)
 │   └── amprealize/              # Core Python package
 └── amprealize-enterprise/       # Proprietary

@@ -21,6 +21,10 @@ Standardize how actions are recorded, retrieved, and replayed across Platform UI
 | `metadata` | object | No | Command list, validation outputs, links. |
 | `related_run_id` | UUID | No | RunService association. |
 | `audit_log_event_id` | UUID | No | Link to audit log entry (`AUDIT_LOG_STORAGE.md`). |
+| `trace_id` | string | No | Canonical trace identifier. Defaults to `related_run_id` or `metadata.execution_observability.run_id` when available. |
+| `span_id` | string | No | Action span identifier. Defaults to `action:{action_id}`. |
+| `parent_span_id` | string | No | Parent span/cycle identifier, often `metadata.execution_observability.cycle_id`. |
+| `outcome_ref` | string | No | Business outcome link, such as `work_item:<id>` or replay audit URN. |
 | `checksum` | string | Yes | SHA-256 of resulting artifact (if applicable). |
 | `replay_status` | enum | Yes | `NOT_STARTED|QUEUED|RUNNING|SUCCEEDED|FAILED`. |
 
@@ -31,6 +35,7 @@ Standardize how actions are recorded, retrieved, and replayed across Platform UI
 - `metadata` (object)
 - `related_run_id` (UUID optional)
 - `checksum` (string optional; server calculates if omitted)
+- `audit_log_event_id`, `trace_id`, `span_id`, `parent_span_id`, `outcome_ref` (optional observability links)
 
 ### `ReplayRequest`
 - `action_ids` (UUID[])
@@ -44,6 +49,7 @@ Standardize how actions are recorded, retrieved, and replayed across Platform UI
 - `progress` (0-1)
 - `logs` (string[] URIs to audit log payloads)
 - `failed_action_ids` (UUID[])
+- `trace_id`, `span_id`, `parent_span_id`, `outcome_ref` (optional replay trace links)
 
 ## RBAC Scopes
 | Scope | Description | Default Roles |
@@ -58,6 +64,7 @@ Requests must include AgentAuth-issued OAuth scopes; CLI obtains tokens via devi
 ## Audit & Compliance Integration
 - Every `actions.create` call writes an audit event (link stored in `audit_log_event_id`).
 - Replay jobs produce immutable logs persisted per `AUDIT_LOG_STORAGE.md`.
+- Action and replay telemetry emits `trace_id`, `span_id`, `parent_span_id`, and `outcome_ref` so reproducibility events can be correlated with execution traces without parsing free-form metadata.
 - Schema version changes require update to `schema/action/v1/*.json` and an entry in `PRD_ALIGNMENT_LOG.md`.
 
 ## Parity Requirements
@@ -79,8 +86,9 @@ Requests must include AgentAuth-issued OAuth scopes; CLI obtains tokens via devi
    - Verify artifact checksum (if present); skip if `skip_existing` true and checksum matches.
    - Rehydrate commands/metadata to reproduce outputs (e.g., regenerate docs, run scripts).
    - Record success/failure plus new `action_id` for replay if state diverges.
-3. Emit telemetry events (`action_replay_start`, `action_replay_complete`).
-4. Update `replay_status` for each action; persist overall job status.
+3. Emit telemetry events (`action_replay_start`, `action_replay_complete`) with trace/span/outcome linkage.
+4. Emit `action.execution.performance` / `action.replay.performance` for execution analytics and `action.business_outcome` for recorded or replayed business outcomes. Analytics should not infer created resources from performance events.
+5. Update `replay_status` for each action; persist overall job status.
 
 ## Error Handling
 - Validation errors return HTTP 400 / gRPC INVALID_ARGUMENT with details.

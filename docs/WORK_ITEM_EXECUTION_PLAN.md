@@ -2,11 +2,12 @@
 
 ## 0. Status
 
-**Status:** ✅ PR Mode Implementation Complete
+**Status:** ✅ Gateway-First Architecture Documented
 
 This document defines how a Work Item assigned to an agent is explicitly started and executed end-to-end using the Amprealize Execution Protocol (GEP), with full step logging, concise outcome summaries, and configurable autonomy/gates per agent.
 
 **Summary:**
+- ✅ **Gateway Migration**: `ExecutionGateway` is the canonical start boundary for board UI, chat, REST API, MCP, and CLI-shaped requests. The contract models execute vs plan-only intent, surface/chat linkage, policy context, idempotency, output target, and normalized queue payload metadata.
 - ✅ **Backend Services**: WorkItemExecutionService (1419 lines), AgentExecutionLoop (1603 lines), AgentLLMClient (704 lines) fully implemented
 - ✅ **REST API**: 7 endpoints operational in `work_item_execution_api.py` (565 lines)
 - ✅ **MCP Tools**: Handlers (451 lines) and manifests (5 tools) fully integrated in `mcp_server.py`
@@ -17,6 +18,7 @@ This document defines how a Work Item assigned to an agent is explicitly started
 - ✅ **PR Write Mode**: Branch naming, PR creation, file change accumulation
 - 🔮 **Cloud IDE**: Codespaces, Gitpod, Fleet integration (design complete, implementation deferred)
 - ✅ **UI**: Core components implemented in `@amprealize/collab-client` + `web-console` (status badges, timeline, execution controls)
+- 🎨 **Chat UX North Star**: `guideai-1043` should implement the bottom-dock-to-draggable-glass-window chat experience with inline live work item/run cards, magic composer, adaptive agent presence, speed rituals, and tiered recovery.
 
 ### Implementation Status Summary
 
@@ -26,7 +28,7 @@ This document defines how a Work Item assigned to an agent is explicitly started
 | **AgentExecutionLoop** | ✅ Implemented | `amprealize/agent_execution_loop.py` (1603 lines) |
 | **AgentLLMClient** | ✅ Implemented | `amprealize/agent_llm_client.py` (704 lines) |
 | **LLM Adapters** | ⚠️ Partial | Anthropic ✅, OpenAI ✅, OpenRouter ⏳ TODO, Local ⏳ TODO |
-| **Contracts & Models** | ✅ Implemented | `amprealize/work_item_execution_contracts.py` (595 lines) |
+| **Contracts & Models** | ⚙️ Gateway migration in progress | `amprealize/work_item_execution_contracts.py`, `amprealize/execution_gateway_contracts.py` |
 | **REST API Endpoints (7)** | ✅ Implemented | `amprealize/services/work_item_execution_api.py` (565 lines) |
 | **MCP Tool Handlers (5)** | ✅ Implemented | `amprealize/mcp/handlers/work_item_execution_handlers.py` (451 lines) |
 | **MCP Tool Manifests (5)** | ✅ Created | `mcp/tools/workItems.{execute,executionStatus,cancelExecution,provideClarification,listExecutions}.json` |
@@ -44,11 +46,88 @@ This document defines how a Work Item assigned to an agent is explicitly started
 | **Branch Naming Convention** | ✅ Complete | `generate_pr_branch_name()` → `amprealize/work-item-{id}-{timestamp}` |
 | **PR Creation in Loop** | ✅ Complete | `AgentExecutionLoop._create_pull_request_if_needed()` + `GitHubService` |
 | **Cloud IDE Integration** | 🔮 Planned | Codespaces, Gitpod, Fleet |
-| **Execution UI** | ✅ Implemented | `@amprealize/collab-client` components + `web-console` integration |
+| **Execution UI** | ✅ Implemented / 🎨 UX north star defined | `@amprealize/collab-client`, `web-console`, `docs/CONVERSATION_SYSTEM_PLAN.md` |
 
-> **Cross-Reference**: UI implementation must follow `docs/COLLAB_SAAS_REQUIREMENTS.md` for performance targets, animation system, and dual-user paradigm (agents + humans).
+> **Cross-Reference**: UI implementation must follow `docs/COLLAB_SAAS_REQUIREMENTS.md` for performance targets, animation system, dual-user paradigm (agents + humans), and the Amprealize Chat UX north star. Detailed chat interaction guidance lives in `docs/CONVERSATION_SYSTEM_PLAN.md`.
 
-_Last updated: 2026-01-14_
+_Last updated: 2026-04-25_
+
+### ExecutionGateway Migration Contract
+
+`ExecutionGateway` is the migration target for all run-start surfaces: board UI, chat, REST API, MCP, and CLI. During migration, existing `WorkItemExecutionService` response shapes remain the compatibility boundary for deployed clients, while new adapters should convert each surface request into `ExecutionRequest`.
+
+The stale assumption to retire is that `WorkItemExecutionService` alone owns run starts. It remains the legacy compatibility service for non-start operations and as an incident fallback, but new start paths should enter through the gateway so policy, source resolution, idempotency, plan-only behavior, and queue payloads are composed once.
+
+The canonical request/result contract is `amprealize/execution_gateway_contracts.py`:
+
+- `ExecutionRequest` carries `work_item_id`, `project_id`, `org_id`, `user_id`, invoking `surface`, source overrides, output target override, model/agent overrides, `idempotency_key`, and governance metadata.
+- `ExecutionIntent` differentiates `execute` from `plan_only`; plan-only requests must use read-only/tool-limited policy and produce durable plan artifacts before any approval-triggered execution run.
+- Chat-originated requests can link `conversation_id` and `message_id` so run cards and plan cards attach to the correct transcript.
+- `GatewayQueuePayload` is the normalized payload that should be stored in `ExecutionJob.payload` once dispatch becomes queue-first. It preserves gateway intent, mode, source, output, surface, policy, approval, idempotency, and chat linkage for workers.
+- `ExecutionGatewayResult` carries gateway fields plus compatibility metadata so REST/MCP/CLI adapters can preserve existing response shapes while sharing the same underlying contract.
+- **`execution_workspace_kind`** (canonical: `cloud_git` | `local_connector`) selects the **workspace driver** inside the same gateway state machine: **`cloud_git`** uses mode executors with BreakerAmp/Podman provisioning (`CONTAINER_ISOLATED` / related modes)—the agent workspace is an **isolated clone** inside a container, not the developer laptop tree. **`local_connector`** uses the **hybrid model**: after pairing (`POST /api/v1/execution-connector/*`, flag `AMPREALIZE_ENABLE_LOCAL_EXECUTION_CONNECTOR`), the daemon receives **`run_lease`**, sends **`run.lease_ack`**, then executes **`tool.invoke`** round-trips (**`tool.result`**) for filesystem and bounded shell tools while **`AgentExecutionLoop` stays on the API process**. Protocol: **`docs/contracts/LOCAL_CONNECTOR_TOOL_PROTOCOL.md`**. **`dispatch_mode` must be `background`** for `local_connector` hybrid runs (queue workers do not await daemon RPC). REST **`POST /v1/work-items/{id}:execute`** and chat/composer payloads accept **`execution_workspace_kind`**; **`GET .../execution`** exposes **`execution_workspace_kind`** and **`connector_status`**. MCP **`executionConnector.*`** + **`workItems.execute`** parity preserved.
+- `GatewayWorkItemExecutionAdapter` exposes the legacy `execute(ExecuteWorkItemRequest)` service shape for REST and MCP handlers. It maps old request fields into `ExecutionRequest` and returns `ExecuteWorkItemResponse`, while non-start operations can delegate to the legacy service until status/cancel/clarification routes are migrated.
+- REST and MCP execution factories accept an optional gateway and wrap only the start path through `GatewayWorkItemExecutionAdapter`. API and MCP bootstraps now initialize that gateway by default, making the gateway the canonical start boundary while preserving `AMPREALIZE_EXECUTION_GATEWAY_ENABLED=false` as an explicit legacy fallback for incident response.
+- `ExecutionGateway` now has an explicit dispatch mode. `background` keeps the current development behavior, while `queue` requires an `ExecutionQueuePublisher`, creates run/task-cycle metadata, enqueues an `ExecutionJob` with `GatewayQueuePayload`, and avoids API-process background execution. If queue dispatch is enabled without a publisher, the request fails before run/cycle records are created.
+- `ExecutionGateway` handles `ExecutionIntent.PLAN_ONLY` as a non-dispatching gateway mode. It derives a read-only execution policy, denies write and platform-mutating tools, creates a `PlanArtifact`, returns a summary card in compatibility metadata, marks the plan run as completed, and distinguishes plan runs with `run_type=plan_only`.
+- `PolicyCompositionEngine` evaluates the request's user, org, project, conversation, agent, MCP/tool, attachment, and action-risk policy signals before run/task-cycle creation. It returns `allow`, `deny`, or `review`; deny blocks immediately, review requires `approved_by`, and evaluation failures fail closed while emitting policy audit telemetry.
+- `GovernedChatAuditLogger` records append-only, sanitized chat governance audit entries for intent classification, scope resolution, policy decisions, approvals/denials, tool calls, and execution starts. Records include user, chat scope, target resources, action, decision, policy IDs, execution observability context, and work item/run/chat links where available; `denied_or_review_required()` exposes review and denial queues without storing raw sensitive payloads.
+- Execution status, execution detail, execution list, and MCP execution status/list payloads expose a normalized `trace_summary` plus flat compatibility fields for origin surface, chat links, queue metadata, phase timings, token/cost/tool totals, and last error. The work item drawer renders a unified trace panel from that normalized summary, falling back to flat fields for older responses, so chat-triggered and board-triggered executions share one visible trace surface.
+- `GUIDEAI-1138` adds agent execution golden trace fixtures and regressions for chat-triggered, board-triggered, queued, direct/background, phase-failure, tool-denial, and successful-completion paths. These fixtures assert required correlation fields across RunService metadata, TaskCycle metadata, telemetry events, and RunStep trace output, including shared redaction for sensitive values.
+- `GUIDEAI-1121` adds deterministic and execution-handoff chat answer golden traces. Reply metadata and `conversation_reply.generated` telemetry now include a bounded `chat_trace` object linking conversation, user message, reply message, route action/category, answer path, work item, and run IDs without creating duplicate execution telemetry for chat-triggered handoffs.
+- `GUIDEAI-1122` adds LLM and MCP/platform-action golden traces. LLM replies and platform-action replies assert exporter parity between stored `chat_trace` metadata and telemetry payloads, platform-action traces include created-resource outcomes, and MCP resource-analysis responses remain JSON/exporter-safe.
+- `GUIDEAI-1123` adds RBAC and load-style observability validation. `amprealize/observability_access.py` filters telemetry payloads by access tier, hides raw prompts/tool inputs/output previews from viewer and data-analyst access, preserves BreakerAmp execution context fields, and builds bounded dashboard summaries for high-cardinality event streams.
+- `GUIDEAI-1113` adds `GovernedObservabilityQueryService` as the runtime access-control boundary for telemetry and trace analytics. It resolves actor roles to viewer, data-analyst, admin, or compliance tiers, applies the same restricted-field filtering to list queries, and returns bounded dashboard summaries with preserved correlation metadata.
+- `GUIDEAI-1112` exposes the governed analytics boundary through typed REST query contracts at `POST /api/v1/observability/events` and `POST /api/v1/observability/dashboard`. The app route uses in-memory telemetry events in tests/dev and Postgres telemetry queries when `AMPREALIZE_TELEMETRY_PG_DSN` is configured.
+- `GUIDEAI-1114` enables chat-powered observability questions. `ConversationReplyService` now has a deterministic observability fast path backed by `ObservabilityChatAnswerService` and `GovernedObservabilityQueryService`, so questions such as "which tools fail most?" or "why are replies slow?" return role-filtered answers without an LLM round trip or restricted payload leakage.
+- `GUIDEAI-1111` defines the canonical trace envelope schema in `amprealize/observability_contracts.py`. The schema covers `trace`, `span`, `event`, `generation`, `tool_call`, `action`, `artifact`, `behavior_candidate`, and `outcome` records, shares one `ObservabilityCorrelation` shape, validates required correlation fields, and provides sanitized export payloads plus examples for storage/exporter alignment.
+- `GUIDEAI-1190` publishes the consolidated contract and capture policy in `docs/contracts/CANONICAL_TRACE_CONTRACT.md`, including the telemetry → `observability_records` projection matrix and documented projection gaps for follow-up tasks.
+- `GUIDEAI-1101` updates telemetry and trace-analysis contracts so the taxonomy from `GUIDEAI-1111` is explicit across OSS, self-hosted enterprise, and managed enterprise profiles. `observability_backend_targets()` now records the tested profile-to-backend matrix, and TraceAnalysisService documentation maps each canonical record kind to behavior-mining inputs.
+- `GUIDEAI-1100` completes the `GUIDEAI-1092` contract slice by defining retention and sensitivity classes in `observability_retention_rules()`. The policy separates long-lived metadata, summaries, hashes, and behavior-mining features from short-lived raw prompts, raw responses, tool args, output previews, command output, and file diffs with explicit access tiers and purge/anonymization rules.
+- `PlanArtifact` in `amprealize/plan_artifact_contracts.py` defines the durable plan-only output contract. Artifacts have stable `plan-*` IDs, immutable version history, links to work item/project/org/chat/message/agent/source run, and lifecycle states for draft, approved, discarded, and executed plans.
+
+### Migration Path And Surface Matrix
+
+| Surface | Start path | Status | Migration note |
+| --- | --- | --- | --- |
+| Board / Web UI | `ExecutionRequest(surface="web")` through board controls and drawer actions | ✅ Supported | Uses shared execution control model and gateway-compatible run states. |
+| Amprealize Chat | `ExecutionRequest(surface="chat")` with `conversation_id`, `message_id`, `intent`, approval, and plan artifact linkage | ✅ Supported | Chat actions route through typed candidates, policy composition, and append-only audit records before dispatch. |
+| REST API | `GatewayWorkItemExecutionAdapter` wrapping legacy execute response shape | ✅ Supported | Legacy response compatibility remains while start creation moves to the gateway. |
+| MCP | Work item execution handlers using the same adapter path | ✅ Supported | Start parity is validated against REST, CLI-shaped, and chat-shaped gateway requests. |
+| CLI | CLI-shaped request metadata and idempotency keys | ⚠️ Adapter-shaped validation | Canonical request parity is tested; dedicated user-facing CLI command wiring remains a follow-up where absent. |
+| Queue workers | `GatewayQueuePayload` from resolved gateway request | ⚠️ Dispatch contract supported | Requires an `ExecutionQueuePublisher`; misconfiguration fails before orphan records are created. |
+
+Parity evidence lives in `tests/test_execution_gateway_adapter.py`, which compares REST, MCP, CLI-shaped, and chat-shaped request signatures and verifies REST/MCP cancel and clarification controls remain consistent during migration.
+
+### Plan Artifact Contract
+
+`guideai-1054` defines the plan artifact shape used by plan-only gateway execution before storage and runtime wiring. A draft plan artifact is created from a plan-only run, can be revised while preserving previous versions, can be approved by a user, can be discarded while remaining auditable, and can be marked executed only after approval when a separate execution run starts.
+
+The contract intentionally separates approval from execution: `PlanArtifact.can_start_execution` is true only for approved artifacts, and `mark_executed()` records the execution run ID without mutating the historical plan versions.
+
+### Plan-Only Gateway Mode
+
+`guideai-1055` wires `ExecutionIntent.PLAN_ONLY` into `ExecutionGateway`. Plan-only requests still validate the work item, resolve the assigned agent, evaluate composed policy, resolve model/source/mode, and create Run + TaskCycle records. Before any executor or queue dispatch can happen, the gateway replaces the agent policy with a read-only/tool-limited policy, creates a draft `PlanArtifact`, updates the run as a completed `plan_only` run, and returns both `plan_artifact_id` and a `summary_card` in `ExecutionGatewayResult.compatibility`.
+
+Plan-only mode is intentionally not an execution shortcut. It cannot enqueue workers, start background executors, or mutate files, boards, agents, projects, or orgs. Approval of the resulting artifact remains a separate lifecycle step; only an approved plan can seed a later execution run.
+
+### Plan Approval Flow
+
+`guideai-1056` adds `PlanApprovalService` in `amprealize/plan_approval_service.py` as the lifecycle bridge from draft plan artifacts to execution. The service uses a `PlanArtifactRepository` boundary so storage can be swapped from the in-memory implementation to a durable backend without changing callers.
+
+The approval flow has three explicit non-execution actions:
+
+- `revise_plan()` appends a new immutable plan version and resets approval back to draft.
+- `discard_plan()` preserves the artifact and versions for audit while blocking later execution.
+- `approve_plan()` records approver metadata without starting a run by itself.
+
+To execute, callers use `approve_and_start_execution()`. It approves the artifact, builds a fresh `ExecutionRequest` with `intent=execute`, `plan_artifact_id`, approval context, agent/work item/chat links, and optional mode/output/model overrides, then calls `ExecutionGateway.execute()`. Only after the gateway returns a successful new `run_id` does the service mark the plan artifact as executed and link `execution_run_id`.
+
+### Chat-Originated Permission Boundary
+
+`guideai-1051` defines the chat permission matrix in `amprealize/conversation_contracts.py` and `docs/contracts/CHAT_PERMISSION_MATRIX.md`. `guideai-1052` consumes it through `PolicyCompositionEngine`, so execution requests that originate from global chat, project spaces, work item threads, run threads, agent lifecycle actions, MCP tools, attachments, or platform actions can compose chat requirements with the other policy layers. Chat linkage fields (`conversation_id`, `message_id`) provide audit context only; they do not grant project, agent, tool, attachment, or platform-action access.
+
+`guideai-1064` validates the runtime boundary: inaccessible global-chat resource links are withheld before synthesis, group-chat execution requires conversation/project/agent scopes, MCP tool grants require approval, attachments require project or conversation scope, and agent lifecycle policy denial blocks registry dispatch. The regression coverage is in `tests/test_chat_governance_boundaries.py`.
 
 ## 1. Goals
 
@@ -65,8 +144,8 @@ _Last updated: 2026-01-14_
 
 - Auto-merge PRs
 - Multi-agent parallel execution on a single work item
-- New UI beyond a minimal “Start” control and “Execution log” view
-- Deep policy engine for tool allowlisting (beyond basic org/project gating)
+- New UI beyond the implemented board controls, work item drawer, and chat artifact/control surfaces
+- Persistent policy administration UI beyond the runtime composition hook
 
 ## 3. Core Concepts
 
@@ -98,9 +177,11 @@ Default gate behavior is defined in `TASK_CYCLE_SERVICE_CONTRACT.md`, but **gate
 
 Work items assigned to agents do not execute until a user triggers execution via:
 
-- UI: “Start” button on the work item
+- UI: “Start” button on the work item, board card, or work item drawer
+- Chat: typed execution or plan-only action after governance and approval checks
 - MCP: `workItems.execute`
 - REST: `/api/v1/work-items/{id}/execute`
+- CLI: gateway-compatible command/request path where enabled
 
 ### 4.2 Idempotency
 
@@ -123,6 +204,7 @@ Key functions:
 - ✅ Create Run + TaskCycle
 - ✅ Invoke AgentExecutionLoop until terminal
 - ✅ Persist logs to RunService and update Work Item/Board state
+- ✅ Persist shared `execution_observability` metadata so chat, board, REST API, MCP, CLI, queue workers, and direct execution can correlate the same `run_id`, `cycle_id`, work item, agent, model, surface, request, and chat-origin ids.
 
 **Key Methods:**
 - `execute(request, actor)` - Start work item execution
@@ -142,6 +224,8 @@ Key functions:
 - ✅ Executes tool calls (via ToolExecutor with permission checks)
 - ✅ Appends `RunStep` entries
 - ✅ Advances the TaskCycle per valid transitions
+- ✅ Emits per-phase and LLM-response telemetry using the shared execution observability context from `GUIDEAI-1091`.
+- ✅ Mirrors phase completion/failure and LLM response milestones into RunStep metadata for UI trace rendering.
 
 **Key Features:**
 - Phase handlers for all 8 GEP phases (PLANNING → COMPLETING)
@@ -178,8 +262,10 @@ Key functions:
 | `CredentialStore` | `work_item_execution_service.py:109` | LLM credential resolution (platform/org/project) |
 | `InternetAccessResolver` | `work_item_execution_service.py:350` | Internet access permission checking |
 | `WriteTargetResolver` | `work_item_execution_service.py:379` | Write scope resolution (local/PR/both) |
-| `ToolExecutor` | `tool_executor.py` (772 lines) | Tool call execution with permissions |
+| `ToolExecutor` | `tool_executor.py` | Tool call execution with permissions, shared execution context, sanitized lifecycle events, separate `execution.tool.performance`, and separate `execution.tool.business_outcome` events |
 | `LLMCallMetrics` | `agent_llm_client.py:45` | Token/cost tracking |
+| `ExecutionObservabilityContext` | `execution_observability.py` | Shared run/cycle/work-item/agent/model/surface/chat/queue correlation metadata and redaction helpers |
+| `SessionAuditLogger` / `GovernedChatAuditLogger` | `session_audit.py` | Sanitized session and governed-chat tool-call audit records with shared execution context, decisions, target resources, output previews, and error classes |
 | Prompt composition | `agent_llm_client.py` (inline) | Context-aware prompt assembly |
   - text output
   - optional tool calls

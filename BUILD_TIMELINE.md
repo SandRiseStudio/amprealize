@@ -1,3 +1,2090 @@
+| 354 | Fast chat planning layer | ### #354 - Added a typed `ChatQueryPlan` layer for chat replies: strict JSON planning, deterministic validation, generic `ResourceAnalysisService.answer_plan_sync` execution, work-item status-breakdown rendering, and topic-based targeted fetch handoff for `work_items` plans (2026-05-27)
+**Milestone:** Project-scoped questions like “from GuideAI, have we implemented agent execution?” can be answered as board progress over matching work items instead of falling through to static platform capability facts.
+
+**Implementation:** `amprealize/chat_query_planner.py`, `amprealize/services/conversation_reply_service.py`, `amprealize/resource_analysis.py`, `amprealize/chat_workspace_targeted_fetch.py`, `amprealize/feature_flags.py`, `tests/test_chat_query_planner.py`, targeted updates in `tests/test_conversation_reply_followup_context.py` and `tests/test_chat_workspace_targeted_fetch.py`.
+
+**Validation:** `python -m pytest tests/test_chat_query_planner.py tests/test_chat_workspace_targeted_fetch.py::test_build_fetch_plan_from_chat_query_plan_uses_topic_text_search tests/test_conversation_reply_followup_context.py::TestChatQueryPlanAnswer::test_guideai_implementation_question_uses_work_item_plan -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`, `behavior_design_test_strategy` (Student)
+
+| 353 | board_service.py schema-qualified table names | ### #353 - Schema-qualified all unqualified table references in `board_service.py` (both OSS + enterprise). Replaced `boards`, `work_items`, `columns`, `sprints`, `sprint_stories` with `board.boards`, `board.work_items`, `board.columns`, `board.sprints`, `board.sprint_stories` across ~81 query sites (OSS) and ~78 (enterprise). Eliminates intermittent `relation "boards" does not exist` errors caused by pgBouncer resetting `search_path` between connection handoffs in transaction mode — zero per-query latency overhead vs. the rejected checkout-SET approach (2026-05-15)
+**Implementation:** `amprealize/services/board_service.py` (OSS + enterprise). Verified `board.sprint_stories` lives in `board` schema via `information_schema.tables` on Neon.
+**Behaviors cited:** `behavior_migrate_postgres_schema`, `behavior_update_docs_after_changes` (Student)
+
+| 352 | Neon compute keepalive (chat cold-start) | ### #352 - In-app background keepalive runs `SELECT 1` against the run-service Neon pool every `AMPREALIZE_NEON_KEEPALIVE_INTERVAL_SECONDS` (default 180s) so the Neon compute never hits its ~5-min idle autosuspend; eliminates the ~10s cold-start on the first chat message after idle (observed: cold context phase ~10,020ms / total ~13,357ms vs warm ~416ms / ~3,748ms). Root cause was Neon compute autosuspend, NOT pgBouncer/search_path — the pooler endpoint keeps pgBouncer warm but not the underlying compute, and free-tier Neon returns HTTP 412 ("modifying the suspend interval is not permitted") so `suspend_timeout` cannot be changed via API. Opt out with `AMPREALIZE_NEON_KEEPALIVE=false`. Registered as FastAPI startup/shutdown task in `create_app`, gated to cloud DSNs (neon.tech/supabase.co/cockroachlabs.cloud) (2026-05-15)
+**Milestone:** First chat message after idle is fast (~3.7s total) instead of ~13s; warm path unchanged.
+
+**Implementation:** `amprealize/api.py` (`_neon_keepalive_loop`, startup/shutdown events); OSS + enterprise parity.
+
+**Validation:** Sent message, waited 390s (past Neon 5-min idle, keepalive pings at ~180s/360s), sent again — confirmed warm timing.
+
+**Behaviors cited:** `behavior_externalize_configuration`, `behavior_update_docs_after_changes` (Student)
+
+| 351 | Conversation list latency | ### #351 - Multi-scope `GET /v1/conversations` (`scopes=` repeated query), optional `include_total` for list/messages (`total=-1`), page-scoped participant count aggregation, partial index `idx_participants_actor_active` on `messaging.participants (actor_id) INCLUDE (conversation_id) WHERE left_at IS NULL`; web + enterprise sidebars collapse parallel list fetches; `get_conversation` participant count via grouped join (2026-05-06)
+**Milestone:** Fewer duplicate list round-trips and cheaper hot-path SQL for chat sidebars.
+
+**Behaviors cited:** `behavior_design_api_contract`, `behavior_migrate_postgres_schema`, `behavior_validate_cross_surface_parity` (Student)
+
+| 350 | Chat system prompt: local execution vs chat | ### #350 - `DEFAULT_SYSTEM_PROMPT` clarifies that conversational chat is text-only while `local_connector` + paired daemon governs on-disk work during runs; optional `local_project_path` (OSS + enterprise `conversation_reply_service.py`) (2026-05-05)
+**Milestone:** Reduces incorrect blanket denials when users ask about editing local files.
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+| 349 | Chat clarification short-circuit + empty reply guard | ### #349 - When routing requires clarification and workspace intent is not `conversational_non_inventory`, skip LLM and persist `clarification_prompt` (telemetry `answer_path`: `routing_clarification`); `_generate_with_streaming` and pre-persist guard replace empty bodies with `_EMPTY_LLM_REPLY_PLACEHOLDER` (OSS + enterprise `conversation_reply_service.py`, `tests/test_conversation_reply_routing.py`) (2026-05-05)
+**Milestone:** Stops multi-minute LLM runs that still persist **blank** replies for ambiguous inventory routing; **conversational** questions still reach the model when the router asks for clarification.
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+| 348 | Chat hybrid + inventory fast-path policy | ### #348 - `conversational_non_inventory` intent, `should_use_workspace_inventory_fast_path` (`chat_inventory_fast_path_policy.py`), strict tabular allowlist flag `feature.chat_inventory_fast_path_strict`, `ChatAnalysisRunner` for `ambiguous_scope`, reply `route_metadata` merges enriched routing + primary `chat_route_mode` (2026-05-05)
+**Milestone:** Capability / access / prioritization / ambiguous-scope messages skip the workspace inventory shortcut so **main LLM** answers; optional **strict** mode tightens **`list_inventory`** to allowlisted tabular phrasing; analysis runner planner text for scope questions.
+
+**Implementation:** `amprealize/chat_action_router.py`, `amprealize/chat_inventory_fast_path_policy.py`, `amprealize/chat_analysis_runner.py`, `amprealize/feature_flags.py`, `amprealize/services/conversation_reply_service.py`, `docs/CHAT_ROUTING_AND_COPY.md`, `.env.example`, tests under `tests/test_chat_*` and `tests/test_conversation_reply_routing.py`.
+
+**Validation:** `pytest tests/test_chat_action_router.py tests/test_chat_inventory_fast_path_policy.py tests/test_chat_analysis_stack.py tests/test_conversation_reply_routing.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity` (Student)
+
+
+| 347 | Web chat UI glow-up | ### #347 - Sleeker chat bubbles (glass + gradient own messages), pill sidebar/header/composer, custom model dropdown, CSS animations (msg-enter, typing-bounce, reaction-pop, emoji-picker, dropdown-in, shimmer), `haptics.ts` + Vibration API on send/reaction/new chat/receive-once (2026-05-05)
+**Milestone:** `web-console` unified conversation: **`ConversationPanel.css`**, **`UnifiedConversationWindow.css`**, **`MessageBubble.tsx`**, **`MessageComposer.tsx`**, **`ConversationSidebar.tsx`**, **`design-system.css`** keyframes, **`utils/haptics.ts`**.
+
+**Validation:** `npm run build` in `amprealize/web-console`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_accessibility` (Student)
+
+
+| 346 | NVIDIA BCI rerank NIM | ### #346 - Optional NeMo passage rerank after FAISS/hybrid (`feature.nvidia_bci_rerank`, `nvidia_nim_rerank.py`, cache `rerank_sig`, telemetry `bci.behavior_retriever.nvidia_rerank`), `.env.example`, wiki BCI page, `tests/test_nvidia_bci_rerank.py` (2026-05-05)
+**Milestone:** Feature-flagged **rerank-only** integration: oversample pool, POST `ai.api.nvidia.com` `/retrieval/nvidia/llama-3_2-nv-rerankqa-1b-v2/reranking`, degrade to pre-rerank order on failure; no embedding/index changes.
+
+**Behaviors cited:** `behavior_manage_feature_flags`, `behavior_externalize_configuration`, `behavior_instrument_metrics_pipeline`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki` (Student)
+
+**Validation:** `pytest tests/test_nvidia_bci_rerank.py -q`
+
+
+| 345 | Behavior seed `--apply-context` | ### #345 - `seed_behaviors_from_agents_md.py` gains `--apply-context` (Neon/cloud-dev), one-shot `list_behaviors`, resilient verify exit codes, handbook seed command notes (2026-05-05)
+**Milestone:** Seeding BCI against **active CLI Postgres context** without hand-exporting DSNs; avoids per-behavior `list_behaviors` round-trips; documents `--apply-context` in `AGENTS.md` integration steps.
+
+**Implementation:** `scripts/seed_behaviors_from_agents_md.py`, root `AGENTS.md`, `amprealize/AGENTS.md`.
+
+**Validation:** `python scripts/seed_behaviors_from_agents_md.py --dry-run --apply-context`
+
+**Behaviors cited:** `behavior_externalize_configuration`, `behavior_update_docs_after_changes` (Student)
+
+
+| 344 | Knowledge retrieval receipt UX | ### #344 - Per-run receipt in metadata, `trace_summary.knowledge_retrieval` on execution API, OSS + enterprise work-item execution UI, chat run-summary card, CLI `wi status`, `tests/test_knowledge_retrieval_receipt.py` (2026-05-05)
+**Milestone:** Canonical **knowledge retrieval receipt** merged under run metadata (`knowledge_retrieval_receipt`), bounded slice on **`trace_summary.knowledge_retrieval`** for status consumers; enterprise **`executions.ts`** maps `trace_summary`; enterprise **`ExecutionStatusCard`** + **`KnowledgeRetrievalSummary`**; OSS **conversation** run summary shows the same block; CLI table mode prints sources.
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_unify_execution_records` (Student)
+
+**Validation:** `pytest tests/test_knowledge_retrieval_receipt.py -m unit -q`
+
+
+| 343 | Principal data science chat + orchestrator | ### #343 - DS practitioner playbook, `behavior_principal_data_science_workflow`, `data_science` orchestrator persona, chat `PRINCIPAL_DS_SYSTEM_SUFFIX`, work-item keywords, wiki in-practice page (2026-05-05)
+**Milestone:** Principal-level data science operating loop in **`AGENT_DATA_SCIENCE.md`**; new handbook behavior + Quick Trigger; default **`AgentOrchestratorService`** persona **`data_science`** (OSS + enterprise); **`ConversationReplyService`** appends compact DS system guidance when intent/metadata/message hints match; broader **`CAPABILITY_KEYWORDS`** for `data_science`; **`docs/CHAT_ROUTING_AND_COPY.md`** + **`AGENT_ORCHESTRATOR_SERVICE_CONTRACT.md`**; wiki **`wiki/ai-learning/in-practice/principal-data-science-in-chat.md`**.
+
+**Implementation:** `amprealize/agents/playbooks/AGENT_DATA_SCIENCE.md`, `AGENTS.md`, `amprealize/AGENTS.md`, `amprealize/agent_orchestrator_service.py`, `amprealize/agent_orchestrator_service_postgres.py`, `amprealize/services/conversation_reply_service.py`, `amprealize/services/work_item_assignment.py`, `docs/CHAT_ROUTING_AND_COPY.md`, `docs/contracts/AGENT_ORCHESTRATOR_SERVICE_CONTRACT.md`, `wiki/ai-learning/in-practice/principal-data-science-in-chat.md`, `wiki/ai-learning/index.md`, `wiki/ai-learning/log.md`, `tests/test_principal_ds_chat_and_orchestrator.py`, **amprealize-enterprise** mirrors (`agent_orchestrator_service.py`, `services/conversation_reply_service.py`, `services/work_item_assignment.py`, `agents/playbooks/AGENT_DATA_SCIENCE.md`).
+
+**Validation:** `pytest tests/test_principal_ds_chat_and_orchestrator.py -q`
+
+**Behaviors cited:** `behavior_principal_data_science_workflow`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki` (Student)
+
+
+| 342 | Run reliability + GEP checkpoints | ### #342 - Durable GEP checkpoints, outbound tool policy, reliability snapshot parity (2026-05-05)
+**Milestone:** Agent execution loop commits **GEP phase-output checkpoints** to run metadata with `run.checkpoint_committed` telemetry; **ToolExecutor** enforces per-tool/dependency retry, timeout, and Postgres-backed circuit metadata; **read-only parity surface** — `GET /api/v1/runs/{id}/reliability`, MCP `runs.getReliability`, CLI `amprealize run reliability`, plus wired `amprealize run` subcommands (`create|get|list|complete|cancel|reliability`).
+
+**Contracts:** `docs/contracts/RUN_RELIABILITY.md`, `TELEMETRY_SCHEMA.md` (`run.checkpoint_committed`, `tool.retry_exhausted`, `circuit_breaker.*`), `capability_matrix.md`, `mcp/tools/runs.getReliability.json` + bundled manifest.
+
+**Tests:** `tests/test_run_reliability_parity.py` (requires `AMPREALIZE_RUN_PG_DSN`).
+
+**Behaviors cited:** `behavior_unify_execution_records`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+
+| 341 | Telemetry E2E join contract | ### #341 - Warehouse join keys + `behaviors.*` / `llm.generation.*` projection docs (2026-05-05)
+**Milestone:** Document exact event names and preferred SQL join keys for stitching chat, MCP tools, LLM generations, and behaviors telemetry in the Postgres observability warehouse.
+
+**Docs:** `docs/contracts/TELEMETRY_SCHEMA.md` — runtime projection table extended; new **Postgres warehouse: E2E trace stitching** section with join matrix and example queries; **Deployment prerequisite** subsection requiring `migrations_telemetry/versions/` Alembic head on the telemetry DSN before `PostgresTelemetryWarehouse` projections succeed.
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+
+| 340 | Handbook subsystem quotient | ### #340 - `behavior_justify_platform_subsystem` + `docs/SUBSYSTEM_BASELINE.md` (2026-05-05)
+**Milestone:** Codify a forcing function for platform work: each major subsystem must have a **one-sentence** distinction vs “YAML prompts + one workflow engine + one agent runtime,” or merge/simplify.
+
+**Handbook:** `AGENTS.md` — Quick Trigger row, `### behavior_justify_platform_subsystem`, Metacognitive Strategist checklist step **1a**. Root `AGENTS.md` and **amprealize-enterprise** `AGENTS.md` / `docs/SUBSYSTEM_BASELINE.md` aligned (dual-repo).
+
+**Behaviors cited:** `behavior_curate_behavior_handbook`, `behavior_update_docs_after_changes` (Student)
+
+
+| 339 | Research evaluate LLM list shape | ### #339 - Tolerant parsing for evaluation JSON arrays (2026-05-05)
+**Milestone:** Research Evaluate failed at **Evaluate** with ``'str' object has no attribute 'get'`` when the model returned **plain strings** inside ``conflicts_with_existing``, ``competitive_landscape``, or ``structured_cons`` instead of objects.
+
+**Fix:** ``amprealize/research/evaluation_parse.py`` adds ``parse_conflict_items`` / ``parse_competitive_landscape`` / ``parse_structured_cons`` (evaluate), plus ``parse_claimed_results`` / ``parse_affected_components`` / ``parse_implementation_steps`` / ``ensure_str_list`` / **``parse_parsed_sections``** / **``parse_recommendation_priority``** (LLM ``low``/``high`` → ``P1``–``P4``) for **comprehend**, **recommend** (roadmap + adoption + blocking deps + handoff dict guard), **ingest** (``_to_ingested_paper``), **Postgres search** (**``paper_summaries_from_postgres_search``**), **SQLite search** (**``paper_summaries_from_sqlite_rows``** / ``paper_summary_from_sqlite_tuple``), and **Postgres/SQLite hydration** paths. **``tests/test_research_evaluation_parse.py``** (``@pytest.mark.unit``). **amprealize-enterprise** mirrors the module and ``research_service`` wiring (**#236**).
+
+**Validation:** ``pytest tests/test_research_evaluation_parse.py -m unit -q``
+
+**Behaviors cited:** ``behavior_update_docs_after_changes``, ``behavior_design_test_strategy`` (Student)
+
+
+| 338 | Enterprise research prompts mirror | ### #338 - ``amprealize-enterprise`` ``enterprise/research/prompts.py`` parity (2026-05-05)
+**Milestone:** Docker/runtime images using **amprealize-enterprise** did not load the OSS prompt fixes until the enterprise package shipped the same templates and **``ResearchService``** used ``replace`` / ``_normalize_comprehension_dict`` / ``raw_decode`` JSON extraction.
+
+**Fix:** SandRiseStudio/**amprealize-enterprise** #235: canonical ``amprealize/enterprise/research/prompts.py``, stub re-exports, ``research_service.py`` alignment, ``tests/test_research_extract_json.py``, docs.
+
+**Behaviors cited:** ``behavior_update_docs_after_changes``, ``behavior_validate_cross_surface_parity`` (Student)
+
+
+| 337 | Research comprehend + evaluation prompts | ### #337 - JSON-only comprehension schema + inject playbook/codebase (2026-05-05)
+**Milestone:** Research runs completed ingest but **wiki / report** showed empty **Core idea / Problem / Solution** and **0 contributions, 0 results**; **honest_assessment** repeated a generic critique of Amprealize (MCP server / metacognition) across unrelated articles.
+
+**Root cause:** Comprehension prompts did **not** require a JSON object with the fields ``ResearchService`` parses; ``_extract_json`` often recovered the wrong fragment → empty strings + numeric defaults. ``str.format(agent_playbook=..., codebase_context=...)`` on templates **without** ``{}`` placeholders **silently ignored** kwargs, so playbook and codebase snapshot never reached the comprehension system message; evaluation leaned on static architecture text for ``honest_assessment``.
+
+**Fix:** Rewrote **OSS** ``COMPREHENSION_SYSTEM_PROMPT`` / ``EVALUATION_SYSTEM_PROMPT`` / ``RECOMMENDATION_SYSTEM_PROMPT`` with ``__AGENT_PLAYBOOK__`` and ``__CODEBASE_CONTEXT__`` tokens replaced in ``ResearchService``. **User turn** for comprehend is material only (no duplicate system block). **``_normalize_comprehension_dict``** merges camelCase keys. Evaluation brutal-honesty addendum requires ``honest_assessment`` to track the **comprehension summary**, not boilerplate product critique.
+
+**Implementation:** ``amprealize/research/prompts.py``, ``amprealize/research_service.py``, ``tests/test_research_extract_json.py``
+
+**Validation:** ``pytest tests/test_research_extract_json.py tests/test_mcp_research_handlers.py tests/test_research_work_items.py -q``
+
+**Behaviors cited:** ``behavior_update_docs_after_changes``, ``behavior_design_test_strategy`` (Student)
+
+
+| 336 | Research URL Jina auto-fallback (SandRise parity) | ### #336 - Default ``r.jina.ai`` relay after direct fetch failure or empty extract (2026-05-05)
+**Milestone:** Same publisher URLs worked in **SandRise exploring-ingest** (Cloudflare Worker) because it falls back to **`https://r.jina.ai/<url>`** after direct **fetch** errors or thin HTML; Amprealize only used Jina when **`AMPREALIZE_RESEARCH_READER_PROXY=jina`** was set.
+
+**Fix:** **`URLIngester._fetch`** tries direct first; on **`URLIngesterError`** (exhausted 429/5xx, 403, etc.) retries via **`_jina_relay_url`** when **`AMPREALIZE_RESEARCH_JINA_AUTO_FALLBACK`** is true (default). **`ingest`** repeats Jina fetch when extraction yields no text and the first hop was not already via reader. Browser-like **Accept** / **Accept-Language** headers. Set **`AMPREALIZE_RESEARCH_JINA_AUTO_FALLBACK=false`** to disable (privacy / no third party).
+
+**Implementation:** `amprealize/research/ingesters/url_ingester.py`, `.env.example`, `tests/test_url_ingester_trafilatura.py`
+
+**Validation:** `pytest tests/test_url_ingester_trafilatura.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+
+| 335 | Research ingest UX + Jina reader proxy | ### #335 - Paste-body hint on fetch failures + optional Jina Reader (2026-05-05)
+**Milestone:** Users hit **HTTP 429** with no guidance in the drawer; operators had no first-class **reader proxy** for stubborn publishers.
+
+**Fix:** **`researchIngestFailureSuggestsBodyPaste`** drives a **research-ingest-hint** callout on failed runs whose error text matches rate limits / URL fetch. **`URLIngester`**: env **`AMPREALIZE_RESEARCH_READER_PROXY=jina`** + optional **`AMPREALIZE_RESEARCH_JINA_READER_BASE`** fetches via **`https://r.jina.ai/<url>`** while keeping **`source_url`** as the original research URL; allows **`text/markdown`**; metadata **`fetch_via_reader_proxy`**. **`.env.example`** documents vars.
+
+**Implementation:** `web-console/.../researchIngestHints.ts`, `WorkItemDrawer.tsx`, `WorkItemDrawer.css`, `web-console/src/test/researchIngestHints.test.ts`, `amprealize/research/ingesters/url_ingester.py`, `.env.example`, `packages/breakeramp/.../cloud-dev.yaml`, `tests/test_url_ingester_trafilatura.py`
+
+**Validation:** `pytest tests/test_url_ingester_trafilatura.py -q`, `npx vitest run src/test/researchIngestHints.test.ts`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_accessibility`, `behavior_use_raze_for_logging` (Student)
+
+
+| 334 | URL ingest retries + Raze log ingest fix | ### #334 - Research URL 429/5xx backoff + FastAPI Raze ingest (2026-05-05)
+**Milestone:** Publisher **HTTP 429** caused immediate research failures; API logs showed **`coroutine 'RazeService.ingest' was never awaited`** on **`POST /v1/logs/ingest`** and middleware path logging.
+
+**Fix:** **`URLIngester._fetch`** retries **429 / 5xx** up to **`max_transient_fetch_attempts`** with **`Retry-After`** (integer seconds, capped) or exponential backoff + jitter; clearer **`URLIngesterError`** when exhausted. **`RazeMiddleware`** uses **`ingest_sync([...])`**; **`create_log_routes`** **`ingest_logs`** delegates to **`await service.ingest_request(request)`**.
+
+**Implementation:** `amprealize/research/ingesters/url_ingester.py`, `packages/raze/src/raze/integrations/fastapi.py`, `tests/test_url_ingester_trafilatura.py`
+
+**Validation:** `pytest tests/test_url_ingester_trafilatura.py -q`
+
+**Behaviors cited:** `behavior_use_raze_for_logging`, `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+
+| 333 | Research codebase index + JSON recovery | ### #333 - Structural codebase scan for research + `_extract_json` raw_decode (2026-05-05)
+**Milestone:** Research runs showed **0 services / 0 behaviors / 0 MCP tools / 0 tables** because **`CodebaseAnalyzer.get_structural_index`** was a stub. Wiki comprehension tables were often empty when the model returned valid JSON followed by extra text (**greedy brace regex** failed **`json.loads`**).
+
+**Fix:** **`StructuralIndex.to_context_string`** emits a bounded markdown index. **`get_structural_index`** scans **`amprealize/services`**, **`AGENTS.md` / `CLAUDE.md`** (`behavior_*`), **`mcp/tools/*.json`** (`name`), and **`schema/migrations/*.sql`** + **`migrations*/versions/*.py`** (`CREATE TABLE` / **`op.create_table`**). **`ExecutionGateway`** prefers **`AMPREALIZE_REPO_ROOT`** over **`settings.context_dir`** for **`ResearchService`**. **`_extract_json`** uses **`JSONDecoder.raw_decode`** from the first `{` and from fenced blocks.
+
+**Implementation:** `amprealize/research/codebase_analyzer.py`, `amprealize/execution_gateway.py`, `amprealize/research_service.py`, `tests/test_codebase_analyzer.py`, `tests/test_research_extract_json.py`
+
+**Validation:** `pytest tests/test_codebase_analyzer.py tests/test_research_extract_json.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+
+| 332 | Research ingest robustness | ### #332 - URL extraction fallback + optional pasted body (2026-05-05)
+**Milestone:** Some publisher URLs returned **no extractable text** from naive HTML parsing; users needed a way to run research without relying on fetch.
+
+**Fix:** **`URLIngester`** uses **trafilatura** when naive word count is below a threshold or content is empty; browser-like **User-Agent**. **`EvaluatePaperRequest.body_markdown`** + work item **`metadata.research_body_markdown`** ingest pasted text while keeping **`research_url`** for attribution (**`ExecutionGateway`** caps size). Web **WorkItemDrawer** optional textarea; MCP **`research.evaluate`** + **`research_evaluate`** tool accept **`body_markdown`**.
+
+**Implementation:** `pyproject.toml`, `amprealize/research/ingesters/url_ingester.py`, `amprealize/research_contracts.py`, `amprealize/research_service.py`, `amprealize/execution_gateway.py`, `amprealize/boards/contracts.py`, `amprealize/tool_executor.py`, `amprealize/mcp/handlers/research_handlers.py`, `mcp/tools/research.evaluate.json`, `web-console/.../WorkItemDrawer.tsx`, `tests/test_url_ingester_trafilatura.py`, `tests/test_research_work_items.py`
+
+**Validation:** `pytest tests/test_url_ingester_trafilatura.py tests/test_research_work_items.py -m unit`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_api_contract` (Student)
+
+
+| 331 | Research phase timeline + run steps | ### #331 - Research steps in PhaseTimeline and RunService (2026-05-05)
+**Milestone:** **`PhaseTimeline`** only bucketed steps by **GEP**, so research runs looked empty (steps either missing or filed under **Executing**). Research progress updates did not consistently append **`run_steps`** with **`metadata.phase`**.
+
+**Fix:** **`PhaseTimeline`** accepts **`pipeline: gep | research`** (from **`ExecutionProgress`**), uses **`RESEARCH_PHASE_ORDER`** / **`RESEARCH_LABELS`**, and research-specific empty copy. **`ExecutionGateway._research_run_progress_handler`** appends a completed breadcrumb step per callback (**`rp-*` id**, **`step_name`**, **`step_type` / `content_preview`**, **`phase`** slug). Initial **`_run_research_work_item`** **`update_run`** adds **`Research started`** (**`step_type: research_started`**) so the timeline is non-empty before the first **`evaluate`** callback. **`_upsert_step` INSERT** sets **`completed_at`** when status is terminal (SQLite + Postgres).
+
+**Implementation:** `web-console/.../PhaseTimeline.tsx`, `ExecutionProgress.tsx`, `selectPhaseModel.ts`, `__tests__/PhaseTimeline.test.tsx`, `amprealize/execution_gateway.py`, `amprealize/run_service.py`, `amprealize/run_service_postgres.py`
+
+**Validation:** `npx vitest run src/components/boards/execution/__tests__/PhaseTimeline.test.tsx`
+
+**Behaviors cited:** `behavior_unify_execution_records`, `behavior_update_docs_after_changes` (Student)
+
+
+| 330 | Research run phase UX + live elapsed | ### #330 - Research pipeline phases and live run timer (2026-05-05)
+**Milestone:** Research work item runs still showed **GEP** phases (Planning, …) because **`get_status`** read the **TaskCycle** phase (stuck at planning) instead of run metadata. The live strip timer froze because **`elapsedMs`** only refreshed when status refetched. **ResearchService** progress was not written to the run.
+
+**Fix:** Prefer **`run.metadata["phase"]`** for **`WorkItemType.RESEARCH`** (and **`execution_pipeline`** / **`research_*`** for by-run-id status). **`ExecutionGateway`** passes a **`ResearchService.evaluate`** progress callback that updates **`phase`**, **`progress_pct`**, **`current_step`**, and **`execution_pipeline: research`**. Web: **`selectPhaseModel`** supports **`RESEARCH_PHASE_ORDER`** when **`workItemType === 'research'`**; **`LiveActivityStrip`** ticks elapsed from **`startedAt`** while running.
+
+**Implementation:** `amprealize/work_item_execution_service.py`, `amprealize/execution_gateway.py`, `web-console/src/components/boards/execution/selectPhaseModel.ts`, `LiveActivityStrip.tsx`, `ExecutionProgress.tsx`, `WorkItemDrawer.tsx`, tests under `web-console/src/components/boards/execution/__tests__/`
+
+**Validation:** `npm test -- --run src/components/boards/execution`, `npm test -- --run src/test/WorkItemDrawer`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_accessibility`, `behavior_unify_execution_records` (Student)
+
+
+| 329 | Work item drawer execution UX | ### #329 - Elite execution UX in Work Item drawer (2026-05-05)
+**Milestone:** Replaced the unified trace panel and synthetic execution rows in the activity feed with a **phase-aware `ExecutionProgress`** stack (stepper, live strip, gate panel, failure card, phase-grouped timeline, connection pill). Added **`selectPhaseModel`**, **`useApproveGate`**, Vitest coverage.
+
+**Implementation:** `web-console/src/components/boards/execution/*`, `web-console/src/components/boards/WorkItemDrawer.tsx`, `web-console/src/components/boards/WorkItemDrawer.css`, `web-console/src/api/executions.ts`, `web-console/src/test/WorkItemDrawerExecutionTrace.test.tsx`, `web-console/src/components/boards/execution/__tests__/*`
+
+**Validation:** `npm test` in `web-console` (Vitest)
+
+**Behaviors cited:** `behavior_design_test_strategy`, `behavior_validate_accessibility`, `behavior_update_docs_after_changes`, `behavior_use_breakeramp_for_environments` (Student)
+
+
+| 328 | CodebaseAnalyzer get_structural_index + project_root | ### #328 - Research evaluate AttributeError (2026-05-05)
+**Milestone:** Research execution failed after ~30s (**`execution.gateway.failed`**). Telemetry: **`'CodebaseAnalyzer' object has no attribute 'get_structural_index'`**. **`ResearchService.evaluate`** called the missing method; **`CodebaseAnalyzer`** was still a stub. **`ResearchService`** passed **`project_root=…`** but **`__init__`** only read positional **`root_path`**, so the analyzer often pointed at **`.`** inside the API container.
+
+**Fix:** Add **`StructuralIndex`**, **`get_structural_index()`**, and **`deep_dive()`** on **`CodebaseAnalyzer`**; treat **`project_root`** kwargs as root; export **`StructuralIndex`**. Unit tests in **`tests/test_codebase_analyzer.py`**.
+
+**Implementation:** `amprealize/research/codebase_analyzer.py`, `amprealize/research/__init__.py`, `tests/test_codebase_analyzer.py`
+
+**Validation:** `pytest tests/test_codebase_analyzer.py -m unit -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+
+| 327 | EvaluatePaperRequest title_override for research runs | ### #327 - Research execution TypeError (2026-05-05)
+**Milestone:** Board research execution failed immediately (**Phase Planning** / **`execution.gateway.failed`**). Local **`telemetry_events`** showed: **`EvaluatePaperRequest.__init__() got an unexpected keyword argument 'title_override'`** while **`ResearchService.evaluate`** and **`execution_gateway._run_research_work_item`** already passed **`title_override`**.
+
+**Fix:** Add optional **`title_override: Optional[str] = None`** to **`EvaluatePaperRequest`** in **`research_contracts.py`** (aligned with **`IngestPaperRequest`**).
+
+**Implementation:** `amprealize/research_contracts.py`
+
+**Validation:** `pytest tests/test_research_work_items.py tests/test_execution_gateway.py -q -k "research or EvaluatePaper or gateway"` — 71 passed.
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+
+| 326 | Darwin podman-socket-proxy mount + socat platform | ### #326 - Podman socket bind mount + alpine/socat arm64 (2026-05-05)
+**Milestone:** **`breakeramp fresh cloud-dev`** failed starting **`podman-socket-proxy`**: **`podman run -v /var/folders/.../podman/*-api.sock:...`** triggered **`statfs`** (macOS gvproxy API socket is not bind-mountable into containers inside the Podman VM). **`alpine/socat`** also resolved to **`linux/amd64`** on Apple Silicon.
+
+**Fix:** **`discover_podman_socket_host_path_for_mount()`** on Darwin skips **`/var/folders/.../podman/...`** and **`*-api.sock`** inspect paths; falls back to **`/run/user/<uid>/podman/podman.sock`**. **`container_platform_for_image()`** adds **`podman run --platform linux/arm64|amd64`** for **`alpine/socat`** from host **`platform.machine()`**.
+
+**Implementation:** `packages/breakeramp/src/breakeramp/runtime/podman.py`, `packages/breakeramp/src/breakeramp/executors/base.py`, `packages/breakeramp/src/breakeramp/executors/podman.py`, `packages/breakeramp/src/breakeramp/service.py`, `packages/breakeramp/tests/test_podman_socket_mount.py`, `packages/breakeramp/tests/test_executors.py`
+
+**Validation:** `pytest packages/breakeramp/tests/test_podman_socket_mount.py packages/breakeramp/tests/test_executors.py::TestContainerRunConfig packages/breakeramp/tests/test_executors.py::test_container_platform_for_socat_matches_host_arch packages/breakeramp/tests/test_executors.py::test_podman_run_container_includes_platform_flag -q`
+
+**Behaviors cited:** `behavior_use_breakeramp_for_environments`, `behavior_update_docs_after_changes` (Student)
+
+
+| 325 | Fix execute 500: dict agent_version AttributeError | ### #325 - ExecutionGateway agent dict→object bug (2026-05-05)
+**Milestone:** `POST …:execute` returned 500 `'dict' object has no attribute 'version'`. Root causes in `execution_gateway.py`: (1) `_get_latest_agent_version` fallback returned raw `dict` from `AgentRegistryService.get_agent()["versions"][-1]` instead of `AgentVersion`; (2) `_load_agent` passed `org_id` kwarg to `get_agent` (not accepted) and treated the dict payload as an `Agent` object; (3) `agent_version.version_id` accessed a computed field that is not on the `AgentVersion` dataclass.
+
+**Fix:** `_get_latest_agent_version` converts raw dict to `AgentVersion` (strips `version_id` key). `_load_agent` unboxes `{"agent": ...}` dict payload or passes through Agent-like objects. `agent_version_id` uses `getattr(version_id, …)` then computes `agent_id:version` fallback.
+
+**Implementation:** `amprealize/execution_gateway.py`
+
+**Validation:** `pytest tests/test_execution_gateway.py tests/test_execution_gateway_adapter.py -q` — 70 passed; live `curl POST :execute` → 202.
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+
+| 324 | AMPREALIZE_PODMAN_SOCK_HOST_PATH for blueprints | ### #324 - Env-driven Podman socket mount (2026-05-05)
+**Milestone:** BreakerAmp sets **`AMPREALIZE_PODMAN_SOCK_HOST_PATH`** before blueprint expansion via **`discover_podman_socket_host_path_for_mount()`** (`podman machine inspect`, **`PODMAN_SOCKET_PATH`**, Linux paths). **`cloud-dev`**, **`local-dev`**, **`local-test-env`**, **`local-test-suite`** use **`${AMPREALIZE_PODMAN_SOCK_HOST_PATH:-/run/user/501/...}`** for **`podman-socket-proxy`**.
+
+**Implementation:** `packages/breakeramp/src/breakeramp/runtime/podman.py`, `packages/breakeramp/src/breakeramp/service.py`, blueprints above, `packages/breakeramp/tests/test_podman_socket_mount.py`, `.env.example`, `web-console/README.md`, `scripts/get_podman_socket.sh`
+
+**Validation:** `pytest packages/breakeramp/tests/test_podman_socket_mount.py -q`
+
+**Behaviors cited:** `behavior_use_breakeramp_for_environments`, `behavior_externalize_configuration`, `behavior_update_docs_after_changes` (Student)
+
+
+| 323 | Single Podman VM + cloud-dev execution docs | ### #323 - Retire amprealize-test machine alignment (2026-05-05)
+**Milestone:** **`amprealize-test`** Podman machine removed from workflows; **`test`** BreakerAmp environment and embedded defaults use **`amprealize-dev`** + blueprint **`local-test-env`** (aligned with `config/breakeramp/environments.yaml`). **`recommend_podman_cli_default_connection`** prefers **`amprealize-dev`** when both dev and test VMs are running. Docs: **`web-console/README.md`** queue execution checklist for **Neon / cloud-dev**; wiki **`breakeramp-environments.md`**; **`docs/CONVERSATION_SYSTEM_PLAN.md`**.
+
+**Implementation:** `config/breakeramp/environments.yaml`, `packages/breakeramp/src/breakeramp/service.py`, `packages/breakeramp/src/breakeramp/executors/podman.py`, `packages/breakeramp/tests/test_executors.py`, `web-console/README.md`, `wiki/infra/reference/breakeramp-environments.md`, `docs/CONVERSATION_SYSTEM_PLAN.md`
+
+**Validation:** `pytest packages/breakeramp/tests/test_executors.py::TestRecommendPodmanCliDefaultConnection -q`
+
+**Behaviors cited:** `behavior_use_breakeramp_for_environments`, `behavior_update_docs_after_changes` (Student)
+
+
+| 322 | GUIDEAI-1196 observability backfill + smoke | ### #322 - Replay projections, smoke, rollout doc (2026-05-05)
+**Milestone:** **`GUIDEAI-1196`**: `telemetry_event_from_telemetry_events_row`, `PostgresTelemetryWarehouse.replay_stored_event_projection` / `replay_event_projections_from_telemetry_table`; `scripts/backfill_observability_records_from_telemetry_events.py`; `scripts/smoke_observability_warehouse.sh`; `docs/operations/OBSERVABILITY_ROLLOUT.md`; `tests/test_telemetry_replay_backfill.py`; **`docs/TESTING_GUIDE.md`** observability subsection.
+
+**Implementation:** `amprealize/storage/postgres_telemetry.py`, `scripts/backfill_observability_records_from_telemetry_events.py`, `scripts/smoke_observability_warehouse.sh`, `docs/operations/OBSERVABILITY_ROLLOUT.md`, `docs/TESTING_GUIDE.md`, `tests/test_telemetry_replay_backfill.py`
+
+**Validation:** `pytest tests/test_telemetry_replay_backfill.py tests/test_postgres_telemetry_sink.py tests/test_observability_telemetry_integration.py --run-integration -q` (integration tests skip without `--run-integration` + telemetry DSN)
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_test_strategy`, `behavior_migrate_postgres_schema` (Student)
+
+
+| 321 | GUIDEAI-1195 OTLP + async export | ### #321 - Optional export runtime (2026-05-05)
+**Milestone:** **`GUIDEAI-1195`**: `ObservabilityExportConfig` / `ObservabilityExportRuntime` (queue, OTLP span-per-event, optional Datadog + Langfuse HTTP); `ObservabilityExportForwardingSink` + `create_sink_from_env` wrap; **`telemetry`** extra includes `opentelemetry-sdk` and `opentelemetry-exporter-otlp-proto-http`. **Docs:** `docs/contracts/OTLP_EXPORT.md`, `.env.example`.
+
+**Implementation:** `amprealize/observability_export_config.py`, `amprealize/observability_export_runtime.py`, `amprealize/telemetry.py`, `pyproject.toml`, `docs/contracts/OTLP_EXPORT.md`, `.env.example`, `tests/test_observability_export_runtime.py`
+
+**Validation:** `pytest tests/test_observability_export_runtime.py -q`
+
+**Behaviors cited:** `behavior_externalize_configuration`, `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+
+| 320 | GUIDEAI-1193 MCP + REST telemetry parity | ### #320 - MCP tool EO + sampled HTTP telemetry (2026-05-05)
+**Milestone:** **`GUIDEAI-1193`**: **MCP** emits `execution.tool.completed`, `execution.tool.denied` (rate limit), `execution.tool.failed`, and `execution.tool.performance` from `tools/call` with `ExecutionObservabilityContext`; **`MCPServiceRegistry.telemetry_client()`** wires `create_sink_from_env` (fixes missing client for ContextComposer / execution wiring). **REST** middleware emits sampled **`api.http.completed`** (`amprealize/api_http_telemetry.py`, `AMPREALIZE_API_HTTP_TELEMETRY_SAMPLE_RATE`). **Docs:** `docs/contracts/TELEMETRY_SCHEMA.md` surface matrix + `api.http.completed` row; **`docs/capability_matrix.md`** Telemetry row.
+
+**Implementation:** `amprealize/mcp_server.py`, `amprealize/api.py`, `amprealize/api_http_telemetry.py`, `docs/contracts/TELEMETRY_SCHEMA.md`, `docs/capability_matrix.md`, `tests/test_mcp_tool_telemetry.py`, `tests/test_api_http_telemetry_middleware.py`
+
+**Validation:** `pytest tests/test_mcp_tool_telemetry.py tests/test_api_http_telemetry_middleware.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_test_strategy`, `behavior_prevent_secret_leaks` (Student)
+
+| 319 | GUIDEAI-1192 Postgres/Timescale projection parity | ### #319 - Telemetry Alembic parity + analytics views + warehouse SQL (2026-05-05)
+**Milestone:** **`GUIDEAI-1192`**: `migrations_telemetry` chain aligned with app observability typed tables and core dashboard views; partial indexes on `observability_records` (project/conversation/kind/surface); `observability_span_tree`, `observability_run_summary`, `observability_conversation_summary`; `docs/analytics/observability_warehouse_views.sql` extended for `enterprise_warehouse.*` (trace/generation/tool/outcome/span/run/conversation); `observability_timescale_schema()` migration revision `20260505_observability_analytics` and dashboard dataset contracts; CANONICAL_TRACE_CONTRACT §5 read models + §5.1 status; capability matrix Telemetry row.
+
+**Implementation:** `migrations/versions/20260505_observability_analytics_indexes_views.py`, `migrations_telemetry/versions/20260505_telemetry_observability_typed_tables_views.py`, `migrations_telemetry/versions/20260505_telemetry_observability_analytics.py`, `amprealize/observability_contracts.py`, `docs/analytics/observability_warehouse_views.sql`, `docs/contracts/CANONICAL_TRACE_CONTRACT.md`, `docs/capability_matrix.md`, `tests/test_observability_contracts.py`
+
+**Validation:** `pytest tests/test_observability_contracts.py tests/test_postgres_telemetry_sink.py -q` · `python scripts/validate_migrations.py`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_migrate_postgres_schema`, `behavior_design_test_strategy` (Student)
+
+| 318 | GUIDEAI-1191 trace facade closure | ### #318 - Final regression tests + matrix (2026-05-04)
+**Milestone:** **`GUIDEAI-1191`** closed: `tests/test_observability_tracing_facade.py` (non-fatal sink, `record_generation` + incomplete-correlation warning), `asyncio.gather` isolation in `tests/test_observability_tracing_context.py`, **`docs/capability_matrix.md`** Telemetry row — OTLP deferred to **GUIDEAI-1195**.
+
+**Implementation:** `tests/test_observability_tracing_facade.py`, `tests/test_observability_tracing_context.py`, `docs/capability_matrix.md`
+
+**Validation:** `pytest tests/test_observability_tracing_facade.py tests/test_observability_tracing_context.py tests/test_observability_attributes.py tests/test_conversation_reply_routing.py tests/test_chat_answer_golden_traces.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+| 317 | Execution gateway telemetry via Tracer | ### #317 - All gateway `emit_event` + run spans (2026-05-04)
+**Milestone:** **`ExecutionGateway`** routes **every** gateway-owned product telemetry event through **`Tracer.emit_execution_gateway_event`** (lifecycle + policy audit events; caller-defined payloads per `event_type`). Run spans use **`Tracer.start_execution_span` / `end_execution_span`** with **`ObservabilityCorrelation`** from **`_gateway_run_span_correlation`**. **`self._telemetry`** remains only for **`AgentExecutionLoop`** / **`create_tool_executor_for_run`** injection. Added **`Tracer.emit_execution_gateway_event`**; **`_emit_telemetry`** accepts optional **`actor`**.
+
+**Implementation:** `amprealize/execution_gateway.py`, `amprealize/observability_tracing.py`, `docs/contracts/CANONICAL_TRACE_CONTRACT.md` §7, `tests/test_execution_gateway.py`, `tests/test_observability_tracing_context.py`
+
+**Validation:** `pytest tests/test_execution_gateway.py tests/test_observability_tracing_context.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+| 316 | Chat trace contextvars + Tracer pilot | ### #316 - `TraceContext`, `Tracer`, OTel/OpenInference attrs (2026-05-04)
+**Milestone:** **`GUIDEAI-1191`**: `contextvars` propagation (`attach_trace_context` / `detach_trace_context` / `bind_context`), `Tracer` facade with non-fatal telemetry writes and `observability.record` attribute merge, `observability_attributes` (OpenInference + GenAI keys), **`ConversationReplyService.generate_reply`** binds trace after `chat_trace` is built and detaches in `finally`; failure path passes explicit `failure_trace`.
+
+**Implementation:** `amprealize/observability_tracing.py`, `amprealize/observability_attributes.py`, `amprealize/services/conversation_reply_service.py`, `pyproject.toml` (OpenTelemetry deps), `docs/contracts/CANONICAL_TRACE_CONTRACT.md` §7, `docs/capability_matrix.md`, `tests/test_observability_tracing_context.py`, `tests/test_observability_attributes.py`
+
+**Validation:** `pytest tests/test_observability_tracing_context.py tests/test_observability_attributes.py tests/test_conversation_reply_routing.py tests/test_chat_answer_golden_traces.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_use_raze_for_logging`, `behavior_design_test_strategy` (Student)
+
+| 315 | Canonical observability envelope JSON Schema | ### #315 - `canonical_observability_envelope.schema.json` + tests (2026-05-04)
+**Milestone:** **`GUIDEAI-1202`**: Draft 2020-12 JSON Schema under **`docs/contracts/schemas/`** for exporter/API payloads aligned with **`ObservabilityRecord`** (`correlation` closed shape; **`generation`** requires **`correlation.model_id`**); **`canonical_trace_examples()`** uses JSON-native **`source_trace_ids`** list; **`jsonschema`** added to **`dev`** extras; contract doc §6 + capture-policy correction for chat projection.
+
+**Implementation:** `docs/contracts/schemas/canonical_observability_envelope.schema.json`, `docs/contracts/CANONICAL_TRACE_CONTRACT.md`, `amprealize/observability_contracts.py`, `pyproject.toml`, `tests/test_observability_contracts.py`
+
+**Validation:** `pytest tests/test_observability_contracts.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_api_contract`, `behavior_design_test_strategy` (Student)
+
+| 315 | Work item :execute HTTP error mapping | ### #315 - 404/400 instead of 500 for missing item / bad research metadata (2026-05-04)
+**Milestone:** **`POST /v1/work-items/:execute`** returns **`404`** for **`WorkItemNotFoundError`**, **`400`** for invalid research metadata (**`InvalidResearchWorkItemMetadataError`**); **`ExecutionSurfaceRestrictedError`** → **`403`** with **`guidance`**; MCP **`workItems.execute`** parity for not-found + invalid research metadata.
+
+**Implementation:** `amprealize/boards/contracts.py`, `amprealize/services/work_item_execution_api.py`, `amprealize/mcp/handlers/work_item_execution_handlers.py`, `tests/test_work_item_execute_rest_errors.py`
+
+**Validation:** `pytest tests/test_work_item_execute_rest_errors.py tests/test_execution_gateway_adapter.py::test_rest_execute_route_can_use_gateway_adapter -q`
+
+**Behaviors cited:** `behavior_design_api_contract`, `behavior_validate_cross_surface_parity` (Student)
+
+| 314 | Connector connection status (profile) | ### #314 - GET `/connection-status` + profile checks + probe + MCP (2026-05-04)
+**Milestone:** Users verify connector **WebSocket** (`depth=socket`) or **`tool.invoke` probe** (`depth=invoke`, sentinel `CONNECTOR_PROBE_RUN_ID`, bounded `list_dir .`) before local workspace runs; daemon handles probe **without** `run_lease`; REST **`GET /api/v1/execution-connector/connection-status`**; MCP **`executionConnector.verifyConnection`**; profile UI **Quick check** / **Verify tool delegation**.
+
+**Implementation:** `amprealize/local_execution_connector_hub.py` (`CONNECTOR_PROBE_RUN_ID`), `amprealize/connector_connection_status.py`, `amprealize/services/local_execution_connector_api.py`, `amprealize/mcp/handlers/execution_connector_handlers.py`, `amprealize/connector_daemon/runner.py`, `mcp/tools/executionConnector.verifyConnection.json`, `amprealize/mcp_tool_manifests/executionConnector.verifyConnection.json`, `web-console/src/components/profile/LocalExecutionWorkspaceSettings.tsx`, `web-console/src/components/profile/LocalExecutionWorkspaceSettings.css`, `docs/contracts/LOCAL_CONNECTOR_TOOL_PROTOCOL.md`, `tests/test_local_execution_connector_hub.py`, `tests/test_connector_connection_status.py`
+
+**Validation:** `pytest tests/test_local_execution_connector_hub.py tests/test_connector_connection_status.py -q` · `npx tsc --noEmit` (web-console)
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_api_contract`, `behavior_validate_cross_surface_parity` (Student)
+
+| 313 | Warehouse: telemetry → observability_records gaps | ### #313 - Worker, phase, tool, LLM client, chat projections (2026-05-04)
+**Milestone:** **`GUIDEAI-1200`**: `_project_event` now projects `execution.worker.*`, `execution.phase.*`, `execution.tool.*` (typed `observability_tool_calls` / `observability_outcomes` where applicable), `llm.generation.*` (typed generations with `provider` / `error_class`), and `chat.*` / `conversation_reply.generated` into **`observability_records`**; generation typed insert extended for provider and error class.
+
+**Implementation:** `amprealize/storage/postgres_telemetry.py`, `tests/test_postgres_telemetry_sink.py`, `docs/contracts/CANONICAL_TRACE_CONTRACT.md`
+
+**Validation:** `pytest tests/test_postgres_telemetry_sink.py tests/test_observability_contracts.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+| 312 | Local connector hybrid execution path | ### #312 - Reconcile Podman workspace vs paired daemon (2026-05-04)
+**Milestone:** **`LocalConnectorHybridExecutor`** waits on hub lease ack before **`AgentExecutionLoop`**; **`ToolExecutor`** routes read/write/list/shell/edit tools through **`ConnectorToolDelegate`**; gateway rejects **`local_connector`** when **`dispatch_mode=queue`** with a queue publisher; web-console Security opt-in + **`execution_workspace_kind`** on **`POST :execute`** and chat metadata when preference enabled.
+
+**Implementation:** `amprealize/mode_executors.py`, `amprealize/tool_executor.py`, `web-console/src/utils/executionWorkspacePreference.ts`, `web-console/src/components/SecuritySettings.tsx`, `web-console/src/components/conversations/MessageComposer.tsx`, `web-console/src/api/executions.ts`, `tests/test_local_connector_hybrid.py`, `tests/test_execution_gateway.py`, `wiki/ai-learning/in-practice/agent-orchestration.md`
+
+**Validation:** `pytest tests/test_local_connector_hybrid.py tests/test_execution_gateway.py::TestExecutionGateway::test_execute_local_connector_stages_lease tests/test_execution_gateway.py::TestExecutionGateway::test_execute_local_connector_rejects_queue_dispatch_with_publisher -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity` (Student)
+
+| 311 | Canonical trace contract + capture policy doc | ### #311 - `CANONICAL_TRACE_CONTRACT.md` (2026-05-04)
+**Milestone:** **`GUIDEAI-1190`** normative doc: record kinds, required correlation, IDs/versioning, capture policy (`execution_observability`, sanitization, `data_class` at write), `execution_traces` vs `observability_records`, telemetry → warehouse projection matrix and **documented projection gaps** for chat/worker/tool events. Cross-links from **`TELEMETRY_SCHEMA.md`**, **`TRACE_ANALYSIS_SERVICE_CONTRACT.md`**, **`WORK_ITEM_EXECUTION_PLAN.md`**, **`capability_matrix.md`**.
+
+**Implementation:** `docs/contracts/CANONICAL_TRACE_CONTRACT.md`, `docs/contracts/TELEMETRY_SCHEMA.md`, `docs/contracts/TRACE_ANALYSIS_SERVICE_CONTRACT.md`, `docs/WORK_ITEM_EXECUTION_PLAN.md`, `docs/capability_matrix.md`
+
+**Validation:** Doc review (links resolve); no code path changes.
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+| 310 | Chat create scope defaults + NIM reasoning fallback | ### #310 - Global create never omits scope; streaming uses final `reasoning_content` (2026-05-01)
+**Milestone:** **`useCreateConversation`** resolves absent **`scope`** to **`global_personal_thread`** (global) or **`project_room`** (project); drops unsupported **`metadata`** POST field; **`CreateConversationRequest.scope`** documents **`dm`** default pitfall on **`POST /v1/conversations`**; **`_generate_with_streaming`** falls back to **`LLMResponse.reasoning_content`** when **`content`** is empty (NVIDIA NIM / DeepSeek-style); structured logs for reasoning fallback vs empty completion.
+
+**Implementation:** `web-console/src/api/conversations.ts`, `amprealize/conversation_contracts.py`, `amprealize/services/conversation_reply_service.py`, `tests/test_conversation_reply_routing.py`
+
+**Validation:** `pytest tests/test_conversation_reply_routing.py::test_generate_with_streaming_uses_response_when_no_text_deltas tests/test_conversation_reply_routing.py::test_generate_with_streaming_uses_reasoning_content_when_content_empty -q` · `npx tsc -b` (web-console)
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+| 309 | Collab stream WebSocket stale-close guard | ### #309 - Conversation + execution stream clients ignore `onclose` from replaced sockets (2026-05-01)
+**Milestone:** Prevents switching conversations/runs from tearing down the active WebSocket (code 1005 races), spurious reconnects, and cleared heartbeats; suppresses debug noise for heartbeat `ping`; raises infinite message `staleTime` and trims assistant-reply catch-up refetch timers; **`ConversationScope.GlobalPersonalThread`** added to collab-client enum (was missing — runtime `scope` was `undefined`, so list queries omitted `scope` and **New chat** broke); vendor `collab-client-dist` synced from package build.
+
+**Implementation:** `packages/collab-client/src/types.ts`, `packages/collab-client/src/conversationClient.ts`, `packages/collab-client/src/executionClient.ts`, `packages/collab-client/src/streamClients.ws.test.ts`, `packages/collab-client/vitest.config.ts`, `web-console/src/vendor/collab-client-dist/*`, `web-console/src/api/conversations.ts`
+
+**Validation:** `npm run test` (packages/collab-client) · spot-check web chat conversation switch + `[chatLoadBench]` (optional)
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+| 308 | Global prioritization chat: latency + fairness | ### #308 - Planner metrics, parallel fetch, activity tiers (2026-05-01)
+**Milestone:** **`chat.planning.completed`** adds **`planner_latency_ms`**, **`planner_attempts`**, **`planner_model_id`**; optional **`AMPREALIZE_TARGETED_FETCH_PLANNER_MODEL_ID`**; **`execute_fetch_plan`** runs **`list_work_items`** specs in parallel with dedupe + **`_MAX_TOTAL_ROWS`** cap; **`workspace_activity`** derives per-project **active/quiet/unknown** from inventory snapshots (**`AMPREALIZE_WORKSPACE_ACTIVITY_RECENCY_DAYS`**); synthesis appendix (**Workspace activity** + **Answer policy**) before generation; **`chat.targeted_fetch.completed`** / **`conversation_reply.generated`** include **`fairness_mode`**, **`projects_activity_tiers`**, **`disclosure_required`**.
+
+**Implementation:** `amprealize/workspace_activity.py`, `amprealize/chat_workspace_targeted_fetch.py`, `amprealize/services/conversation_reply_service.py`, `docs/contracts/TELEMETRY_SCHEMA.md`, `docs/CONVERSATION_SYSTEM_PLAN.md`, `.env.example`, `amprealize/feature_flags.py`, `tests/test_workspace_activity.py`, `tests/test_chat_workspace_targeted_fetch.py`
+
+**Validation:** `pytest tests/test_workspace_activity.py tests/test_chat_workspace_targeted_fetch.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_use_raze_for_logging`, `behavior_instrument_metrics_pipeline` (Student)
+
+| 307 | Global personal threads + rename/archive parity | ### #307 - Multiple global chat threads, PATCH title, MCP update (2026-05-01)
+**Milestone:** **`global_personal_thread`** scope (migration + contracts); global sidebar **Main** / **Your chats**; **New chat** creates personal threads; **PATCH** `/v1/conversations/{id}` + **`conversations.update`** MCP + **`amprealize conversation patch`** CLI; **rename** / **archive** UX in global floating chat; reply routing treats both global scopes as workspace-global; synced **`mcp_tool_manifests`**.
+
+**Implementation:** `migrations/versions/20260501_add_global_personal_thread_scope.py`, `amprealize/conversation_contracts.py`, `amprealize/services/conversation_service.py`, `amprealize/services/conversation_api.py`, `amprealize/services/conversation_reply_service.py`, `amprealize/adapters.py`, `amprealize/cli.py`, `mcp/tools/conversations.*.json`, `mcp/handlers/conversation_handlers.py`, `web-console/src/api/conversations.ts`, `web-console/src/components/conversations/*`, `web-console/src/vendor/collab-client-dist/*`, `tests/test_conversation_*`, `tests/test_cli_conversation.py`
+
+**Validation:** `python scripts/sync_mcp_tool_manifests.py` · `pytest tests/test_conversation_parity.py tests/test_conversation_workspace_contracts.py tests/test_cli_conversation.py -q` · `vitest run src/test/UnifiedConversationWindow.test.tsx` (web-console)
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity` (Student)
+
+| 305 | Chat UX copy, multi-project planner telemetry, chat temperature | ### #305 - User-facing trace copy + Phase B observability (2026-05-01)
+**Milestone:** Friendlier **reply.step** / trace labels in `ConversationReplyService` (targeted fetch path); **StreamingMessage** `PHASE_DISPLAY` + “tasks/checks” trace suffixes; **PLANNER_SYSTEM_PROMPT** multi-project breadth rule; **`distinct_project_ids_in_plan` / `rows_per_project_counts`**; telemetry **`project_ids_in_plan`**, **`rows_per_project`** on planning/targeted_fetch/conversation_reply; optional **`AMPREALIZE_CHAT_LLM_TEMPERATURE`** for streaming; docs (`CONVERSATION_SYSTEM_PLAN`, `TELEMETRY_SCHEMA`, `.env.example`, `LLMConfig` docstring).
+
+**Implementation:** `amprealize/chat_workspace_targeted_fetch.py`, `amprealize/services/conversation_reply_service.py`, `amprealize/llm/types.py`, `web-console/src/components/conversations/StreamingMessage.tsx`, `docs/CONVERSATION_SYSTEM_PLAN.md`, `docs/contracts/TELEMETRY_SCHEMA.md`, `.env.example`, `tests/test_chat_workspace_targeted_fetch.py`
+
+**Validation:** `pytest tests/test_chat_workspace_targeted_fetch.py -q` · `npm run build` (web-console)
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+| 306 | Planner timeout resilience + fallback UX | ### #306 - Default planner timeout 75s, retry-after-timeout, clearer SSE/UI (2026-05-01)
+**Milestone:** Raised **default** **`AMPREALIZE_TARGETED_FETCH_PLANNER_TIMEOUT_SEC`** to **75**; **`AMPREALIZE_TARGETED_FETCH_PLANNER_RETRY_COUNT`** (default **1**) retries **only** on **`planner_timeout`** with **`_attempt_planner_timeout_sec`** stretched retry budget; **`ConversationReplyService._planning_fallback_sse_labels`** distinguishes **`planning_fallback_timeout`** vs invalid plan vs provider error; **StreamingMessage** footnote + **`planning_fallback_timeout`** phase label; docs **`.env.example`**, **`CONVERSATION_SYSTEM_PLAN`**, **`feature_flags`** metadata.
+
+**Implementation:** `amprealize/chat_workspace_targeted_fetch.py`, `amprealize/services/conversation_reply_service.py`, `amprealize/feature_flags.py`, `web-console/src/components/conversations/StreamingMessage.tsx`, `web-console/src/components/conversations/ConversationPanel.css`, `docs/CONVERSATION_SYSTEM_PLAN.md`, `.env.example`, `tests/test_chat_workspace_targeted_fetch.py`
+
+**Validation:** `pytest tests/test_chat_workspace_targeted_fetch.py -q` · `npm run build` (web-console)
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+| 304 | Chat debugging playbook (global prioritization) | ### #304 - CONVERSATION_SYSTEM_PLAN debugging subsection (2026-05-01)
+**Milestone:** Documented **Debugging global prioritization chat**: telemetry decision tree (`chat.planning.failed` vs `completed` / targeted fetch), **`answer_path`**, Postgres **`telemetry_events`** query hints (**`event_type`**, **`session_id`** = conversation id), Podman dev connection note, **`observability_generations`** empty-table caveat, transcript vs duplicate-reply correlation; supplemented Cursor plan with same operational guidance.
+
+**Implementation:** `docs/CONVERSATION_SYSTEM_PLAN.md`
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+| 303 | Chat targeted-fetch tuning + “show work” UX | ### #303 - Planner timeout, SSE steps, telemetry enrichments (2026-05-01)
+**Milestone:** **`AMPREALIZE_TARGETED_FETCH_PLANNER_TIMEOUT_SEC`** (default 45s) overrides planner **`LLMConfig.timeout`**; **`PlannerRunResult`** classifies **`chat.planning.failed`** (`invalid_or_empty_plan` · `planner_timeout` · `planner_error`); **`reply.step`** during planning/fetch/fallback; **`conversation_reply.generated`** adds **`user_message_id`**, **`source_counts`**, **`composed_sources_count`**, **`answer_path`**, **`used_targeted_fetch`**; web trace rows show phase tags, metrics, latency.
+
+**Implementation:** `amprealize/chat_workspace_targeted_fetch.py`, `amprealize/services/conversation_reply_service.py`, `amprealize/feature_flags.py`, `docs/CONVERSATION_SYSTEM_PLAN.md`, `docs/contracts/TELEMETRY_SCHEMA.md`, `.env.example`, `web-console/src/components/conversations/StreamingMessage.tsx`, `web-console/src/components/conversations/ConversationPanel.css`, `tests/test_chat_workspace_targeted_fetch.py`
+
+**Validation:** `pytest tests/test_chat_workspace_targeted_fetch.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+| 302 | Global chat workspace prioritization + targeted fetch | ### #302 - Phase B planner/executor + inventory digest (2026-05-01)
+**Milestone:** Feature **`feature.chat_workspace_targeted_fetch`** (`AMPREALIZE_ENABLE_CHAT_WORKSPACE_TARGETED_FETCH`); **`chat_workspace_targeted_fetch`** planner + bounded **`BoardService.list_work_items`** executor; **`ConversationReplyService`** wires **`board_service`** from API/MCP; workspace inventory compact digest uses **round-robin** across projects and configurable **`AMPREALIZE_WORKSPACE_INVENTORY_MAX_CONTENT_TOKENS`** / **`AMPREALIZE_WORKSPACE_INVENTORY_COMPACT_MAX_ITEMS`**; formatted inventory lines add **parent** and **timestamps**; **`workspace_prioritize`** intent gets composer **`extra_context`** + raised workspace token ceiling when not on targeted-fetch path.
+
+**Implementation:** `amprealize/chat_workspace_targeted_fetch.py`, `amprealize/services/conversation_reply_service.py`, `amprealize/context_composer.py`, `amprealize/global_chat_context.py`, `amprealize/chat_action_router.py`, `amprealize/feature_flags.py`, `amprealize/api.py`, `amprealize/mcp_server.py`, `docs/CONVERSATION_SYSTEM_PLAN.md`, `docs/contracts/TELEMETRY_SCHEMA.md`, `tests/test_chat_workspace_targeted_fetch.py`, `tests/test_context_composer.py`, `tests/test_chat_action_router.py`
+
+**Validation:** `pytest tests/test_context_composer.py tests/test_chat_action_router.py tests/test_chat_workspace_targeted_fetch.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity`, `behavior_manage_feature_flags` (Student)
+
+| 301 | Agent/chat telemetry → observability warehouse + traces | ### #301 - Gateway and LLM projections (2026-05-01)
+**Milestone:** **`telemetry_events`** correlation (**`session_id`** on gateway emits; chat **`conversation_reply.generated`**); **`PostgresTelemetryWarehouse`** projects **`execution.gateway.*`** → **`observability_records`** (`event`), **`execution.llm.completed`** → **`generation`** + **`observability_generations`**; telemetry Alembic **`telemetry_obs_generations`** adds typed table + **`observability_generation_metrics`** view; **`TelemetryClient.record_completed_execution_trace`** + **`execution.gateway.run`** span (**`start_span`** / **`end_span`**) and agent-loop LLM **`record_completed_execution_trace`** rows in **`execution_traces`**.
+
+**Implementation:** `amprealize/storage/postgres_telemetry.py`, `amprealize/telemetry.py`, `amprealize/execution_gateway.py`, `amprealize/agent_execution_loop.py`, `migrations_telemetry/versions/20260501_observability_generations.py`, `docs/contracts/TELEMETRY_SCHEMA.md`, `tests/test_postgres_telemetry_sink.py`
+
+**Validation:** `pytest tests/test_postgres_telemetry_sink.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_migrate_postgres_schema`, `behavior_use_raze_for_logging` (Student; telemetry failures remain non-fatal)
+
+| 300 | Local connector queue + cancel/heartbeat + web pairing | ### #300 - Queue staging job, WS protocol, console pairing (2026-04-30)
+**Milestone:** **`local_connector`** with **`dispatch_mode=queue`** stages **`PendingLocalRun`** on the API hub and enqueues a **no-op worker job** (`gateway_local_connector_stage_only`); **`RunService.complete_run`** emits **`run.cancel_requested`** to connector WebSockets (buffered if no loop / no socket); **`connector.heartbeat`** / **`connector.heartbeat_ack`** + **`run.ack_cancel`**; web **`/settings/local-connector`** pairing + revoke; daemon **listen** uses concurrent **recv**, **cancel**, and **heartbeat** during leases.
+
+**Implementation:** `amprealize/execution_gateway.py`, `amprealize/execution_worker.py`, `amprealize/local_execution_connector_hub.py`, `amprealize/run_service.py`, `amprealize/run_service_postgres.py`, `amprealize/services/local_execution_connector_api.py`, `amprealize/local_execution_connector_ws_handler.py`, `amprealize/connector_daemon/runner.py`, `web-console/src/App.tsx`, `web-console/src/components/LocalConnectorPairingPage.tsx`, `web-console/src/components/SecuritySettings.tsx`, `tests/test_execution_gateway.py`, `tests/test_execution_worker_observability.py`, `tests/test_local_execution_connector_hub.py`, `tests/test_local_execution_connector_ws_handler.py`
+
+**Validation:** `pytest tests/test_execution_gateway.py::TestExecutionGateway::test_execute_local_connector_enqueues_staging_marker_under_queue_dispatch tests/test_execution_worker_observability.py tests/test_local_execution_connector_hub.py tests/test_local_execution_connector_ws_handler.py -q` · `npm run build` (web-console)
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity`, `behavior_lock_down_security_surface` (Student)
+
+| 299 | Local connector daemon MVP + surface parity | ### #299 - Daemon + MCP/CLI + WS run updates (2026-04-30)
+**Milestone:** **`amprealize.connector_daemon`** package (**pair**, **listen**, bounded **read_file** + shell on **run_lease**); WebSocket server applies **`run.progress` / `run.complete` / `run.fail`** via **`local_execution_connector_ws_handler`** → **RunService**; REST **`ExecuteRequest.execution_workspace_kind`**; execution status **`execution_workspace_kind`** + **`connector_status`**; MCP **`executionConnector.*`** tools + **`workItems.execute`** **`execution_workspace_kind`**; CLI **`amprealize connector`** + **`work-item execute --workspace-kind`**; optional **`[project.optional-dependencies] connector`** (**websockets**); **`tests/test_local_execution_connector_ws_handler.py`**.
+
+**Implementation:** `amprealize/connector_daemon/*`, `amprealize/local_execution_connector_ws_handler.py`, `amprealize/services/local_execution_connector_api.py`, `amprealize/services/work_item_execution_api.py`, `amprealize/work_item_execution_contracts.py`, `amprealize/work_item_execution_service.py`, `amprealize/mcp/handlers/execution_connector_handlers.py`, `amprealize/mcp_server.py`, `amprealize/cli.py`, `amprealize/mcp_tool_groups.py`, `mcp/tools/executionConnector.*.json`, `mcp/tools/workItems.execute.json`, `amprealize/mcp_tool_manifests/*`, `pyproject.toml`, `docs/capability_matrix.md`
+
+**Validation:** `pytest tests/test_local_execution_connector_ws_handler.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity`, `behavior_design_mcp_tool_schema` (Student)
+
+| 298 | Local execution connector (workspace backends) | ### #298 - Outbound WS + user pairing + gateway driver (2026-04-30)
+**Milestone:** Canonical **`execution_workspace_kind`** (`cloud_git`, `local_connector`) in **`execution_workspace_contracts`**; **`ExecutionRequest.execution_workspace_kind`**; gateway **`_resolve_workspace_kind`** gates **`feature.local_execution_connector`**; **local driver** enqueues **`PendingLocalRun`** and **`run_lease`** push over **`/api/v1/execution-connector/ws`**; REST pairing **`pairing-codes`**, **`devices`**, **`devices:revoke`**; run metadata **`execution_workspace_kind`**; docs + capability matrix.
+
+**Implementation:** `amprealize/execution_workspace_contracts.py`, `amprealize/local_execution_connector_hub.py`, `amprealize/services/local_execution_connector_api.py`, `amprealize/execution_gateway.py`, `amprealize/execution_gateway_contracts.py`, `amprealize/execution_gateway_adapter.py`, `amprealize/feature_flags.py`, `amprealize/api.py`, `.env.example`, `docs/WORK_ITEM_EXECUTION_PLAN.md`, `docs/capability_matrix.md`, `tests/test_execution_workspace_contracts.py`, `tests/test_local_execution_connector_hub.py`, `tests/test_execution_gateway.py`, `tests/test_execution_gateway_adapter.py`, `tests/test_feature_flags.py`
+
+**Validation:** `pytest tests/test_execution_workspace_contracts.py tests/test_local_execution_connector_hub.py tests/test_execution_gateway.py::TestExecutionGateway::test_execute_local_connector_stages_lease tests/test_execution_gateway_adapter.py tests/test_feature_flags.py::TestFeatureFlagService::test_default_count -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_manage_feature_flags`, `behavior_design_api_contract` (Student)
+
+| 297 | Chat execution cancel + composer consent | ### #297 - Option B cancel path + UI (2026-04-30)
+**Milestone:** **`ChatActionCategory.EXECUTION_CANCEL`** + phrases + **`/cancel`** preset; **`ChatExecutionBridge.run_cancel`** with **`confirm_chat_execution_cancel`**; **`ChatResourceActionRegistry`** **`run.cancel`**; **`ConversationReplyService`** cancel fast-path (evaluated before start); **`GatewayWorkItemExecutionAdapter.cancel`** no longer incorrectly **`await`** sync legacy **`cancel`**; web **MessageComposer** (OSS + enterprise) checkboxes + optional work item id field; **`docs/capability_matrix.md`** row note.
+
+**Implementation:** `amprealize/chat_action_router.py`, `amprealize/chat_execution_bridge.py`, `amprealize/chat_resource_actions.py`, `amprealize/execution_gateway_adapter.py`, `amprealize/services/conversation_reply_service.py`, `amprealize/feature_flags.py`, `tests/test_chat_action_router.py`, `tests/test_chat_execution_bridge.py`, `web-console/.../MessageComposer.tsx`, `ConversationPanel.css`, enterprise mirrors.
+
+**Validation:** `pytest tests/test_chat_action_router.py tests/test_chat_execution_bridge.py tests/test_conversation_reply_routing.py tests/test_execution_gateway_adapter.py::test_cancel_and_clarification_controls_are_consistent_across_rest_and_mcp -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity`, `behavior_manage_feature_flags` (Student)
+
+| 296 | Chat → governed work item execution (Option B bridge) | ### #296 - Server-side coding agent entry from chat (2026-04-30)
+**Milestone:** **`feature.chat_agent_work_item_execution`** (BOOLEAN, default **off**, env **`AMPREALIZE_ENABLE_CHAT_AGENT_WORK_ITEM_EXECUTION`**) gates **`ChatExecutionBridge`** wiring the same start path as REST (**`GatewayWorkItemExecutionAdapter`** when gateway enabled); **`ChatResourceActionRegistry`** dispatches **`run.start`**; **`ConversationReplyService`** fast-path when routing is **`EXECUTION_START`**, flag on, **`confirm_chat_execution`** in message metadata, and **`work_item_id` + `project_id`** present; API + MCP register **`ChatResourceActionRegistry`** with bridge; **`.env.example`** documents the flag.
+
+**Implementation:** `amprealize/chat_execution_bridge.py`, `amprealize/chat_resource_actions.py`, `amprealize/services/conversation_reply_service.py`, `amprealize/feature_flags.py`, `amprealize/api.py`, `amprealize/mcp_server.py`, `tests/test_chat_execution_bridge.py`, `.env.example`
+
+**Validation:** `pytest tests/test_chat_execution_bridge.py tests/test_chat_resource_actions.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_manage_feature_flags`, `behavior_validate_cross_surface_parity` (Student)
+
+| 295 | Chat analysis narrator + runner + analysis_run UI | ### #295 - Data-scientist chat layers (2026-04-30)
+**Milestone:** **`feature.chat_insight_narrator`** and **`feature.chat_analysis_runner`** (BOOLEAN, **`user_id`** context; org optional) default **on** via env-tunable registry; **`ChatAnalysisRunner`** runs in-process **`answer_sync`** sub-queries after planner LLM; **`maybe_append_insight_narration`** post-processes deterministic **`resource_analysis`** replies; **`structured_payload.analysis_run.cells`** rendered as **Analysis steps** (OSS + enterprise **MessageBubble**); **`ConversationReplyService`** wires runner before LLM miss path; docs **`docs/CHAT_ROUTING_AND_COPY.md`**.
+
+**Implementation:** `amprealize/chat_insight_narrator.py`, `amprealize/chat_analysis_runner.py`, `amprealize/services/conversation_reply_service.py`, `amprealize/feature_flags.py`, `tests/test_chat_analysis_stack.py`, `tests/test_feature_flags.py`, `web-console/.../MessageBubble.tsx`, `ConversationPanel.css`, enterprise mirrors + `amprealize-enterprise/amprealize/feature_flags.py` (vendored chat modules copied).
+
+**Validation:** `pytest tests/test_chat_analysis_stack.py tests/test_feature_flags.py::TestFeatureFlagService::test_default_count -q`; `npm test -- --run src/test/MessageComponents.test.tsx` (spot-check if touched).
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_harden_service_boundaries`, `behavior_manage_feature_flags` (Student)
+
+| 294 | Resource analysis COUNT scope copy + type insights UI | ### #294 - Chat resource_analysis scope-grounded counts (2026-04-30)
+**Milestone:** COUNT/LIST answers use **project/board/snapshot** scope tails instead of **“matching that request”**; **`work_items`** counts optionally add a second sentence and **`structured_payload.insights.by_item_type`** (filters minus **`item_type_in`**); web **MessageBubble** renders **Types in this scope** breakdown (OSS + enterprise); tests updated for wording, breakdown, and insights block.
+
+**Implementation:** `amprealize/amprealize/resource_analysis.py`, `amprealize/tests/test_resource_analysis.py`, `web-console/src/components/conversations/MessageBubble.tsx`, `web-console/src/components/conversations/ConversationPanel.css`, `web-console/src/test/MessageComponents.test.tsx`, `amprealize-enterprise/web-console/src/components/conversations/MessageBubble.tsx`, `amprealize-enterprise/web-console/src/components/conversations/ConversationPanel.css`, `amprealize-enterprise/web-console/src/test/MessageComponents.test.tsx`
+
+**Validation:** `pytest tests/test_resource_analysis.py -q`; `npm test -- --run src/test/MessageComponents.test.tsx` (OSS + enterprise web-console)
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity` (Student)
+
+| 293 | Chat analytics scope + copy | ### #293 - Chat workspace analytics, scope hints, routing intent (2026-04-30)
+**Milestone:** User-facing **resource analysis** empty states avoid internal jargon; **scope_hints** (`project_id`, `board_id`, `chat_query_intent`) bind conversation and **resource_links**; **multi-board clarification**; **backlog→in-progress velocity** from real timestamps or explicit insufficient-data; **ChatWorkspaceIntent** + **`enrich_chat_routing_metadata`** upgrades default route to **HYBRID** for analytics/ambiguous phrasing unless **`chat_route_mode`** is set; telemetry logs **`empty_reason`** and **`chat_query_intent`**; docs **`docs/CHAT_ROUTING_AND_COPY.md`**.
+
+**Implementation:** `amprealize/resource_analysis.py`, `amprealize/inventory_answer_service.py`, `amprealize/chat_action_router.py`, `amprealize/services/conversation_reply_service.py`, `tests/test_resource_analysis.py`, `tests/test_chat_action_router.py`, `docs/CHAT_ROUTING_AND_COPY.md`
+
+**Validation:** `pytest tests/test_resource_analysis.py tests/test_chat_action_router.py tests/test_conversation_reply_routing.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity`, `behavior_prevent_secret_leaks` (Student)
+
+| 292 | Board load phases A–D (perf batch-pages, defer bootstrap rollups, rollup map, parallel batch) | ### #292 - Board load perf follow-up (2026-04-30)
+**Milestone:** **`perf_log`** on **`POST /v1/work-items/batch-pages`** (`work_items.batch_pages`); web bootstrap uses **`include_rollups=false`** and seeds empty rollups so **`GET …/progress-rollups`** overlaps hydration; **`BoardPage`** rollup gate waits on bootstrap success; **single-pass** `children_by_parent` for **`list_board_progress_rollups`**; **`list_work_items_board_pages`** runs extra offsets in a **bounded thread pool** after the first counted page; OSS + enterprise **`boards.ts`** aligned.
+
+**Implementation:** `amprealize/services/board_api_v2.py`, `amprealize/services/board_service.py`, `web-console/src/api/boards.ts`, `web-console/src/components/boards/BoardPage.tsx`, `amprealize-enterprise/web-console/src/api/boards.ts`, `docs/perf/RESULTS.md`
+
+**Validation:** `pytest tests/unit/test_board_load_perf_unit.py tests/test_web_perf_context.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+| 291 | Enterprise chat inline resource chips + inventory NL routing | ### #291 - Chat resource UI + workspace inventory routing (2026-04-30)
+**Milestone:** Enterprise **MessageBubble** aligned with OSS inline **`resource_analysis`** / **`platform_action_result`** chips (**MemoryRouter** tests); **`useMessageStream`** parity (**reply.token**, **`complete.content`**, **`reply.complete`**); **`resource_analysis`** treats **“most recent”** as LIST + recency sort for work items/runs; **`_list_answer`** distinguishes empty inventory vs filters vs scope; **ContextComposer** compacts oversized workspace inventory **content** while keeping **`metadata.inventory`**; **`ConversationReplyService`** returns **`workspace_inventory.context_miss`** when NL looks inventory-driven but workspace fragment absent (skips imperative verbs); raised workspace inventory **token ceiling** to 1800.
+
+**Implementation:** `amprealize-enterprise/web-console/src/components/conversations/MessageBubble.tsx` (OSS parity), `ConversationPanel.css`, `src/api/conversations.ts`, `src/test/MessageComponents.test.tsx`, `amprealize/amprealize/resource_analysis.py`, `amprealize/amprealize/context_composer.py`, `amprealize/amprealize/services/conversation_reply_service.py`, `amprealize/tests/test_resource_analysis.py`
+
+**Validation:** `pytest tests/test_resource_analysis.py tests/test_conversation_reply_routing.py -q`; `npm test -- --run src/test/MessageComponents.test.tsx` (enterprise web-console)
+
+**Behaviors cited:** `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+| 290 | MCP permission registry + server-side RBAC (guideai-1183) | ### #290 - MCP RBAC checks (2026-04-30)
+**Milestone:** Added **`mcp_permission_registry`** mapping mutating MCP tools to **`OrgPermission`** / **`ProjectPermission`**; **`MCPServiceRegistry.permission_service()`** lazy **`AsyncPermissionService`**; **`MCPServer._check_permission`**; dispatch gate after OAuth scopes; **`_get_permission_service`** delegates to registry; unskipped **`TestMCPPermissionIntegration`**; **`tests/test_mcp_permission_registry.py`**.
+
+**Implementation:** `amprealize/mcp_permission_registry.py`, `amprealize/mcp_server.py`, `amprealize-enterprise/amprealize/mcp_permission_registry.py`, `amprealize-enterprise/amprealize/mcp_server.py`, `tests/test_permission_integration.py`, `tests/test_mcp_permission_registry.py`, `docs/testing/NOT_YET_IMPLEMENTED_SKIP_INVENTORY.md`
+
+**Validation:** `pytest tests/test_permission_integration.py::TestMCPPermissionIntegration tests/test_mcp_permission_registry.py -q`
+
+**Behaviors cited:** `behavior_lock_down_security_surface`, `behavior_update_docs_after_changes`, `behavior_design_test_strategy` (Student)
+
+| 289 | Agent registry CLI/MCP adapters, suggest_agent parity, GuideAI child features | ### #289 - Close skip-inventory agent registry + suggest surfaces (2026-04-30)
+**Milestone:** Shipped **`CLIAgentRegistryAdapter`** / **`MCPAgentRegistryAdapter`** (nested REST shapes + MCP tool-shaped responses); fixed **`RestAgentRegistryAdapter`** create/search/publish/deprecate return shapes and optional deprecate **`effective_to`**; **`MCPTaskAssignmentAdapter.suggest_agent`** + **`CLITaskAssignmentAdapter.surface`**; **`amprealize suggest-agent`** CLI; API wraps search list as **`{results,total}`**; GuideAI features **guideai-1183**–**guideai-1188** under parent **guideai-1182** for remaining pytest gaps.
+
+**Implementation:** `amprealize/adapters.py`, `amprealize/api.py`, `amprealize/cli.py`, `tests/test_agent_registry_parity.py`, `tests/test_mcp_suggest_agent.py`, `tests/test_cli_suggest_agent.py`, `docs/testing/NOT_YET_IMPLEMENTED_SKIP_INVENTORY.md`
+
+**Validation:** `pytest tests/test_mcp_suggest_agent.py tests/test_cli_suggest_agent.py -q`
+
+**Behaviors cited:** `behavior_validate_cross_surface_parity`, `behavior_prefer_mcp_tools`, `behavior_update_docs_after_changes` (Student)
+
+| 288 | GuideAI goal guideai-1182 for pytest skip / parity backlog | ### #288 - Skip backlog goal on GuideAI board (2026-04-30)
+**Milestone:** Created board **goal** **guideai-1182** (*Close pytest not-yet-implemented gaps across surfaces*) on GuideAI (`proj-b575d734aa37`) via MCP `workitems_create`; inventory doc links goal and documents `auth_devicelogin` → `projects_list` → `boards_list` → `workitems_create` flow.
+
+**Implementation:** `docs/testing/NOT_YET_IMPLEMENTED_SKIP_INVENTORY.md`, `docs/CI_ENTERPRISE.md` (skip row link), `scripts/create_guideai_skip_backlog_goal.py` (docstring)
+
+**Behaviors cited:** `behavior_prefer_mcp_tools`, `behavior_standardize_work_items`, `behavior_update_docs_after_changes` (Student)
+
+| 287 | `run_tests.sh --enterprise` optional local enterprise overlay | ### #287 - run_tests enterprise flag (2026-04-29)
+**Milestone:** **`./scripts/run_tests.sh --enterprise`** resolves **`amprealize-enterprise`** (sibling or **`AMPREALIZE_ENTERPRISE_REPO_PATH`**), runs **`check_enterprise_guard.py`**, **`pip install -e`** OSS extras then enterprise **`[crypto]`**, fills pytest args from **`scripts/enterprise_gated_pytest_files.txt`** when none passed; **`--check-only`** verifies enterprise path without pip/pytest.
+
+**Implementation:** `scripts/run_tests.sh`, `docs/TESTING_GUIDE.md`, `docs/CI_ENTERPRISE.md`
+
+**Validation:** `bash -n scripts/run_tests.sh`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_orchestrate_cicd` (Student)
+
+| 286 | Enterprise overlay CI, parity DB+metrics, load opt-in, MCP repo paths | ### #286 - Enterprise overlay CI + skip remediation (2026-04-29)
+**Milestone:** Optional **`ci-enterprise.yml`** installs **`amprealize-enterprise`** over OSS and runs **`scripts/enterprise_gated_pytest_files.txt`**; **`test-parity`** job gains Postgres/Timescale/Redis/metrics + Alembic + **`AMPREALIZE_BEHAVIOR_PG_DSN`**; **`ci-load-opt-in.yml`** sets **`AMPREALIZE_RUN_LOAD_TESTS=1`**; MCP guidance uses **`repo_roots_for_guidance()`** and **`AMPREALIZE_ENTERPRISE_REPO_PATH`** instead of hardcoded paths.
+
+**Implementation:** `.github/workflows/ci-enterprise.yml`, `.github/workflows/ci-load-opt-in.yml`, `.github/workflows/ci.yml` (`test-parity`), `scripts/enterprise_gated_pytest_files.txt`, `amprealize/mcp_guidance.py`, `tests/test_mcp_tool_groups.py`, `docs/CI_ENTERPRISE.md`, `docs/TESTING_GUIDE.md`
+
+**Validation:** `pytest tests/test_mcp_tool_groups.py::test_runtime_guide_and_catalog_include_onboarding_data tests/test_mcp_tool_groups.py::test_prompt_and_resource_guidance_are_available -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes`, `behavior_orchestrate_cicd` (Student)
+
+| 285 | CLI contexts `local-postgres-dev` / `local-postgres-test` + `init-standard-local` | ### #285 - Standard local Postgres contexts (2026-04-28)
+**Milestone:** Idempotent **`amprealize context init-standard-local`** seeds **`local-postgres-dev`** and **`local-postgres-test`** with DSNs aligned to BreakerAmp localhost ports; **`suggest_local_postgres_context_names`** prefers **`local-postgres-test`** for the BreakerAmp test context prompt; **`prompt_amprealize_context_for_local_tests`** documents the init command when no local contexts exist.
+
+**Implementation:** `amprealize/context.py`, `amprealize/cli.py`, `scripts/prompt_amprealize_context_for_local_tests.py`, `tests/test_amprealize_context_local_host.py`, `docs/TESTING_GUIDE.md`, `wiki/platform/reference/context-system.md`
+
+**Validation:** `pytest tests/test_amprealize_context_local_host.py -q`
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+| 284 | Opt-in `tests/load`, bootstrap detector root, relaxed load P95 env | ### #284 - Load/Kafka/ML gating (2026-04-29)
+**Milestone:** Default pytest skips **`tests/load/**`** unless **`AMPREALIZE_RUN_LOAD_TESTS=1`**; **`test_detect_amprealize_repo`** resolves repo root with **`parents[1]`** so monorepo layouts are not detected as solo-dev; HTTP load tests read **`AMPREALIZE_LOAD_RELAXED`** / **`AMPREALIZE_LOAD_P95_*`**; BreakerAmp memory load test skips until **`_get_current_resource_usage`** exists.
+
+**Implementation:** `tests/conftest.py` (`pytest_collection_modifyitems`), `tests/test_bootstrap_detector.py`, `tests/load/test_service_load.py`, `tests/load/test_breakeramp_load.py`, `tests/load/conftest.py`, `docs/TESTING_GUIDE.md`
+
+**Validation:** `pytest tests/test_bootstrap_detector.py::TestWorkspaceDetectorIntegration::test_detect_amprealize_repo -q`; `pytest tests/load/ -q` (expect skips without env); `AMPREALIZE_RUN_LOAD_TESTS=1 pytest tests/load/test_service_load.py -q` when API up.
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+| 283 | Suite fixes: `public.actions` SQL, test DSN `search_path`, reflection JSONB | ### #283 - BreakerAmp suite clusters (2026-04-29)
+**Milestone:** PostgresActionService inserted into `execution.actions` via `search_path`; test DSNs used only `$schema,public` so `boards` / `project_counters` resolved wrong DB schema; reflection CLI failed when psycopg2 returned dict JSONB; OAuth env priority; golden traces / MCP core surface.
+
+**Implementation:** qualify `public.actions`/`public.replays` (`action_service_postgres.py`); expand `amprealize_pg_options_schema` in `scripts/run_tests.sh`; `_coerce_db_json` in `reflection_service_postgres.py`; `OAUTH_*` before `GITHUB_*` in `auth/providers/registry.py`; `assert_event_types_subsequence` + `boards.list` fixture; `CORE_TOOLS` includes `actions.*`; `_FakeMCPServiceRegistry` in `test_board_labels_cross_surface.py`; module registry test expects `whiteboard`; Google integration skip on invalid client.
+
+**Validation:** `./scripts/run_tests.sh --breakeramp --env test` (when infra up); targeted pytest subsets per component.
+
+| 282 | Fix test env pollution + MCP `_SubscriptionTier` scope | ### #282 - BreakerAmp wiring test env leak (2026-04-29)
+**Milestone:** ``tests/test_breakeramp_cloud_dev_wiring.py`` called ``apply_context_to_environment(force=True)`` without restoring ``os.environ``, leaving synthetic ``cloud.example.com`` DSNs for hundreds of later tests. ``_dispatch_tool_call`` referenced ``_SubscriptionTier`` without importing it (import lived only in ``_handle_tools_call``).
+
+**Implementation:** snapshot/restore env in ``test_apply_context_to_environment_uses_main_dsn_when_telemetry_not_explicit``; import ``SubscriptionTier`` in ``_dispatch_tool_call`` (`amprealize/mcp_server.py`)
+
+**Validation:** `pytest tests/test_breakeramp_cloud_dev_wiring.py tests/test_mcp_bci_tools.py::test_bci_retrieve_tool -q`
+
+| 281 | Shared BreakerAmp-aware ``.env`` merge (API + pytest) | ### #281 - runtime_env dotenv skip (2026-04-29)
+**Milestone:** ``amprealize/api.py`` used full ``load_dotenv`` then ``apply_context_to_environment(force=True)``, so Neon URLs in ``.env`` could overwrite ``run_tests.sh`` localhost DSNs during pytest. Centralize selective merge in ``amprealize/runtime_env.py``; ``tests/conftest.py`` uses the same helper.
+
+**Implementation:** `amprealize/runtime_env.py`, `amprealize/api.py`, `tests/conftest.py`, `tests/test_runtime_env.py`
+
+**Validation:** `pytest tests/test_runtime_env.py tests/test_amprealize_context_local_host.py tests/test_breakeramp_cloud_dev_wiring.py -q`
+
+**Behaviors cited:** `behavior_externalize_configuration`, `behavior_update_docs_after_changes` (Student)
+
+| 280 | Prompt to switch Amprealize CLI context before BreakerAmp `--env test` | ### #280 - Context prompt for local test (2026-04-28)
+**Milestone:** When `./scripts/run_tests.sh --breakeramp --env test` runs interactively, detect a non-local Postgres context (e.g. Neon after `cloud-dev`) and offer switching to `local-test` / `local-postgres` / `local` (or other localhost-backed contexts). Non-TTY and `AMPREALIZE_SKIP_LOCAL_TEST_CONTEXT_PROMPT=1` skip the prompt.
+
+**Implementation:** `amprealize/context.py` (`postgres_dsn_uses_local_host`, `active_amprealize_context_targets_remote_postgres`, `suggest_local_postgres_context_names`), `scripts/prompt_amprealize_context_for_local_tests.py`, `scripts/run_tests.sh`, `tests/test_amprealize_context_local_host.py`, `docs/TESTING_GUIDE.md`
+
+**Validation:** `pytest tests/test_amprealize_context_local_host.py -q`
+
+**Behaviors cited:** `behavior_externalize_configuration`, `behavior_update_docs_after_changes` (Student)
+
+| 279 | Distinct test BreakerAmp blueprint `local-test-env` | ### #279 - local-test-env + env drift (2026-04-28)
+**Milestone:** `--env test` uses blueprint `local-test-env` (core + console + whiteboard + gateway 8080), separate Docker volume name prefix from `local-dev`; `config/breakeramp/environments.yaml` aligned with `infra/environments.yaml`; wiki + packaged blueprint docstring; regression test loads YAML.
+
+**Implementation:** `packages/breakeramp/src/breakeramp/blueprints/local-test-env.yaml`, `infra/environments.yaml` (`test`), `config/breakeramp/environments.yaml`, `wiki/infra/reference/breakeramp-environments.md`, `packages/breakeramp/src/breakeramp/blueprints/__init__.py`, `packages/breakeramp/tests/test_blueprints.py`
+
+**Validation:** `pytest packages/breakeramp/tests/test_blueprints.py::TestBlueprintSerialization::test_local_test_env_packaged_blueprint_loads_and_validates -q`
+
+**Behaviors cited:** `behavior_use_breakeramp_for_environments`, `behavior_update_docs_after_changes` (Student)
+
+| 276 | Document live-stack validation layer | ### #276 - Live stack validation docs (2026-04-29)
+**Milestone:** Explicit separation of CI/unit tests from deployed URL checks (bootstrap latency, nginx/gateway probes).
+
+**Implementation:**
+- `docs/LIVE_STACK_VALIDATION.md` — when to run; `validate_gateway_infra_performance.py` vs `load_test_console_hot_paths.py`; env vars; minimal release checklist
+- `docs/TESTING_GUIDE.md` — short "Testing layers" section linking to the doc
+
+**Behaviors cited:** `behavior_design_test_strategy`, `behavior_orchestrate_cicd`, `behavior_update_docs_after_changes` (Student)
+
+| 278 | CLI auth login uses API device flow (browser activation parity) | ### #278 - CLI auth login REST device flow (2026-04-29)
+**Fix:** `amprealize auth login` previously created device sessions only in the CLI process; `/device/activate` on the API could not find the user code (Postgres/API store). Login now calls `POST /api/v1/auth/device` and polls `POST /api/v1/auth/device/token` using `AMPREALIZE_API_URL` (default `http://localhost:8000`; cloud-dev nginx often `http://localhost:8080`). Escape hatch: `AMPREALIZE_CLI_AUTH_LOGIN_LOCAL_ONLY=1`.
+
+**Docs:** `docs/DEVICE_FLOW_GUIDE.md`, `.env.example`
+
+**Behaviors cited:** `behavior_lock_down_security_surface`, `behavior_update_docs_after_changes` (Student)
+
+| 277 | Console hot-path load test runner (OAuth token resolution) | ### #277 - run_load_test_console_hot_paths.sh (2026-04-29)
+**Milestone:** One command resolves JWT from CLI token store (`.venv`), attempts `auth refresh` when access expired, runs `load_test_console_hot_paths.py`; documents OAuth prerequisite in `LIVE_STACK_VALIDATION.md`.
+
+**Implementation:**
+- `scripts/run_load_test_console_hot_paths.sh` — executable wrapper
+- `scripts/load_test_console_hot_paths.py` — docstring points to wrapper
+- `docs/LIVE_STACK_VALIDATION.md` — prerequisites (gateway + `amprealize auth login`)
+
+**Behaviors cited:** `behavior_orchestrate_cicd`, `behavior_update_docs_after_changes` (Student)
+
+| 275 | Web console: defer tldraw CSS/JS off entry shell | ### #275 - Route-scoped whiteboard bundle (2026-04-29)
+**Milestone:** Production `index.html` no longer links `whiteboard-vendor-*.css`; tldraw + `tldraw.css` ship only with the lazy `WhiteboardCanvas` chunk (~1.6 MB JS + ~76 KB CSS on `/whiteboard` navigation).
+
+**Implementation:**
+- ``vite.config.ts``: removed manual chunk ``whiteboard-vendor`` for ``tldraw`` / ``@tldraw`` (those deps roll into the lazy canvas chunk only); added ``react-vendor`` and ``tanstack-virtual-vendor`` splits so shared libs do not pull tldraw into the entry graph; ``modulePreload`` filter includes ``WhiteboardCanvas``
+- ``vite-plugin-flatten-whiteboard-css.ts``: flatten plugin matches ``WhiteboardCanvas-*.css`` as well as legacy ``whiteboard-vendor*.css``
+- ``scripts/audit_bundle.mjs``: fails if ``index.html`` eagerly loads WhiteboardCanvas / whiteboard-vendor CSS or modulepreloads WhiteboardCanvas chunks
+- ``package.json``: ``audit:bundle`` runs the audit script only (pair with ``npm run build``)
+
+**Tests:** ``npm run build && npm run audit:bundle``; Vitest ``WhiteboardPage`` + ``SidebarNavWikiLauncher``; ``pytest tests/test_server_timing_middleware.py --override-ini=addopts= --noconftest``
+
+**Behaviors cited:** `behavior_orchestrate_cicd`, `behavior_update_docs_after_changes` (Student)
+**Milestone:** Repeatable bundle audit; defer heavy vendor modulepreload; scripted API load test with percentiles.
+
+**Implementation:**
+- ``web-console/vite.config.ts``: ``modulePreload.resolveDependencies`` excludes ``whiteboard-vendor`` and ``markdown-vendor`` from HTML modulepreload (collab + runtime still preload)
+- ``web-console/scripts/audit_bundle.mjs`` + ``npm run audit:bundle`` — scans ``dist`` chunk sizes and fails if heavy vendors appear in modulepreload
+- ``scripts/load_test_console_hot_paths.py`` — p50/p75/p95 + error rate for capabilities, dashboard-bootstrap, global-chat-bootstrap, optional board bootstrap (Bearer token via env or ``--token``)
+
+**Behaviors cited:** `behavior_design_test_strategy`, `behavior_orchestrate_cicd`, `behavior_update_docs_after_changes` (Student)
+
+| 273 | Gateway/infra performance validation (guideai-1144) | ### #273 - Gateway/infra performance validation (2026-04-29)
+**Milestone:** Static + optional live checks for nginx/proxy hot-path settings; optional `Server-Timing` on API responses for staging latency debugging.
+
+**Implementation:**
+- `scripts/validate_gateway_infra_performance.py` — asserts keepalive, gzip, `/api/` HTTP/1.1, SSE buffering off, WS timeouts; optional `--base-url` GET `/health`
+- `amprealize/server_timing_middleware.py` — `Server-Timing: total;dur=...` when `AMPREALIZE_SERVER_TIMING=1`; wired in `create_app` before GZip/CORS
+- `config/nginx/nginx.conf` note pointing at script; `.env.example` documents env flag
+- tests: `tests/test_server_timing_middleware.py` (`pytest.mark.unit`)
+
+**Behaviors cited:** `behavior_orchestrate_cicd`, `behavior_update_docs_after_changes` (Student)
+
+| 272 | Global chat bootstrap endpoint (guideai-1154) | ### #272 - Global chat bootstrap (2026-04-28)
+**Console perf:** `GET /v1/conversations/global-chat-bootstrap` returns the `global_user_home` conversation (creating it if missing) and the first page of messages in one request. `ConversationService.bootstrap_global_user_home` centralizes list-or-create + `list_messages`. The web console dock uses this instead of list + post + separate messages fetch, and seeds `conversation` + infinite message query caches for first paint.
+
+**Tests:** `tests/unit/test_conversation_global_chat_bootstrap_api.py`
+
+**Behaviors cited:** `behavior_design_api_contract`, `behavior_update_docs_after_changes` (Student)
+
+| 271 | Analyst plan gaps (inventory shim, Raze telemetry, CLI) | ### #271 - Analyst plan gaps closed (2026-04-29)
+**Inventory:** `InventoryAnswerService` now returns `ResourceAnalysisService` answers whenever the catalog detects a resource (legacy regex paths remain only when analysis returns `None`). **Core:** `detect_resource_type` prioritizes work items / boards / agents over generic “project”; `_row` prefers `board_id` and `agent_name`; `_row_label` includes slug, agent role, and Raze `resource_analysis.completed` on sync/async answers. **CLI:** `amprealize resources analyze`. **Docs:** `docs/capability_matrix.md` CLI column updated. **Tests:** `tests/test_resource_analysis_telemetry.py`, `tests/test_cli_resources_analyze.py`.
+
+**Behaviors cited:** `behavior_use_raze_for_logging`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+| 270 | Restore local telemetry for cloud-dev | ### #270 - Restore local telemetry for cloud-dev (2026-04-28)
+**Milestone:** `cloud-dev` with the `neon` context now keeps app data on Neon while provisioning local Timescale/Postgres telemetry for GUIDEAI-1091 observability smoke tests.
+
+**Implementation (Completed):**
+- added a local `telemetry-db` Timescale service to `cloud-dev` and wired API, worker, and MCP services to depend on it
+- changed default `cloud-dev` telemetry DSNs to target the local `telemetry-db` service while preserving explicit host-loopback DSN rewrites for configured contexts
+- installed the root package with the `postgres` extra in API/worker/MCP startup so `PostgresTelemetrySink`, SQLAlchemy, psycopg2, and Alembic initialize in containers
+- added telemetry Alembic migrations for canonical `observability_records` and `observability_behavior_candidate_lifecycle`
+- added lifecycle view numeric guards so redacted/non-numeric telemetry values do not break dashboard queries
+- tightened root setuptools package discovery so editable container installs do not scan unrelated monorepo packages
+
+**Validation:**
+- `breakeramp fresh cloud-dev --skip-resource-check --force` completed successfully (`Environment ready in 1m23s`)
+- worker env smoke verified Neon for `DATABASE_URL` and `telemetry-db:5432` for telemetry/metrics DSNs
+- live smoke emitted `reflection.candidate_extracted`, confirmed rows in `telemetry_events` and `observability_records`, and queried `observability_behavior_candidate_lifecycle`
+- migration heads verified: `20260428_lifecycle_numeric_guard` and `telemetry_lifecycle_guard`
+
+**Behaviors cited:** `behavior_prefer_mcp_tools`, `behavior_use_breakeramp_for_environments`, `behavior_migrate_postgres_schema`, `behavior_update_docs_after_changes` (Student)
+
+| 269 | Work item MCP list latency optimization | ### #269 - Work item MCP list latency optimization (2026-04-28)
+**Milestone:** `workItems.list` now returns a compact agent-friendly default payload and avoids an extra count query.
+
+**Implementation (Completed):**
+- changed `workItems.list` MCP handler to default to 25 compact summary rows instead of 100 full work item records
+- added `brief=false` opt-out for callers that need full descriptions, metadata, checklist, and attachments in list/mutation responses
+- added compact default responses for `workItems.create`, `workItems.update`, and `workItems.getBatch`; `workItems.get` remains full-detail by default but now supports `brief=true`
+- switched `workItems.list` to `BoardService.list_work_items(..., include_total=True)` so total count is computed inline instead of via a second DB round trip
+- routed `workItems.*` and work item execution tool responses through the compact MCP JSON helper instead of pretty `indent=2` serialization
+- added background `BoardService`/DB pre-warm via `AMPREALIZE_MCP_PREWARM_WORK_ITEMS` to reduce first work-item call cold latency after startup
+
+**Validation:**
+- targeted tests: `python -m pytest tests/test_mcp_board_workitem_handlers.py tests/test_mcp_tool_groups.py -m unit` passed (`23 passed`)
+- direct Cursor-framed benchmark: default compact `workItems.list` response ~16.6 KB / 25 items versus full-detail 100-row response ~170 KB
+- live pre-fix `workitems_list` MCP output observed at ~193 KB / 5,111 lines, confirming response size was a major Cursor-visible latency driver
+
+**Behaviors cited:** `behavior_launch_plan_seed` (Student), `behavior_update_docs_after_changes` (Student)
+
+| 268 | Cursor-visible MCP latency benchmark and core surface tuning | ### #268 - Cursor-visible MCP latency benchmark and core surface tuning (2026-04-28)
+**Milestone:** Cursor-facing MCP latency can now be measured with Content-Length framing, and the core tool surface is now a curated fast path instead of every tool in each high-frequency family.
+
+**Implementation (Completed):**
+- added `scripts/benchmark_cursor_mcp_latency.py` to measure the same MCP framing Cursor uses: cold startup, `initialize`, `tools/list`, and `tools/call`
+- made the core MCP group an exact allowlist for auth, org/project/context, boards/work items, behaviors, wiki read/query/status, and MCP self-management fast-path tools
+- kept exact core additions for `resources.analyze`, `runs.list`, and `runs.get`
+- added `AMPREALIZE_MCP_STARTUP_GROUPS` so specialized groups can still be opt-in at startup without making Cursor ingest every tool family by default
+- preserved canonical catalog classification by matching non-core groups before the core activation group
+- added optional brief behavior output via `behaviors.getForTask` `brief=true` / `AMPREALIZE_MCP_BRIEF_RESULTS=true`
+- moved per-call request/dispatch completion logs behind `AMPREALIZE_MCP_HOT_PATH_LOGS`
+- cleaned `scripts/start_amprealize_mcp.py` duplicate re-exec env assignment and added `AMPREALIZE_MCP_SKIP_CONTEXT_BRIDGE` for deployments that already provide final DSNs
+
+**Validation:**
+- active core surface after broad-family pass: 119 tools, one active group (`core`), `tools/list` payload avg 84,292 bytes
+- active core surface after curated fast-path pass: 53 tools, one active group (`core`), `tools/list` payload avg 35,197 bytes
+- targeted tests: `20 passed in 2.44s`
+- Cursor-framed benchmark (5 iterations, curated pass): cold start to `tools_activegroups` avg 1,278 ms (startup remains dominated by Python/server initialization variance), warm `tools/list` avg 1.784 ms, warm `tools_activegroups` avg 0.413 ms
+
+**Behaviors cited:** `behavior_launch_plan_seed` (Student), `behavior_update_docs_after_changes` (Student)
+
+| 263 | MCP tool call latency — round 3 speedups | ### #263 - MCP tool call latency — round 3 speedups (2026-04-28)
+**Milestone:** Four additional micro-optimizations on the MCP hot path.
+
+**Changes:**
+- **Pre-serialized `tools/list` cache** (`mcp_server.py`): `_tools_list_cache` now stores the complete pre-serialized JSON-RPC envelope string with a `__MCP_REQUEST_ID__` sentinel. Cache hits do a single `str.replace()` instead of re-running `json.dumps` over the 60 KB dict. Measured: **222 µs → 1.2 µs** (185× speedup).
+- **Hoist `SubscriptionTier` import** (`mcp_server.py`): Moved from inside `_dispatch_tool_call` (executed per call) to a single import at the top of `_handle_tools_call`, avoiding the module attribute lookup on every authenticated call.
+- **Background Redis pre-warm** (`mcp_server.py`): Added `asyncio.create_task(distributed_rate_limiter._ensure_redis())` in `run()` so the TCP connect to Redis happens during server startup, removing the first-authenticated-call latency cliff (~80-100 ms).
+- **EVALSHA for combined Lua script** (`mcp_rate_limiter.py`): `_ensure_redis()` now calls `SCRIPT LOAD` and caches the SHA in `self._lua_sha`. `check_tenant_limit` uses `EVALSHA` (skips Lua compilation on the Redis server) with automatic NOSCRIPT fallback to `EVAL` + SHA reload.
+
+**Validation:**
+- 49/49 unit tests pass (`test_mcp_tool_groups`, `test_mcp_rate_limiter`, `test_behavior_search_candidates`)
+- 2 new EVALSHA tests: `test_tenant_check_uses_evalsha_when_sha_cached`, `test_tenant_check_falls_back_to_eval_on_noscript`
+- 2 new tools/list tests: `test_tools_list_cache_is_pre_serialized_string`, `test_tools_list_cache_handles_none_request_id`
+- Full meta-call round-trip: avg 0.164 ms, p95 0.262 ms
+
+**Behaviors cited:** `behavior_update_docs_after_changes` (Student)
+
+| 267 | Metabase and Looker observability dashboard sources | ### #267 - Metabase and Looker observability dashboard sources (2026-04-28)
+**Milestone:** `GUIDEAI-1095` / `GUIDEAI-1110` now has dashboard source contracts for self-hosted Metabase and managed enterprise Looker over the canonical observability model.
+
+**Implementation (Completed):**
+- added `ObservabilityDashboardSource`, `ObservabilityDashboardDataset`, and `ObservabilityDashboardProfile` contract types
+- added `observability_dashboard_sources()` with Metabase datasets over Timescale/Postgres views and Looker datasets over equivalent enterprise warehouse projections
+- exposed dashboard source names and dataset names through `observability_backend_targets()` for self-hosted and managed enterprise profiles
+- included trace drilldown URL templates and required connection environment variables for both dashboard surfaces
+- documented the dashboard source boundary in `docs/contracts/TELEMETRY_SCHEMA.md`
+- added regression coverage for Metabase view wiring, Looker warehouse dataset wiring, generation cost/first-token measures, and Datadog/Langfuse trace drilldown fields
+
+**Validation:** `PYTHONPATH=. python -m pytest tests/test_observability_contracts.py tests/test_observability_exporters.py -q` passed (`13 passed`); `git diff --check` passed for edited dashboard contract files.
+
+**Behaviors applied:** `behavior_launch_plan_seed`, `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 266 | Datadog and Langfuse observability exporter payloads | ### #266 - Datadog and Langfuse observability exporter payloads (2026-04-28)
+**Milestone:** `GUIDEAI-1095` / `GUIDEAI-1109` now has managed enterprise exporter payload builders derived from the canonical observability envelope.
+
+**Implementation (Completed):**
+- added `amprealize/observability_exporters.py` with secret-free exporter profile contracts for Datadog OTLP and Langfuse Cloud
+- added `build_datadog_export_payload()` to map canonical records into Datadog-ready spans, logs, metrics, tags, and sanitized metadata
+- added `build_langfuse_export_payload()` to map canonical trace roots, generations, spans, tool calls, and behavior-candidate provenance into Langfuse-ready traces and observations
+- preserved one instrumentation model by deriving exporter payloads from `ObservabilityRecord.to_sanitized_payload()` instead of provider-specific call-site schemas
+- documented the managed exporter boundary in `docs/contracts/TELEMETRY_SCHEMA.md`
+- added regression coverage for profile contracts, Datadog metric/tag mapping, Langfuse generation/tool mapping, and secret redaction
+
+**Validation:** `PYTHONPATH=. python -m pytest tests/test_observability_contracts.py tests/test_observability_exporters.py -q` passed (`11 passed`); `git diff --check` passed for edited exporter files.
+
+**Behaviors applied:** `behavior_launch_plan_seed`, `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 265 | Observability Timescale storage profile | ### #265 - Observability Timescale storage profile (2026-04-28)
+**Milestone:** `GUIDEAI-1095` / `GUIDEAI-1108` now has a concrete self-hosted Timescale/Postgres schema for canonical observability storage and dashboard projections.
+
+**Implementation (Completed):**
+- added `observability_timescale_schema()` to the canonical observability contracts so the self-hosted profile advertises canonical tables, typed projections, dashboard views, and the migration revision
+- added Alembic revision `20260428_observability_timescale` for `observability_records`, typed generation/tool/action/outcome projection tables, retention policy metadata, and Metabase-ready views
+- configured the canonical record table to become a Timescale hypertable when the Timescale extension is installed while remaining Postgres-compatible for local/OSS environments
+- documented the storage profile in `docs/contracts/TELEMETRY_SCHEMA.md` so exporters and dashboards keep deriving from the shared canonical envelope
+- added regression coverage for the Timescale schema contract and self-hosted profile table/view exposure
+
+**Validation:** `PYTHONPATH=. python -m pytest tests/test_observability_contracts.py -q` passed (`8 passed`); `python -m py_compile migrations/versions/20260428_add_observability_timescale_storage.py` passed; `git diff --check` passed for edited files.
+
+**Behaviors applied:** `behavior_launch_plan_seed`, `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_migrate_postgres_schema`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 264 | Chat trace and execution handoff spans | ### #264 - Chat trace and execution handoff spans (2026-04-28)
+**Milestone:** `GUIDEAI-1093` / `GUIDEAI-1102` now emits root chat traces and normalized child spans for reply generation and execution handoff correlation.
+
+**Implementation (Completed):**
+- `ConversationReplyService` now emits `chat.trace.started`, `chat.trace.completed`, and `chat.trace.failed` for generated replies
+- added normalized `chat.span.completed` / `chat.span.failed` events for routing, context, fast path, platform action, LLM generation, persistence, SSE streaming, completion, and execution handoff phases
+- built a chat-origin `execution_observability` correlation payload carrying run/work-item/project/org/agent/model/surface/conversation/message/request/trace/span fields
+- passed chat correlation and actor context into `LLMClient` generation calls so provider-level telemetry can link back to chat replies and work-item runs
+- persisted `execution_observability` alongside reply `chat_trace` metadata and documented the chat trace event contract
+
+**Validation:** `PYTHONPATH=. python -m pytest tests/test_conversation_reply_routing.py tests/test_llm_client.py tests/test_chat_answer_golden_traces.py -q` passed (`68 passed`).
+
+**Behaviors applied:** `behavior_launch_plan_seed`, `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_unify_execution_records`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 263 | LLMClient generation telemetry | ### #263 - LLMClient generation telemetry (2026-04-28)
+**Milestone:** `GUIDEAI-1093` / `GUIDEAI-1103` now emits provider-level LLM generation telemetry from the shared `LLMClient` across sync, async, and streaming paths.
+
+**Implementation (Completed):**
+- added optional `TelemetryClient` injection to `LLMClient` without changing existing callers
+- emitted `llm.generation.completed` for `call`, `acall`, `stream_sync`, and `astream` with provider, model, latency, first-token latency when available, token/cost metrics, tool schema count, credential scope, retry configuration, and sanitized output preview
+- emitted `llm.generation.failed` for provider errors with sanitized error text, error class, status code, operation, streaming mode, and shared execution observability correlation when provided
+- allowed the enum-like `credential_scope` telemetry field through the shared redaction helper while preserving credential/token redaction
+- included provider-level LLM generation events in governed observability chat latency summaries and documented the event contract
+
+**Validation:** `PYTHONPATH=. python -m pytest tests/test_llm_client.py tests/test_execution_gateway.py::TestExecutionObservabilityHelpers::test_sanitize_observability_payload_redacts_secret_keys_and_values -q` passed (`55 passed`).
+
+**Behaviors applied:** `behavior_launch_plan_seed`, `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_unify_execution_records`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 262 | Distributed MCP rate-limit hot path optimization | ### #262 - Distributed MCP rate-limit hot path optimization (2026-04-28)
+**Milestone:** Authenticated MCP tenant rate limiting now uses one Redis round trip per check instead of separate daily/org/user operations.
+
+**Implementation (Completed):**
+- added a combined Redis Lua script in `DistributedRateLimiter` that checks daily quota, org minute window, and per-user fair-share window atomically
+- reduced Redis operations for authenticated `check_tenant_limit()` from multiple sequential calls to one `EVAL`
+- kept production guardrails intact: denials still return daily/minute/user-minute limit types, and Redis errors fail open while disabling Redis for subsequent fallback checks
+- tuned Redis connection settings for MCP latency with pooled async connections, health checks, and shorter configurable socket/connect timeouts
+- added regression coverage for single-round-trip Redis checks, Redis denials, and fail-open fallback behavior
+
+**Validation:** Baseline authenticated Redis benchmark: `60` checks, avg `3.01 ms`, p95 `1.627 ms`, first check `146.874 ms`, `120` Redis minute-window checks. Combined-script benchmark: `60` checks, avg `1.461 ms`, p95 `0.656 ms`, `60` Redis checks. Final warm-path benchmark: warm avg `0.155 ms`, warm p95 `0.314 ms`, warm max `0.615 ms`, `80` combined Redis checks. `PYTHONPATH=. pytest tests/test_mcp_rate_limiter.py -m unit -q` passed (`28 passed`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_lock_down_security_surface`, `behavior_enforce_quality_gates`, Redis `conn-pooling`, Redis `conn-pipelining`, Redis `conn-timeouts` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 261 | MCP tool call latency speedups | ### #261 - MCP tool call latency speedups (2026-04-28)
+**Milestone:** Amprealize MCP stdio startup and common tool-call paths now avoid unnecessary startup DB work and repeated response reconstruction.
+
+**Implementation (Completed):**
+- deferred `TaskService` / `MCPTaskHandler` initialization until the first `tasks.*` call, removing task schema validation from normal MCP startup
+- cached `tools/list` response payloads until active tool groups change, with invalidation on group activation/deactivation
+- added compact MCP text JSON serialization helper for high-volume tool routes, including behavior retrieval and tool group management
+- changed `BehaviorService.search_behaviors()` cache-miss retrieval to use PostgreSQL-ranked candidate narrowing before existing Python scoring
+- added `schema/migrations/005_optimize_behavior_search.sql` with trigram indexes for behavior and behavior-version search text
+- added regression coverage for `tools/list` cache invalidation, lazy task service initialization, compact JSON responses, and behavior candidate retrieval
+
+**Validation:** Baseline local probe before changes: startup `3080.1 ms`, `tools/list` avg `0.44 ms`, meta tool call avg `3.07 ms`. After changes: startup `638.58 ms`, `tools/list` avg `0.26 ms`, meta tool call avg `1.2 ms`. `PYTHONPATH=. pytest tests/test_mcp_tool_groups.py tests/test_behavior_search_candidates.py tests/test_mcp_behavior_handlers.py -m unit -q` passed (`20 passed`). `ReadLints` reported no diagnostics for edited files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_migrate_postgres_schema`, `behavior_enforce_quality_gates`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 260 | Observability retention and sensitivity classes | ### #260 - Observability retention and sensitivity classes (2026-04-28)
+**Milestone:** `GUIDEAI-1092` / `GUIDEAI-1100` completes the canonical observability contract slice with explicit retention, access, purge, and anonymization rules.
+
+**Implementation (Completed):**
+- added `ObservabilityDataClass`, `ObservabilityRetentionRule`, `observability_retention_rules()`, and `retention_rule_for()` to `amprealize/observability_contracts.py`
+- codified long-lived classes for metadata traces, sanitized summaries, non-reversible hashes, and behavior-mining features
+- codified short-lived admin/compliance-only classes for raw prompts, raw responses, tool args, output previews, command output, and file diffs
+- updated telemetry, trace-analysis, execution-plan, and capability docs so storage/exporter/dashboard work can use the same data-class policy
+- added regression coverage verifying class coverage, sensitivity mapping, access tiers, purge actions, and raw-vs-derived retention windows
+
+**Validation:** `cd amprealize && PYTHONPATH=. pytest tests/test_observability_contracts.py tests/test_observability_access.py tests/test_governed_observability_analytics.py`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_prevent_secret_leaks` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 259 | Telemetry and trace contract taxonomy | ### #259 - Telemetry and trace contract taxonomy (2026-04-28)
+**Milestone:** `GUIDEAI-1092` / `GUIDEAI-1101` now maps the canonical trace envelope into telemetry, trace-analysis, and deployment-profile contracts.
+
+**Implementation (Completed):**
+- added `ObservabilityBackendProfile` and `observability_backend_targets()` to `amprealize/observability_contracts.py`
+- codified OSS, self-hosted enterprise, and managed enterprise backend targets for Postgres, Timescale/Postgres, OpenSearch, Metabase, Datadog, Langfuse Cloud, Looker, and warehouse projections
+- updated `docs/contracts/TELEMETRY_SCHEMA.md` with the event-to-canonical-record taxonomy and profile target matrix
+- updated `docs/contracts/TRACE_ANALYSIS_SERVICE_CONTRACT.md` so TraceAnalysisService consumes canonical `trace`, `span`, `generation`, `tool_call`, `action`, `artifact`, `behavior_candidate`, and `outcome` records for behavior mining
+- added regression coverage verifying all profiles cover every canonical record kind
+
+**Validation:** `cd amprealize && PYTHONPATH=. pytest tests/test_observability_contracts.py tests/test_observability_access.py tests/test_governed_observability_analytics.py`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 258 | Canonical trace envelope schema | ### #258 - Canonical trace envelope schema (2026-04-28)
+**Milestone:** `GUIDEAI-1092` / `GUIDEAI-1111` now has a backend-neutral trace envelope contract for chat, execution, exporters, storage, dashboards, and behavior mining.
+
+**Implementation (Completed):**
+- added `amprealize/observability_contracts.py` with typed records for `trace`, `span`, `event`, `generation`, `tool_call`, `action`, `artifact`, `behavior_candidate`, and `outcome`
+- added shared `ObservabilityCorrelation` fields and a `from_execution_context()` adapter for the existing `ExecutionObservabilityContext`
+- added required-correlation validation and sanitized export payload generation for records that may contain prompts, tool inputs, or summaries
+- added canonical examples for every record kind to guide Timescale/Postgres views, Datadog/Langfuse exporters, Looker/Metabase dashboards, and TraceAnalysisService ingestion
+- updated telemetry/execution/capability docs to identify the canonical envelope as the target normalized contract
+
+**Validation:** `cd amprealize && PYTHONPATH=. pytest tests/test_observability_contracts.py tests/test_observability_access.py tests/test_governed_observability_analytics.py`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 257 | Chat-powered observability questions | ### #257 - Chat-powered observability questions (2026-04-28)
+**Milestone:** `GUIDEAI-1096` / `GUIDEAI-1114` now lets governed chat answer observability questions using the same RBAC-filtered analytics boundary as REST.
+
+**Implementation (Completed):**
+- added `amprealize/observability_chat.py` with deterministic answers for tool-failure, latency, and behavior-candidate trace questions
+- wired `ConversationReplyService` to call the observability fast path before LLM generation and persist `observability_analysis` structured payloads
+- updated chat routing so telemetry, trace, tool, and latency questions route as low-risk resource analysis
+- connected API app conversation replies to the shared `GovernedObservabilityQueryService` used by `POST /api/v1/observability/events` and `/dashboard`
+- added regression coverage proving viewer chat answers redact restricted tool inputs and avoid LLM calls for governed observability questions
+
+**Validation:** `cd amprealize && PYTHONPATH=. pytest tests/test_chat_action_router.py tests/test_conversation_reply_routing.py tests/test_governed_observability_analytics.py tests/test_observability_analytics_api.py tests/test_mcp_server_icons.py`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 256 | Governed observability query APIs | ### #256 - Governed observability query APIs (2026-04-28)
+**Milestone:** `GUIDEAI-1096` / `GUIDEAI-1112` now exposes governed telemetry and trace analytics through typed REST contracts.
+
+**Implementation (Completed):**
+- added `amprealize/services/observability_analytics_api.py` with request/response models for event-list and dashboard-summary queries
+- registered `POST /api/v1/observability/events` and `POST /api/v1/observability/dashboard` in `create_app()`
+- wired the app provider to use in-memory telemetry events in test/dev sinks and Postgres telemetry queries when `AMPREALIZE_TELEMETRY_PG_DSN` is configured
+- added route tests verifying viewer-safe event records, admin sanitized records, data-analyst bounded dashboard summaries, query metadata, filtering, and truncation
+
+**Validation:** `python -m pytest tests/test_observability_analytics_api.py tests/test_governed_observability_analytics.py tests/test_observability_access.py tests/test_resource_analysis_api.py -q`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 255 | Governed observability analytics access | ### #255 - Governed observability analytics access (2026-04-28)
+**Milestone:** `GUIDEAI-1096` / `GUIDEAI-1113` now has a runtime service boundary for role-scoped telemetry and trace analytics.
+
+**Implementation (Completed):**
+- added actor-role-to-observability-tier resolution for viewer, data analyst, admin, and compliance access
+- added `GovernedObservabilityQueryService` to apply access controls to telemetry list queries and dashboard summaries before records leave the analytics layer
+- ensured viewer/data-analyst queries redact raw prompts, tool inputs, output previews, command output, diffs, and full content while preserving correlation metadata
+- added regression tests for viewer redaction, admin sanitized payload access, run/event-type filtering, truncation reporting, and bounded data-analyst dashboard summaries
+
+**Validation:** `python -m pytest tests/test_governed_observability_analytics.py tests/test_observability_access.py -q`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 254 | Observability RBAC and load validation | ### #254 - Observability RBAC and load validation (2026-04-28)
+**Milestone:** `GUIDEAI-1099` / `GUIDEAI-1123` now validates restricted observability access and high-cardinality dashboard summaries.
+
+**Implementation (Completed):**
+- added `amprealize/observability_access.py` with access tiers for viewer, data analyst, admin, and compliance observability views
+- restricted raw prompts, tool inputs, output previews, full content, command output, and diffs for viewer/data-analyst access while preserving sanitized context for admin/compliance access
+- added bounded dashboard summarization for high-cardinality event streams, including top event types/surfaces and truncation counts
+- added `tests/test_observability_access.py` to verify RBAC redaction, BreakerAmp context preservation, JSON/exporter safety, and bounded load-style summaries
+
+**Validation:** `python -m pytest tests/test_observability_access.py -q`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 253 | LLM and MCP golden traces | ### #253 - LLM and MCP golden traces (2026-04-28)
+**Milestone:** `GUIDEAI-1099` / `GUIDEAI-1122` now covers LLM replies, governed platform-action replies, and MCP resource-analysis responses with golden trace validation.
+
+**Implementation (Completed):**
+- added LLM/MCP golden trace fixtures for read-synthesis LLM replies and platform work-item creation replies
+- added `tests/test_llm_mcp_golden_traces.py` to verify stored reply `chat_trace` metadata matches exported `conversation_reply.generated` telemetry
+- verified platform-action traces preserve the created work-item outcome and still bypass LLM generation
+- added MCP resource-analysis golden coverage to ensure response payloads remain JSON/exporter-safe
+
+**Validation:** `python -m pytest tests/test_llm_mcp_golden_traces.py tests/test_chat_answer_golden_traces.py tests/test_mcp_resource_analysis_tool.py tests/test_chat_resource_actions.py -q`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 252 | Chat answer golden traces | ### #252 - Chat answer golden traces (2026-04-28)
+**Milestone:** `GUIDEAI-1099` / `GUIDEAI-1121` now has golden trace coverage for deterministic chat answers and execution-handoff replies.
+
+**Implementation (Completed):**
+- added reusable chat answer golden trace fixtures for deterministic workspace inventory answers and execution-handoff replies
+- added `tests/test_chat_answer_golden_traces.py` to verify direct-answer traces remain queryable without LLM execution spans
+- added bounded `chat_trace` metadata to stored replies and `conversation_reply.generated` telemetry with conversation, user message, reply message, route, answer path, work item, and run links
+- verified execution-handoff replies link to canonical run/work-item IDs without emitting duplicate `execution.*` telemetry
+
+**Validation:** `python -m pytest tests/test_chat_answer_golden_traces.py tests/test_conversation_reply_routing.py -q`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 251 | Agent execution golden traces | ### #251 - Agent execution golden traces (2026-04-28)
+**Milestone:** `GUIDEAI-1099` / `GUIDEAI-1138` now has golden trace regression coverage for canonical agent execution observability paths.
+
+**Implementation (Completed):**
+- added reusable agent execution golden trace fixtures covering chat-triggered, board-triggered, queued, direct/background, phase-failure, tool-denial, and successful-completion scenarios
+- added `tests/test_agent_execution_golden_traces.py` to verify required correlation fields across run metadata, TaskCycle metadata, telemetry events, and RunStep trace output
+- preserved upstream surface, conversation, message, request, source, and queue metadata when `AgentExecutionLoop` rebuilds per-phase observability context
+- sanitized RunStep content before generating previews, full content metadata, and persisted outcomes so phase-failure traces do not leak sensitive values
+
+**Validation:** `python -m pytest tests/test_agent_execution_golden_traces.py tests/test_agent_execution_loop_observability.py tests/test_tool_executor_observability.py tests/test_execution_worker_observability.py -q`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_use_raze_for_logging`, `behavior_unify_execution_records`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 250 | Execution trace surface enrichment | ### #250 - Execution trace surface enrichment (2026-04-28)
+**Milestone:** `GUIDEAI-1127` / `GUIDEAI-1135` / `GUIDEAI-1136` execution trace surfaces now expose richer status, list, MCP, step, and work item drawer facts for API and web-console consumers.
+
+**Implementation (Completed):**
+- extended `ExecutionStatusResponse` with origin/surface/conversation metadata, queue metadata, phase timings, token/cost/tool aggregates, last error fields, and a normalized `trace_summary`
+- extended REST execution list items and MCP execution status/list payloads with the same trace summary fields so drawers and analytics can render traces without a detail refetch
+- enriched execution step responses with status, progress, duration, cost, tool names, errors, and sanitized metadata
+- updated REST execution routes and the legacy `/api/v1/executions/{run_id}/steps` path to use the shared service trace mapping
+- updated web-console execution API mapping, shared collab execution types, and work item drawer activity metadata to show duration, tokens, tools, model, surface, mode, and errors
+- added a unified work item drawer trace panel for chat-triggered and board-triggered executions with origin, mode/queue, phase, token/cost/tool, phase timing, and last-error summaries
+- added focused trace-surface and drawer rendering regression tests
+
+**Validation:** `python -m pytest tests/test_work_item_execution_trace_surface.py -q`; `npm run test -- WorkItemDrawerExecutionTrace.test.tsx`; `npm run build`; edited-file ESLint pass. Full `npm run lint` remains blocked by existing unrelated React hook lint errors in conversation/BCI files.
+
+**Behaviors applied:** `behavior_standardize_work_items`, `behavior_validate_cross_surface_parity`, `behavior_validate_accessibility`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 252 | Reflection lifecycle and BreakerAmp observability profiles | ### #252 - Reflection lifecycle and BreakerAmp observability profiles (2026-04-28)
+**Milestone:** `GUIDEAI-1097` and `GUIDEAI-1098` now cover both the nightly reflection batch path and named BreakerAmp observability profile aliases.
+
+**Implementation (Completed):**
+- updated `scripts/nightly_reflection.py` to use the current `ReflectRequest` contract, prefer `PostgresReflectionService` when `AMPREALIZE_REFLECTION_PG_DSN` is available, and persist batch-generated candidates through `create_candidate()` with `pattern_id`, `extraction_job_id`, `source_run_id`, and `source_trace_ids`
+- added `tests/test_nightly_reflection.py` for batch reflection provenance and queue persistence coverage
+- expanded `config/breakeramp/environments.yaml` with explicit `local-postgres`, `neon`, `self-hosted-observability`, and `managed-enterprise-observability` aliases mapped to the existing `local-dev` / `cloud-dev` blueprints
+- threaded managed exporter env passthrough (`AMPREALIZE_DATADOG_*`, `AMPREALIZE_LANGFUSE_*`) through the `cloud-dev` BreakerAmp blueprint for API, worker, and MCP services
+- added `reflection.candidate_rejected` telemetry plus governed dashboard dataset contracts for behavior-candidate lifecycle metrics (`approval_rate`, `rejection_reason`, `estimated_token_savings`, `decayed_behavior_count`)
+- added Alembic revision `20260428_obs_beh_cand_lc` plus warehouse SQL spec `docs/analytics/observability_warehouse_views.sql` so `observability_behavior_candidate_lifecycle` now has concrete self-hosted and managed-enterprise view definitions
+- projected `reflection.candidate_extracted`, `reflection.candidate_approved`, and `reflection.candidate_rejected` into canonical `observability_records` as `behavior_candidate` rows so the lifecycle view now reads live warehouse data
+- fixed `cloud-dev` telemetry DSN resolution so contexts without an explicit telemetry DSN default to host-local telemetry instead of the active main Postgres DSN, while explicit loopback telemetry DSNs are rewritten to `host.containers.internal` for container reachability
+- extended `tests/test_breakeramp_configure.py` and `docs/contracts/TELEMETRY_SCHEMA.md` to verify and document the named observability profile aliases
+
+**Validation:** `python -m pytest tests/test_nightly_reflection.py tests/test_auto_reflection.py tests/test_breakeramp_configure.py -q`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 249 | Natural-language analyst REST surface | ### #249 - Natural-language analyst REST surface (2026-04-28)
+**Milestone:** `GUIDEAI-1091` analyst capability is now exposed through a typed REST API alongside chat, agent execution, and MCP.
+
+**Implementation (Completed):**
+- added `amprealize/services/resource_analysis_api.py` with typed request/response models and `POST /api/v1/resources:analyze`
+- wired the route into `create_app()` using the same `ResourceAnalysisService` and dynamic `ServiceBackedResourceInventoryProvider`
+- added a web-console `analyzeResources()` API client for typed frontend usage
+- documented REST parity in the capability matrix and AI Learning Wiki
+
+**Validation:** `python -m pytest tests/test_resource_analysis_api.py tests/test_resource_analysis.py tests/test_mcp_resource_analysis_tool.py -q`
+
+**Behaviors applied:** `behavior_design_api_contract`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 247 | Cursor Marketplace plugin bundle | ### #247 - Cursor Marketplace plugin bundle (2026-04-28)
+**Milestone:** Ship Amprealize as a Git-based Cursor Marketplace plugin (MCP + rules + skills).
+
+**Implementation (Completed):**
+- added `.cursor-plugin/marketplace.json` and `plugins/amprealize/` with `plugin.json`, portable `mcp.json`, `assets/logo.png`, curated `rules/*.mdc` and `skills/*/SKILL.md`, `README.md`, `SUBMISSION.md`
+- documented Cursor plugin vs VS Code extension in `README.md`, `docs/MCP_CLIENT_SETUP.md`, `docs/MARKETPLACE_SUBMISSION_AUTOMATION.md`
+- CI `workflow_dispatch` **publish_cursor** now validates plugin manifests and files instead of placeholder Cursor VSIX publish
+
+**Validation:** JSON parse of manifests; `find` rules/skills present; symlink `~/.cursor/plugins/local/amprealize` for local smoke
+
+**Behaviors applied:** `behavior_update_docs_after_changes`, `behavior_design_api_contract`, `behavior_validate_cross_surface_parity` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 251 | Tool performance and outcome analytics split | ### #251 - Tool performance and outcome analytics split (2026-04-28)
+**Milestone:** `GUIDEAI-1107` separates invocation performance analytics from business outcome events for tools, actions, replays, and governed platform actions.
+
+**Implementation (Completed):**
+- `ToolExecutor` now emits `execution.tool.performance` for latency/status/error analytics and `execution.tool.business_outcome` only when tool output contains a created or linked resource
+- `ActionService` emits `action.business_outcome` for recorded actions and replay audit outcomes, plus `action.replay.performance` for replay status/volume analytics
+- `ActionReplayExecutor` emits `action.execution.performance` for per-action replay execution status and action type
+- governed platform action audit metadata now includes a bounded `business_outcome` summary with outcome type, resource type, resource ID, and outcome ref
+- updated focused tests to assert performance events do not contain output previews/resource outcomes, and outcome events carry resource/outcome refs
+
+**Validation:** `python -m pytest tests/test_tool_executor_observability.py tests/test_action_trace_observability.py tests/test_platform_management_actions.py -q`
+
+**Behaviors applied:** `behavior_unify_execution_records`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 250 | ActionService trace linkage | ### #250 - ActionService trace linkage (2026-04-28)
+**Milestone:** `GUIDEAI-1105` links ActionService records and replay events to canonical traces while preserving CLI/REST/MCP parity.
+
+**Implementation (Completed):**
+- `Action`, `ActionCreateRequest`, and `ReplayStatus` now expose optional `trace_id`, `span_id`, `parent_span_id`, and `outcome_ref`
+- `ActionService.create_action()` derives trace links from explicit request fields, `metadata.action_trace`, `metadata.execution_observability`, or `related_run_id`
+- `action_recorded`, `action_replay_start`, `action_replay_complete`, `action_execution_start`, and `action_execution_complete` telemetry now include trace/span/outcome linkage
+- metadata emitted in action telemetry is sanitized through shared observability redaction helpers
+- action adapters accept the new optional fields without changing existing callers
+- added `tests/test_action_trace_observability.py` and marked action parity tests as unit tests so focused runs do not require local Postgres
+
+**Validation:** `python -m pytest tests/test_action_trace_observability.py tests/test_action_service_parity.py tests/test_action_replay_executor.py -q`
+
+**Behaviors applied:** `behavior_sanitize_action_registry`, `behavior_unify_execution_records`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 249 | Governed tool-call audit correlation | ### #249 - Governed tool-call audit correlation (2026-04-28)
+**Milestone:** `GUIDEAI-1106` extends session and governed-chat tool-call audit records with shared execution correlation and safer payload summaries.
+
+**Implementation (Completed):**
+- `SessionAuditLogger` now accepts `ExecutionObservabilityContext` and emits it on `session.tool_call` records
+- session tool-call entries include decision, target resources, elapsed time, sanitized args, sanitized output previews, and error classes
+- governed-chat mirrored tool-call records inherit run/work-item/chat/request links plus sanitized metadata and `execution_observability`
+- `AgentExecutionLoop` passes the current execution context into session audit logging and refreshes it before tool calls
+- added regression coverage in `tests/test_session_audit.py` for context propagation, redaction, decisions, and error classes
+
+**Validation:** `python -m pytest tests/test_session_audit.py tests/test_tool_executor_observability.py tests/test_agent_execution_loop_observability.py tests/test_execution_gateway.py tests/test_execution_worker_observability.py -q`
+
+**Behaviors applied:** `behavior_use_raze_for_logging`, `behavior_unify_execution_records`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 248 | Tool execution lifecycle observability | ### #248 - Tool execution lifecycle observability (2026-04-28)
+**Milestone:** `GUIDEAI-1094` first tool-execution slice now emits correlated, sanitized tool lifecycle telemetry for AgentExecutionLoop tools.
+
+**Implementation (Completed):**
+- `ToolExecutor` accepts and updates `ExecutionObservabilityContext`
+- emitted `execution.tool.started`, `execution.tool.completed`, `execution.tool.denied`, and `execution.tool.failed`
+- preserved legacy `tool.executed`, `tool.permission_denied`, `tool.execution_failed`, and `tool.unexpected_error` telemetry for compatibility
+- `AgentExecutionLoop` threads the active execution context and phase into `ToolExecutor`
+- tool RunStep content now uses shared redaction helpers for inputs, outputs, and errors
+- added `tests/test_tool_executor_observability.py` for success and permission-denied tool telemetry coverage
+
+**Validation:** `python -m pytest tests/test_tool_executor_observability.py tests/test_agent_execution_loop_observability.py tests/test_execution_gateway.py tests/test_execution_worker_observability.py -q`
+
+**Behaviors applied:** `behavior_use_raze_for_logging`, `behavior_unify_execution_records`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 247 | Agent execution phase and LLM observability | ### #247 - Agent execution phase and LLM observability (2026-04-28)
+**Milestone:** `GUIDEAI-1126` agent loop observability now emits phase and LLM telemetry using the shared `execution_observability` context.
+
+**Implementation (Completed):**
+- `AgentExecutionLoop` builds and maintains an `ExecutionObservabilityContext` for run/cycle/work-item/agent/model correlation
+- `_execute_phase()` emits `execution.phase.started`, `execution.phase.completed`, and `execution.phase.failed`
+- phase completion/failure milestones are mirrored into RunStep metadata for trace rendering when telemetry sinks are unavailable
+- `_record_llm_response()` emits `execution.llm.completed` with model, token, cost, duration, tool-count, clarification, and sanitized output-preview fields
+- redaction now preserves token-count metric keys like `input_tokens` / `output_tokens` while still redacting credential-like keys
+- added `tests/test_agent_execution_loop_observability.py` for phase and LLM observability coverage
+
+**Validation:** `python -m pytest tests/test_agent_execution_loop_observability.py tests/test_execution_gateway.py tests/test_execution_worker_observability.py -q`
+
+**Behaviors applied:** `behavior_use_raze_for_logging`, `behavior_unify_execution_records`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 246 | Gateway and worker execution telemetry | ### #246 - Gateway and worker execution telemetry (2026-04-28)
+**Milestone:** `GUIDEAI-1125` gateway/worker lifecycle telemetry now uses the same `execution_observability` correlation shape introduced for `GUIDEAI-1091`.
+
+**Implementation (Completed):**
+- `ExecutionGateway` now emits `execution.gateway.enqueued` and includes shared context on gateway completed/failed telemetry
+- `ExecutionWorker` accepts injected telemetry and emits `execution.worker.started`, `execution.worker.completed`, and `execution.worker.failed`
+- worker events reconstruct context from queue payloads while falling back to job fields for older payloads
+- worker failure payloads use the shared redaction helper before telemetry emission
+- added `tests/test_execution_worker_observability.py` for queued success/failure telemetry
+- updated telemetry and execution docs with gateway/worker lifecycle events
+
+**Validation:** `python -m pytest tests/test_execution_gateway.py tests/test_execution_worker_observability.py -q`
+
+**Behaviors applied:** `behavior_use_raze_for_logging`, `behavior_unify_execution_records`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 245 | Execution observability context foundation | ### #245 - Execution observability context foundation (2026-04-28)
+**Milestone:** `GUIDEAI-1091` implementation started with a shared context shape for chat-triggered and work-item-triggered agent execution.
+
+**Implementation (Completed):**
+- added `amprealize/execution_observability.py` with `ExecutionObservabilityContext` and shared redaction helpers for execution telemetry/audit payloads
+- wired ExecutionGateway run metadata, TaskCycle metadata, queue payloads, and `execution.gateway.started` telemetry to include `execution_observability`
+- updated Session Mode audit sanitization to reuse the shared redaction helper
+- extended `tests/test_execution_gateway.py` coverage for context propagation and secret redaction
+- documented the shared context in `docs/contracts/TELEMETRY_SCHEMA.md` and `docs/WORK_ITEM_EXECUTION_PLAN.md`
+
+**Validation:** `python -m pytest tests/test_execution_gateway.py -q`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_use_raze_for_logging`, `behavior_unify_execution_records`, `behavior_instrument_metrics_pipeline`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-28_ |
+| 244 | Chat artifact chips in web console | ### #244 - Chat artifact chips in web console (2026-04-27)
+**Milestone:** Global/project chat shows first-party workspace references as inline chips with deep links instead of large inventory/work-item/run artifact cards.
+
+**Implementation (Completed):**
+- `MessageBubble` extracts `ChatArtifactRef` from structured payloads (inventory rows, `platform_action_result`, legacy `work_item`/`run` cards, top-level ids) and renders `ArtifactInlineMessage` / `PlainMessageWithArtifacts` with an `ArtifactChipRow`
+- chips use list semantics (`role="list"` / `role="listitem"` wrappers) so `Link` retains native `role="link"` for accessibility and tests
+- `ConversationPanel.css`: `.msg-artifact-inline`, `.msg-artifact-chip-row`, `.msg-artifact-chip`, kind modifiers, focus-visible and reduced-motion
+- `BCIResponsePanel`: optional `?behavior=` / `?behaviorId=` query triggers retrieve then strip params
+- `MessageComponents.test.tsx`: MemoryRouter wrapper; assertions for chips, hrefs, disabled run chip, no `.msg-artifact-card` on project lists
+- `docs/CONVERSATION_SYSTEM_PLAN.md`: documented inline chip convention
+
+**Validation:** `npx vitest run src/test/MessageComponents.test.tsx` (web-console)
+
+**Behaviors applied:** `behavior_validate_accessibility`, `behavior_update_docs_after_changes` (Student)
+
+_Last Updated: 2026-04-27_ |
+| 243 | Chat-created work items | ### #243 - Chat-created work items (2026-04-27)
+**Milestone:** Global/project chat can now execute low-risk governed work-item creation instead of answering create requests with read-only inventory cards.
+
+**Implementation (Completed):**
+- extended deterministic chat routing so `goal` and `research` work-item language routes to `work_item.manage`
+- added a platform-action fast path in `ConversationReplyService` that resolves project/board/title/type from accessible workspace inventory, executes `PlatformManagementActionService`, and persists a structured `platform_action_result`
+- added `BoardPlatformManagementAdapter` so chat-dispatched work-item creation calls `BoardService.create_work_item` with GWS title normalization and the chat actor context
+- wired the API conversation reply service to the platform-management adapter for work-item creation
+- documented the governed chat mutation path in the conversation system plan, including the invariant that chat-internal mutations must not dispatch through loopback REST or MCP handlers
+- added a regression guard that checks the chat platform-action path uses `PlatformManagementActionService` rather than REST/MCP dispatch
+- added board inventory direct answers (`board_list`) so "what boards exist on GuideAI?" no longer falls through to the project-list answer
+- added governed board discovery before chat-created work-item creation when workspace inventory has the project but no board rows
+- added `ChatResourceActionRegistry` as the single chat-internal dispatch table for work items, boards/projects/orgs, agents, wiki pages/content, behaviors, runs, attachments, and MCP tool invocation
+- rewired chat-created work items and board discovery through the registry; registered but not-yet-wired wiki/behavior/run backends fail closed until typed executors are configured
+- added registry regression tests for action coverage, platform dispatch, fail-closed backends, and no REST/MCP loopback fragments
+
+**Validation:** `python -m pytest tests/test_chat_action_router.py tests/test_conversation_reply_routing.py tests/test_platform_management_actions.py -q --tb=short`; `python -m pytest tests/test_conversation_reply_routing.py tests/test_platform_management_actions.py -q --tb=short`; `python -m pytest tests/test_chat_resource_actions.py tests/test_conversation_reply_routing.py tests/test_platform_management_actions.py -q --tb=short`; `python -m compileall amprealize/chat_action_router.py amprealize/chat_resource_actions.py amprealize/platform_management_actions.py amprealize/services/conversation_reply_service.py amprealize/api.py`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_standardize_work_items`, `behavior_lock_down_security_surface`, `behavior_update_docs_after_changes`, `behavior_design_test_strategy`
+
+_Last Updated: 2026-04-27_ |
+| 242 | Redis-backed chat realtime hot path | ### #242 - Redis-backed chat realtime hot path (2026-04-27)
+**Milestone:** Introduced Redis as the optional chat realtime bus while keeping local/Neon/enterprise Postgres as the durable conversation store.
+
+**Implementation (Completed):**
+- added `RedisConversationRealtimeBackend` with Pub/Sub fanout and short Redis Streams replay for in-flight conversation events
+- kept `ConversationEventHub` as the stable facade, adding event IDs, origin IDs, Redis loopback suppression, and late SSE/WebSocket Streams replay while preserving memory-only operation
+- closed per-conversation Redis Pub/Sub listeners when the last WebSocket or SSE queue subscriber leaves (production hardening for long-lived API workers)
+- optional `AMPREALIZE_CHAT_REALTIME_MAX_REMOTE_CONVERSATIONS` env limits concurrent Redis Pub/Sub listeners (local delivery continues when at cap)
+- synced `amprealize-enterprise` `conversation_event_hub.py` with OSS and added `conversation_realtime_redis.py` so enterprise runtime matches Redis wiring in `create_app`
+- aligned `amprealize-enterprise/docs/CONVERSATION_SYSTEM_PLAN.md` with OSS (Assembly Flow, reply.* events, Realtime Hot Path, env table including `AMPREALIZE_CHAT_REALTIME_MAX_REMOTE_CONVERSATIONS`)
+- aligned `amprealize-enterprise` messaging `create_app` wiring with OSS (`RedisConversationRealtimeBackend`, same env vars)
+- wired `AMPREALIZE_CHAT_REALTIME_BACKEND=auto|redis|memory`, `AMPREALIZE_REDIS_URL`/`REDIS_URL`, replay TTL, and stream max length through API startup
+- hardened the web console stream hook so "Thinking..." appears immediately, replay/live duplicates are ignored, and `reply.complete` closes SSE cleanly
+- fixed stream placeholder suppression so user messages carrying `stream_message_id` metadata do not hide the assistant progress row
+- expanded global chat inventory to include OSS-compatible project-agent assignments for user-accessible projects
+- expanded the deterministic global-chat fast path into `InventoryAnswerService` for project lists, available agents, project-agent assignments, active runs, and recent/blocked work items without waiting on LLM generation
+- added curated context metadata for workspace rules, retrieved guides, endorsed resources, admin-visible context sources, and source-priority policy
+- added Hex-style live trace metadata/UI for phases, source counts, cited rows, and deterministic answer badges
+- persisted direct inventory answers as structured artifact payloads so transcript cards can expose cited source rows
+- added telemetry counters for `chat.fast_path.hit`, `chat.fast_path.miss`, `chat.context.source_count`, and `chat.phase.latency_ms`
+- updated conversation architecture docs, AI Learning Wiki, and focused event hub regression tests
+
+**Validation:** `python -m pytest tests/test_conversation_events.py tests/test_conversation_reply_routing.py tests/test_conversation_realtime_redis.py -q`; `python -m pytest tests/test_global_chat_context.py tests/test_conversation_reply_routing.py -q`; `python -m pytest tests/test_global_chat_context.py -q`; `npm run test -- MessageComponents.test.tsx`; `python -m compileall amprealize/conversation_event_hub.py amprealize/conversation_realtime_redis.py amprealize/services/conversation_events_api.py amprealize/api.py amprealize/global_chat_context.py amprealize/services/conversation_reply_service.py`; `npm run build` in `web-console`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_externalize_configuration`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`, `behavior_design_test_strategy`
+
+_Last Updated: 2026-04-27_ |
+| 241 | Research work item execution | ### #241 - Research work item execution (2026-04-27)
+**Milestone:** Added `research` as a flexible work item type with a required Research URL and wired execution so research items run through the builtin AI Research agent only.
+
+**Implementation (Completed):**
+- extended shared board contracts, MCP schemas, REST descriptions, and web console UI to accept `research` work items and normalize `research_url` into work item metadata
+- enforced registry-resolved `ai_research` execution in the gateway and legacy execution path while preserving assignment to either users or agents
+- implemented guarded URL ingestion with SSRF, redirect, content-type, timeout, and body-size protections, then adapted ingester output into `IngestedPaper`
+- added focused regression tests and updated work management, research contract, capability matrix, and AI Learning Wiki documentation
+
+**Validation:** `python -m pytest tests/test_research_work_items.py -q -m unit`; `python -m compileall amprealize/boards/contracts.py amprealize/services/board_service.py amprealize/mcp/handlers/board_handlers.py amprealize/execution_gateway.py amprealize/work_item_execution_service.py amprealize/research_service.py amprealize/research/ingesters/url_ingester.py amprealize/research/ingesters/markdown_ingester.py amprealize/research/ingesters/pdf_ingester.py`; `npm run build` in `web-console`
+
+**Behaviors applied:** `behavior_standardize_work_items`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_lock_down_security_surface`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-27_ |
+| 240 | Chat reply lifecycle and global context grounding | ### #240 - Chat reply lifecycle and global context grounding (2026-04-27)
+**Milestone:** Completed the consolidated chat UX/context plan with stable reply stream IDs, visible reply lifecycle progress, typewriter streaming UI, selectable message content, and accessible workspace inventory grounding for global chat.
+
+**Implementation (Completed):**
+- added `WorkspaceInventoryProvider` and `build_chat_context_composer()` so global and project chat replies can include compact project, board, work item, run, behavior, and wiki context from in-process service calls
+- emitted `reply.started`, `reply.step`, `reply.token`, `reply.complete`, and `reply.error` alongside legacy SSE events using one `stream_message_id` from scheduling through persistence
+- wired the web console to schedule active reply streams immediately, display progress labels, reveal streamed text with reduced-motion support, and preserve copy/select behavior inside the floating chat shell
+- updated regression coverage, `docs/CONVERSATION_SYSTEM_PLAN.md`, `wiki/ai-learning/in-practice/agent-orchestration.md`, and `/Users/nick/.cursor/plans/chat_ux_context_46f4c775.plan.md`
+
+**Validation:** `python -m pytest tests/test_conversation_reply_routing.py tests/test_global_chat_context.py -q`; `npm run test -- MessageComponents.test.tsx`; `npm run build`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`, `behavior_validate_accessibility`, `behavior_design_test_strategy`
+
+_Last Updated: 2026-04-27_ |
+| 239 | BYOK and model readiness unification | ### #239 - BYOK and model readiness unification (2026-04-27)
+**Milestone:** Single credential store construction, shared chat metadata validation across REST/WebSocket, `GET /api/v1/model-readiness`, MCP `config.getModelReadiness`, BYOK persistence policy (`amprealize.llm.byok_policy`), web-console preflight, execution/MCP credential resolver fixes, and BreakerAmp cloud-dev/local-dev encryption defaults.
+
+**Implementation (Completed):**
+- added `amprealize/llm/credential_factory.py`, `byok_policy.py`, `model_readiness.py`; aligned `CredentialStore` scope ordering for BYOK diagnostics and `record_credential_*`
+- wired `conversation_api` / `conversation_events_api` / `api` / `mcp_server` / `execution_wiring` to the shared patterns; optional `project_id` for platform model listing
+- web console: `useModelReadiness`, MessageComposer send gating, project models pass `user_id`
+- tests: `tests/test_model_readiness.py` (unit); docs: `.env.example`, `wiki/ai-learning/in-practice/llm-routing-in-amprealize.md`; mirrored key paths under `amprealize-enterprise/`
+
+**Validation:** `python -m pytest tests/test_model_readiness.py -m unit -q`
+
+**Behaviors applied:** `behavior_validate_cross_surface_parity`, `behavior_externalize_configuration`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`, `behavior_prevent_secret_leaks`
+
+_Last Updated: 2026-04-27_ |
+| 238 | BreakerAmp wait-health and baked API image | ### #238 - BreakerAmp wait-health and baked API image (2026-04-27)
+**Milestone:** Reduced 502/nginx confusion after `breakeramp restart` by adding `breakeramp wait-health`, `restart --wait`, and optional `deployment/Dockerfile.api-dev` with `AMPREALIZE_API_SKIP_PIP` / `AMPREALIZE_API_IMAGE` in cloud-dev and local blueprints.
+
+**Implementation (Completed):**
+- added `breakeramp.health_wait` polling helpers and CLI `wait-health`; extended `breakeramp restart` with `--wait` / `--wait-strict` / `--wait-direct-api`
+- documented health gates, curl fallback, and baked-image workflow in `docs/WORK_MANAGEMENT_GUIDE.md`
+- blueprint `amprealize-api` commands branch on `AMPREALIZE_API_SKIP_PIP=1`; image override via `AMPREALIZE_API_IMAGE`
+
+**Validation:** `pytest packages/breakeramp/tests/test_health_wait.py packages/breakeramp/tests/test_cli_command_surface.py` (run from repo root).
+
+**Behaviors applied:** `behavior_use_breakeramp_for_environments`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-27_ |
+| 237 | Global chat optimistic send and reply trigger | ### #237 - Global chat optimistic send and reply trigger (2026-04-27)
+**Milestone:** Fixed the `GUIDEAI-1037` global chat send UX so sent messages render immediately and selected-model chat messages trigger an agent reply.
+
+**Implementation (Completed):**
+- added optimistic message insertion/reconciliation in the web console message cache so user messages appear before the REST round trip completes
+- wired the conversation REST send route to schedule `ConversationReplyService.generate_reply()` for normal user text messages with selected LLM model metadata
+- initialized `ConversationReplyService` with the conversation event hub and a DB-backed LLM credential resolver so user-scoped NVIDIA BYOK credentials can be used for replies
+- corrected reply-service token/error/complete publication to use the synchronous event hub API and async LLM streaming path
+
+**Validation:** `python -m py_compile` passes for edited conversation/API modules; `python -m pytest tests/test_conversation_reply_routing.py -q` passes; `npm --prefix "amprealize/web-console" run build` passes; IDE lints report no errors on edited files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_enforce_quality_gates`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-27_ |
+| 236 | Global chat NVIDIA BYOK send path | ### #236 - Global chat NVIDIA BYOK send path (2026-04-27)
+**Milestone:** Fixed the `GUIDEAI-1037` global chat path after user-scoped NVIDIA BYOK keys were saved successfully.
+
+**Implementation (Completed):**
+- wired conversation message model metadata validation to the DB-backed BYOK credential repository so user-scoped NVIDIA keys are accepted when sending messages
+- optimized model availability to filter provider/free-chat candidates before credential resolution and cache provider credentials per request
+- added DeepSeek V4 Pro (`deepseek-ai/deepseek-v4-pro`) to the curated NVIDIA free endpoint chat catalog
+- refreshed the LLM routing wiki with the updated DeepSeek model list
+
+**Validation:** Backend modules compile; focused model availability tests cover the curated NVIDIA free-chat list.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-27_ |
+| 235 | BreakerAmp command surface rationalization | ### #235 - BreakerAmp command surface rationalization (2026-04-27)
+**Milestone:** Implemented the BreakerAmp command-surface plan so humans and agents have a clearer canonical command taxonomy, safer JSON contracts, and documented wrapper/MCP boundaries.
+
+**Implementation (Completed):**
+- added the canonical BreakerAmp command matrix to `docs/WORK_MANAGEMENT_GUIDE.md` with purpose, use cases, risk level, JSON support, and preferred usage
+- refreshed `packages/breakeramp/README.md` to make `breakeramp configure`, `up`, `list`, `services`, `resources`, `cleanup --dry-run`, and `fresh` the documented workflow
+- documented `breakeramp`, `amprealize infra`, `amprealize breakeramp`, and MCP surface responsibilities plus safe MCP exposure gates
+- added resource recommendations to `breakeramp resources` human and JSON output
+- hardened audited JSON paths to write directly to stdout so Rich wrapping cannot corrupt agent-readable output
+- deduplicated `nuke` discovery across Podman connections so dry-run and execution target unique containers, volumes, and networks
+- added command-surface contract tests for help visibility, docs classification, JSON parseability, dry-run sections, and status/resource contracts
+
+**Validation:** `python -m pytest packages/breakeramp/tests/test_cli.py packages/breakeramp/tests/test_cli_restart.py packages/breakeramp/tests/test_cli_command_surface.py` passes (`36 passed`). Broader `python -m pytest packages/breakeramp/tests tests/test_cli_breakeramp.py tests/test_breakeramp_*.py` reached `295 passed` before failing on pre-existing local-environment issues: gateway rate-limit fixture drift, default environment expectation drift, and localhost Postgres unavailable for Alembic setup. IDE lints report no errors on edited files.
+
+**Behaviors applied:** `behavior_use_breakeramp_for_environments`, `behavior_update_docs_after_changes`, `behavior_validate_cross_surface_parity`, `behavior_launch_plan_seed`
+
+_Last Updated: 2026-04-27_ |
+| 234 | Web console user BYOK settings | ### #234 - Web console user BYOK settings (2026-04-27)
+**Milestone:** Added account-level BYOK management for `GUIDEAI-1037` so users can save personal LLM provider keys from the web console.
+
+**Implementation (Completed):**
+- added an `/settings` LLM API Keys section for user-scoped provider keys, defaulting the add form to NVIDIA NIM
+- wired the existing user credential hooks to authenticated `/users/me/credentials` endpoints and refreshed LLM model availability after key changes
+- hardened user credential route ownership checks so cross-user access cannot rely on caller-supplied `actor_id`
+- added user credential re-enable support for disabled personal provider keys
+- updated the LLM routing wiki with the personal BYOK web flow
+
+**Validation:** `python -m pytest tests/test_user_credential_auth.py -m unit -q --no-cov` passes (`5 passed`); `npm --prefix "/Users/nick/Main/amprealize/web-console" run build` passes; IDE lints report no errors on edited files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_lock_down_security_surface`, `behavior_prevent_secret_leaks`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-27_ |
+| 233 | NVIDIA chat model dropdown visibility | ### #233 - NVIDIA chat model dropdown visibility (2026-04-26)
+**Milestone:** Tightened `GUIDEAI-1037` global chat model selection around the specific NVIDIA free endpoint plan.
+
+**Implementation (Completed):**
+- expanded the canonical NVIDIA NIM chat catalog to the requested free/open model set: DeepSeek V4, MiniMax M2, Kimi K2, Qwen Coder, GPT-OSS 120B, Mistral Large, GLM 5.1, Nemotron Ultra, and Llama 70B
+- filtered free/open availability to chat-capable models so moderation-only endpoints do not appear in the composer selector
+- made `CredentialStore` load `.env` files from the repo/workspace path before resolving platform credentials, while preserving explicit environment variable precedence
+- passed the shell current user into `MessageComposer` so global chat model lookup does not depend on `conversation.created_by`
+- kept the model row visible with loading/error/no-key status text instead of hiding the selector area when model availability is empty
+
+**Validation:** `python -m pytest tests/test_model_availability.py -m unit -q --no-cov` passes (`1 passed`); `npm --prefix "/Users/nick/Main/amprealize/web-console" run build` passes; local `CredentialStore` smoke check resolves 9 NVIDIA chat models without printing secrets.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-26_ |
+| 232 | Global chat NVIDIA free-model selector | ### #232 - Global chat NVIDIA free-model selector (2026-04-26)
+**Milestone:** Refined `GUIDEAI-1037` global chat model selection to match the NVIDIA free/open models plan.
+
+**Implementation (Completed):**
+- defaulted the personal/global model availability endpoint to `provider_filter=nvidia` and `free_open_only=true`
+- passed the same query params from the global chat model hook so the dropdown only shows NVIDIA free/open models
+- loaded the workspace-level `.env` as a fallback so locally stored NVIDIA keys are visible to API startup without duplicating secrets
+- added shared availability filtering and regression coverage for the free/open model contract
+- refreshed the AI Learning Wiki LLM routing page with the global chat selector behavior
+
+**Validation:** `python -m pytest tests/test_model_availability.py tests/test_llm_client.py -m unit -q --no-cov` passes (`51 passed`); `npm --prefix "/Users/nick/Main/amprealize/web-console" run build` passes; IDE lints report no errors on edited OSS files.
+
+**Behaviors applied:** `behavior_design_api_contract`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-26_ |
+| 231 | Global chat endpoint gate fix | ### #231 - Global chat endpoint gate fix (2026-04-26)
+**Milestone:** Fixed the dashboard/global chat dock open path for `GUIDEAI-1037`.
+
+**Implementation (Completed):**
+- moved the `conversations` REST/MCP/CLI capability into the always-enabled goals surface so `/api/v1/conversations` is not blocked as Enterprise-only collaboration
+- opened the chat window immediately on global dock click while the global home conversation is fetched or created
+- added modular-install regression coverage proving goals-only installs keep the conversations router enabled
+
+**Validation:** `python -m pytest tests/test_modular_install.py -q` passes (`179 passed`); `npm --prefix "/Users/nick/Main/amprealize/web-console" run build` passes; IDE lints report no errors on edited OSS files.
+
+**Behaviors applied:** `behavior_design_api_contract`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-26_ |
+| 230 | Always-visible chat dock UX | ### #230 - Always-visible chat dock UX (2026-04-26)
+**Milestone:** Advanced `GUIDEAI-1037` by replacing the board-only legacy chat dock with a protected-shell Amprealize Chat dock.
+
+**Implementation (Completed):**
+- mounted `AmprealizeChatDock` from `WorkspaceShell` so chat is available on dashboard, project, board, and other protected pages
+- defaulted the dock to global home chat outside project routes and project-room chat on project/board routes
+- expanded TypeScript conversation scopes and nullable `project_id` parity for global conversations
+- added global conversation list/create helpers and user-model availability for global chat composer model selection
+- removed the board page's legacy horizontal-avatar `ChatHub` launcher and board-only `UnifiedConversationWindow` mounting
+- updated the conversation UX plan to the two-state dock/full-window model with no peek sheet
+
+**Validation:** `npm --prefix "/Users/nick/Main/amprealize/web-console" run build` passes; IDE lints report no errors on edited OSS chat UX files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-26_ |
+| 229 | LLM routing and model selection | ### #229 - LLM routing and model selection (2026-04-26)
+**Milestone:** Advanced `guideai-1037` by wiring provider-neutral model selection, BYOK-aware model metadata, and schema-constrained LLM chat routing into governed conversation flows.
+
+**Implementation (Completed):**
+- added chat model selection metadata across the web composer, VS Code chat panels, REST sends, and WebSocket message sends
+- validated selected model metadata server-side before persistence and preserved credential source/model metadata for LLM calls
+- introduced `ChatRouteGateway` and `LLMChatActionRouter` behind the existing `ChatActionRouteResult` contract with deterministic fallback and strict enum/action validation
+- routed live conversation replies before response generation, stored typed route metadata, forwarded selected models to the LLM client, and emitted governed chat audit records
+- added regression tests for structured LLM routing, fallback, permission recomputation, credential resolution, and reply route metadata
+- created `wiki/ai-learning/in-practice/llm-routing-in-amprealize.md`
+
+**Validation:** `pytest amprealize/tests/test_chat_action_router.py amprealize/tests/test_conversation_reply_routing.py amprealize/tests/test_llm_client.py amprealize/tests/test_llm_credential_resolution.py` passes (`64 passed`); `npm --prefix "/Users/nick/Main/amprealize/web-console" run build` passes; `npm --prefix "/Users/nick/Main/amprealize/packages/collab-client" run typecheck` passes; `npm --prefix "/Users/nick/Main/amprealize/extension" exec -- tsc -p "/Users/nick/Main/amprealize/extension" --noEmit` passes.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_design_test_strategy`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-26_ |
+| 228 | Architecture migration path docs | ### #228 - Architecture migration path docs (2026-04-25)
+**Milestone:** Completed `guideai-1065` by updating the gateway/chat architecture migration documentation.
+
+**Implementation (Completed):**
+- updated `docs/WORK_ITEM_EXECUTION_PLAN.md` to mark the gateway-first architecture as documented, retire stale `WorkItemExecutionService`-only start assumptions, and add a surface-by-surface migration matrix for board/web, chat, REST, MCP, CLI-shaped requests, and queue workers
+- updated `docs/CONVERSATION_SYSTEM_PLAN.md` with cross-surface validation evidence for `guideai-1063` and chat-governance boundary evidence for `guideai-1064`
+- added a governed work item execution and chat row to `docs/capability_matrix.md` with supported/deferred surfaces and concrete parity evidence
+- refreshed `wiki/ai-learning/in-practice/agent-orchestration.md` with the gateway/chat validation boundary
+- mirrored the documentation updates in Enterprise
+
+**Validation:** focused doc/lint checks on edited architecture, capability matrix, and wiki files report no IDE linter errors; stale architecture phrases were removed from both `WORK_ITEM_EXECUTION_PLAN.md` files.
+
+**Behaviors applied:** `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 227 | Chat governance boundary tests | ### #227 - Chat governance boundary tests (2026-04-25)
+**Milestone:** Advanced `guideai-1064` by adding focused unit coverage for governed chat security and approval boundaries.
+
+**Implementation (Completed):**
+- added `tests/test_chat_governance_boundaries.py` covering global chat denial for inaccessible resources, mixed human/agent group-chat execution scopes, project-space work item mutations, attachment scope requirements, MCP tool approval flow, agent lifecycle policy denial, and execution-policy tool denial
+- updated `ChatActionRouter` to derive chat permission surfaces from the active conversation scope for group chats, project spaces, run threads, and work item threads
+- added router coverage proving group-chat execution uses `group_chat` permissions and requires conversation, project, and agent scopes
+- mirrored the test suite and router behavior in Enterprise
+- restored Enterprise permission parity by adding the missing `agent` scope to group-chat permission requirements
+- refreshed the AI Learning Wiki orchestration walkthrough with the new validation boundary coverage
+
+**Validation:** `python -m pytest tests/test_chat_action_router.py tests/test_chat_governance_boundaries.py -m unit -q --no-cov` passes in OSS and Enterprise (`13 passed` each); IDE lints report no errors on edited files.
+
+**Behaviors applied:** `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_lock_down_security_surface`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 226 | Gateway execution parity tests | ### #226 - Gateway execution parity tests (2026-04-25)
+**Milestone:** Advanced `guideai-1063` by adding cross-surface gateway execution parity coverage.
+
+**Implementation (Completed):**
+- extended `tests/test_execution_gateway_adapter.py` to compare REST, MCP, CLI-shaped, and chat-shaped start requests against the same gateway request signature
+- verified equivalent work item, project, org, agent override, model override, execution mode, idempotency, intent, and plan artifact fields
+- asserted each surface preserves its source label (`api`, `mcp`, `cli`, `chat`) while sharing run metadata
+- added REST/MCP parity coverage for cancel and clarification control payloads
+- mirrored the parity coverage in Enterprise
+
+**Validation:** `python -m pytest tests/test_execution_gateway_adapter.py -m unit -q --no-cov` passes in OSS and Enterprise (`5 passed` each); IDE lints report no errors on edited test files.
+
+**Behaviors applied:** `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-25_ |
+| 225 | Unified board execution controls | ### #225 - Unified board execution controls (2026-04-25)
+**Milestone:** Completed `guideai-1062` by centralizing execution-control state and action copy across board, drawer, and chat surfaces.
+
+**Implementation (Completed):**
+- added `web-console/src/lib/executionControls.ts` with shared state normalization for pending, queued, running, paused, clarification-needed, failed, completed, and cancelled runs
+- derived consistent start/cancel/open/refresh labels, disabled-state titles, active-run gating, missing-agent copy, and unavailable copy from one model
+- wired board work item cards and `WorkItemDrawer` to the shared model for start/cancel gating and status summaries
+- wired chat run artifact cards to the shared open/cancel action language
+- added unit tests for state normalization, active-run semantics, and control gating
+- documented the shared model in the conversation plan and AI Learning Wiki orchestration guidance
+
+**Validation:** `npm --prefix "/Users/nick/Main/amprealize/web-console" test -- executionControls.test.ts MessageComponents.test.tsx` passes (`21 passed`); `npm --prefix "/Users/nick/Main/amprealize/web-console" run build` passes.
+
+**Behaviors applied:** `behavior_validate_accessibility`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 224 | Live plan and run cards | ### #224 - Live plan and run cards (2026-04-25)
+**Milestone:** Completed `guideai-1061` by rendering live work item, run, plan, and recovery artifacts in Amprealize Chat.
+
+**Implementation (Completed):**
+- extended `MessageBubble` to route `structured_payload.card_kind` values for `work_item`, `run`, `plan`, and `recovery`
+- added inline card anatomy for work item status, priority, assignee, agent, branch, related run, queue state, execution phase, progress, completion summary, plan artifact ID, and recovery actions
+- styled artifact cards with the existing glass chat language while preserving the current structured-message contract
+- added React tests covering work item, run, plan, and recovery cards
+- documented the live artifact shape in the conversation plan and AI Learning Wiki orchestration guidance
+
+**Validation:** `npm --prefix "/Users/nick/Main/amprealize/web-console" test -- MessageComponents.test.tsx` passes (`18 passed`); IDE lints report no errors on edited UI files.
+
+**Behaviors applied:** `behavior_validate_accessibility`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 223 | Unified chat interface context shell | ### #223 - Unified chat interface context shell (2026-04-25)
+**Milestone:** Advanced `guideai-1060` by making the unified conversation window explicitly context-aware for global and project chat.
+
+**Implementation (Completed):**
+- extended `UnifiedConversationWindow` with `contextKind="global" | "project"` and optional `contextLabel`
+- rendered context badge and scope hint in the draggable glass header
+- updated the accessible dialog label to identify Amprealize Chat, current context, and active conversation title
+- adjusted empty-state copy for global cross-resource chat versus project conversation selection
+- expanded the desktop glass shell and kept styling aligned with translucent panes, blur, crisp borders, teal-compatible accents, and no shadows or gradients
+- added React tests for project and global context rendering
+
+**Validation:** `npm --prefix "/Users/nick/Main/amprealize/web-console" test -- UnifiedConversationWindow.test.tsx` passes (`3 passed`); IDE lints report no errors on edited UI files.
+
+**Behaviors applied:** `behavior_validate_accessibility`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-25_ |
+| 222 | Platform management actions | ### #222 - Platform management actions (2026-04-25)
+**Milestone:** Completed `guideai-1059` by adding the governed chat boundary for platform management actions.
+
+**Implementation (Completed):**
+- added `amprealize/platform_management_actions.py` with resource/action enums, request/result contracts, policy evaluation, target validation, dispatch, and audit logging
+- covered org, project, board, work item, invite/share, file, upload, image, and MCP-tool access action families
+- required explicit targets for invite/share and MCP tool access changes
+- required project or conversation scope for file/upload/image actions
+- routed actions through `PolicyCompositionEngine` and emitted `GovernedChatAuditLogger` platform-action records
+- dispatched approved actions through configured typed services by resource family rather than ad hoc tool calls
+- documented the platform action boundary in conversation docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `python -m pytest tests/test_platform_management_actions.py -m unit -q --no-cov` passes (`5 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 221 | Agent lifecycle actions | ### #221 - Agent lifecycle actions (2026-04-25)
+**Milestone:** Advanced `guideai-1058` by adding the governed chat boundary for agent registry lifecycle actions.
+
+**Implementation (Completed):**
+- added `amprealize/agent_lifecycle_actions.py` with action types, request/result contracts, policy evaluation, dispatch, and audit logging
+- supported discover, assign-to-project, create custom agent, modify tools, modify policy, publish, and archive/delete actions
+- routed all actions through `PolicyCompositionEngine` with `agent_lifecycle` chat surface metadata
+- required explicit approval for tool/policy changes, publishing, and archive/delete before registry dispatch
+- emitted `GovernedChatAuditLogger` platform-action records for allow, review-required, denied, and approved lifecycle attempts
+- documented the lifecycle boundary in conversation docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `python -m pytest tests/test_agent_lifecycle_actions.py -m unit -q --no-cov` passes (`5 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 220 | Chat action router | ### #220 - Chat action router (2026-04-25)
+**Milestone:** Advanced `guideai-1057` by adding a deterministic typed router for governed Amprealize Chat platform actions.
+
+**Implementation (Completed):**
+- added `amprealize/chat_action_router.py` with action categories, risk levels, route request/result contracts, typed candidates, and policy-context serialization
+- mapped natural-language and preset commands to read/synthesis, work management, agent management, execution planning, execution start, MCP tool, attachment, and invite/share action families
+- attached confidence, permission surface/action, required scopes, risk, approval requirement, clarification requirement, target resource type, and routing metadata to each candidate
+- made high-risk actions require approval and ambiguous requests ask for clarification before dispatch
+- documented the router in conversation docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `python -m pytest tests/test_chat_action_router.py -m unit -q --no-cov` passes (`5 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 219 | Plan approval flow | ### #219 - Plan approval flow (2026-04-25)
+**Milestone:** Completed `guideai-1056` by adding the approval bridge from plan-only artifacts to separate execution runs.
+
+**Implementation (Completed):**
+- added `amprealize/plan_approval_service.py` with `PlanArtifactRepository`, `InMemoryPlanArtifactRepository`, `PlanApprovalService`, and `PlanExecutionStartResult`
+- supported explicit revise, discard, and approve operations while preserving artifact version history and audit state
+- added `approve_and_start_execution()` to approve a plan, create a fresh `ExecutionRequest` with `intent=execute` and `plan_artifact_id`, and call `ExecutionGateway`
+- marked artifacts executed only after a successful new gateway run ID is returned
+- documented the approval flow in execution docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `python -m pytest tests/test_plan_artifact_contracts.py tests/test_plan_approval_service.py -m unit -q --no-cov` passes (`8 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 218 | Plan-only gateway mode | ### #218 - Plan-only gateway mode (2026-04-25)
+**Milestone:** Advanced `guideai-1055` by making `ExecutionIntent.PLAN_ONLY` a first-class non-dispatching mode in `ExecutionGateway`.
+
+**Implementation (Completed):**
+- derived read-only/tool-limited execution policy for plan-only requests, denying file writes and platform-mutating board/project/org/agent tools
+- created draft `PlanArtifact` output and summary-card compatibility metadata from plan-only gateway runs
+- marked plan-only run records with `run_type=plan_only`, `execution_intent=plan_only`, completed status, and `plan_artifact_id`
+- skipped both queue dispatch and background executor launch for plan-only requests
+- updated execution docs and AI Learning Wiki orchestration guidance
+
+**Validation:** `python -m pytest tests/test_execution_gateway.py tests/test_plan_artifact_contracts.py -m unit -q --no-cov` passes (`60 passed`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 217 | Plan artifact contract | ### #217 - Plan artifact contract (2026-04-25)
+**Milestone:** Advanced `guideai-1054` by defining the durable plan artifact contract needed for `GUIDEAI-1041` plan-only execution.
+
+**Implementation (Completed):**
+- added `amprealize/plan_artifact_contracts.py` with `PlanArtifactStatus`, immutable `PlanArtifactVersion` entries, and `PlanArtifact`
+- modeled stable `plan-*` IDs, work item/project/org/chat/message/agent/source-run links, approval state, discard state, and eventual execution-run linkage
+- added lifecycle helpers for revise, approve, discard, and mark-executed transitions while preserving version history
+- documented the contract in the execution plan and AI Learning Wiki orchestration page
+
+**Validation:** `python -m pytest tests/test_plan_artifact_contracts.py -m unit -q --no-cov` passes (`4 passed`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 216 | Gateway execution default routing | ### #216 - Gateway execution default routing (2026-04-25)
+**Milestone:** Advanced `guideai-1046` by making `ExecutionGateway` the default/canonical work item execution start boundary for API and MCP bootstraps.
+
+**Implementation (Completed):**
+- added `execution_gateway_bootstrap.is_execution_gateway_enabled()` so API and MCP share the same gateway-default policy
+- changed API and MCP bootstraps to initialize gateway-backed starts by default, with `AMPREALIZE_EXECUTION_GATEWAY_ENABLED=false` preserved as an explicit legacy fallback
+- updated execution and AI Learning Wiki guidance so docs no longer describe gateway execution as opt-in
+- added focused unit coverage for default-enabled, explicit-disabled, explicit-enabled, and unknown flag values
+
+**Validation:** `python -m pytest tests/test_execution_gateway_bootstrap.py tests/test_execution_gateway_adapter.py -m unit -q --no-cov` passes (`7 passed`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_unify_execution_records`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-25_ |
+| 215 | Conversation workspace runtime implementation | ### #215 - Conversation workspace runtime implementation (2026-04-24)
+**Milestone:** Fully implemented `guideai-1050` beyond design contracts by making target Amprealize Chat conversation scopes active across persistence, runtime services, REST, CLI, MCP, and tests.
+
+**Implementation (Completed):**
+- added migration `20260424_conv_scopes` to allow `global_user_home` conversations without `project_id`, expand the `messaging.conversations.scope` constraint, enforce project/global binding, and add scope lookup indexes
+- updated `ConversationService` to normalize legacy `agent_dm` creates to target `dm`, keep existing `agent_dm` rows discoverable, validate project-scoped/global bindings, and persist message `resource_links`
+- added REST `/v1/conversations` create/list routes for global or project-scoped chat while preserving project-prefixed routes
+- aligned CLI scope choices and MCP conversation schemas/handlers with the complete target scope set
+- added focused MCP/runtime contract coverage for global home creation and legacy direct-message normalization
+
+**Validation:** `python -m pytest "/Users/nick/Main/amprealize/tests/test_conversation_workspace_contracts.py" "/Users/nick/Main/amprealize/tests/test_conversation_parity.py"` passes (`91 passed`); `python -m pytest "/Users/nick/Main/amprealize/tests/test_conversation_events.py"` passes (`19 passed`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_migrate_postgres_schema`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-24_ |
+| 213 | Governed chat audit records | ### #213 - Governed chat audit records (2026-04-24)
+**Milestone:** Completed `guideai-1053` by adding append-only governed chat audit records for chat-originated execution governance.
+
+**Implementation (Completed):**
+- added `GovernedChatAuditLogger` and `GovernedChatAuditRecord` for sanitized intent, scope, policy, tool-call, approval/denial, and execution-start audit entries
+- wired `ExecutionGateway` to record preflight intent/scope audit entries, policy composition decisions, approval/denial states, and execution starts
+- extended session-mode tool call logging so denied tool calls can be queried through governed chat audit records
+- documented the `governed_chat.audit_record` telemetry payload and updated execution/wiki guidance
+
+**Validation:** `pytest "/Users/nick/Main/amprealize/tests/test_session_audit.py" "/Users/nick/Main/amprealize/tests/test_execution_gateway.py" -q` passes (`96 passed`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_unify_execution_records`, `behavior_align_storage_layers`, `behavior_update_docs_after_changes`, `behavior_launch_plan_seed`
+
+_Last Updated: 2026-04-24_ |
+| 215 | Dual-repo agent parity guidance | ### #215 - Dual-repo agent parity guidance (2026-04-24)
+**Milestone:** Made OSS/Enterprise parity a first-class agent startup rule so Amprealize platform work defaults to both `/Users/nick/Main/amprealize` and `/Users/nick/Main/amprealize-enterprise` unless explicitly scoped otherwise.
+
+**Implementation (Completed):**
+- added repo parity notes to `tools.guide` runtime guidance and MCP prompt/resource text
+- updated AGENTS/CLAUDE, Cursor startup rule, WorkItemPlanner agent instructions, and WorkItemPlanner skill guidance with dual-repo defaults
+- updated the MCP AI Learning Wiki concept page to explain dual-repo parity as part of the startup protocol
+- added regression coverage that runtime guide, prompt/resource guidance, and agent docs name both repo paths and the explicit exception rule
+
+**Validation:** `python -m pytest tests/test_mcp_tool_groups.py -q --no-cov` passes (`11 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`315 MCP tool manifests in sync`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-24_ |
+| 214 | Work item comment author validation | ### #214 - Work item comment author validation (2026-04-24)
+**Milestone:** Fixed `workItems.postComment` author validation so completion comments can be attributed to email-based users or runtime MCP agent identities.
+
+**Implementation (Completed):**
+- aligned user author validation with the `auth.users` schema by checking `id` or `email` instead of the nonexistent `user_id` column
+- allowed runtime MCP agent identities such as `system` and `cursor-agent` to author append-only comments without requiring an `execution.agents` registry row
+- preserved strict user validation so unknown human authors still fail with `AuthorNotFoundError`
+- added regression coverage for email authors, unknown users, and runtime MCP agent comment authors
+
+**Validation:** `python -m pytest tests/test_mcp_board_workitem_handlers.py tests/unit/test_display_id.py -q --no-cov` passes (`30 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`315 MCP tool manifests in sync`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_align_storage_layers`, `behavior_design_mcp_tool_schema`, `behavior_design_test_strategy`
+
+_Last Updated: 2026-04-24_ |
+| 213 | Work item comment author defaults | ### #213 - Work item comment author defaults (2026-04-24)
+**Milestone:** Fixed `workItems.postComment` so MCP agents can post completion summaries without explicitly supplying `author_id` when `user_id` or session context already identifies the author.
+
+**Implementation (Completed):**
+- defaulted comment `author_id` from explicit `author_id`, then `user_id`, then MCP session `user_id`
+- inferred `author_type="agent"` for agent-like MCP calls such as `user_id=cursor-agent` with `actor_role=Student`
+- retained user-comment behavior for normal user/session calls and added an agent fallback when no explicit `author_type` is supplied
+- updated `workItems.postComment` manifests to document session/user-backed author defaults
+- added regression coverage for both session-backed and explicit `user_id` author defaults
+
+**Validation:** `python -m pytest tests/test_mcp_board_workitem_handlers.py -q --no-cov` passes (`3 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`315 MCP tool manifests in sync`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`
+
+_Last Updated: 2026-04-24_ |
+| 212 | MCP agent onboarding runtime | ### #212 - MCP agent onboarding runtime (2026-04-24)
+**Milestone:** Made Amprealize MCP self-describing for new agent sessions so agents can discover startup protocol, active groups, inactive tools, and normalized tool names without spelunking manifests.
+
+**Implementation (Completed):**
+- added `tools.guide` and `tools.catalog` as core MCP tools with mirrored manifests
+- added runtime guide payloads covering behavior retrieval, context lookup, active groups, group activation, session defaults, and normalized tool names
+- made authorization the first startup gate: agents check `auth.authStatus`, refresh with `auth.refreshToken` when possible, use `auth.deviceLogin`/`auth.deviceInit` + `auth.devicePoll` when login is needed, and retry after unauthorized/auth-expired responses
+- clarified that MCP agent/unit device login/init is approved automatically after the auth tool call, so agents should not ask humans to visit verification URLs unless polling explicitly cannot complete
+- exposed the same guidance through MCP `prompts/list`, `prompts/get`, `resources/list`, and `resources/read`
+- updated AGENTS/CLAUDE guidance, Cursor rules, WorkItemPlanner agent instructions, and WorkItemPlanner skill docs to reference the startup protocol
+- updated the MCP AI Learning Wiki concept page with the new self-describing discovery pattern
+- added regression coverage for guide/catalog core availability, authorization guidance, inactive tool catalog discovery, normalized names, prompt/resource output, and instruction coverage
+
+**Validation:** `python -m pytest tests/test_mcp_tool_groups.py -q --no-cov` passes (`11 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`315 MCP tool manifests in sync`); IDE lints report no errors on edited Python files.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-24_ |
+| 211 | Policy composition engine | ### #211 - Policy composition engine (2026-04-24)
+**Milestone:** Completed `guideai-1052` by adding a most-restrictive-wins policy composition engine and wiring it into the execution gateway before run/task-cycle records are created.
+
+**Implementation (Completed):**
+- added `PolicyCompositionEngine` with runtime `allow`, `deny`, and `review` decisions across user, org, project, conversation, agent, MCP/tool, attachment, chat-matrix, and action-risk policy signals
+- enforced deny-overrides-allow and review-gated execution in `ExecutionGateway`, including approved-review pass-through and fail-closed behavior for evaluation errors
+- emitted policy audit telemetry for successful and failed-closed evaluations
+- added unit coverage for direct engine composition and gateway end-to-end denial, review, approved review, and fail-closed paths
+- updated execution, chat permission, and AI Learning Wiki guidance for the runtime policy boundary
+
+**Validation:** `python -m pytest tests/test_policy_composition.py tests/test_execution_gateway.py -q --no-cov` passes (`58 passed`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_handbook_compliance_prompt`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-24_ |
+| 210 | Chat permission matrix contract | ### #210 - Chat permission matrix contract (2026-04-24)
+**Milestone:** Completed `guideai-1051` by locking the chat permission model in shared contracts, docs, and focused tests without implementing the full policy engine.
+
+**Implementation (Completed):**
+- added `ChatPermissionAction`, `ChatPermissionScope`, `ChatPermissionSurface`, `ChatPermissionEffect`, `ChatPermissionRequirement`, and `CHAT_PERMISSION_MATRIX` to the conversation contracts
+- covered global chat, project spaces, group chats, work item threads, run threads, agent lifecycle actions, MCP tools, attachments, and platform actions
+- specified deny-by-default behavior for missing, ambiguous, and conflicting scopes
+- documented the matrix in `docs/contracts/CHAT_PERMISSION_MATRIX.md` and cross-linked it from chat, execution, and AI Learning Wiki guidance
+- added contract tests for matrix completeness, scope coverage, explicit global-chat denies, approval-gated execution, and deny-by-default semantics
+
+**Validation:** `python -m pytest tests/test_conversation_workspace_contracts.py -q` passes (`19 passed`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_design_test_strategy`, `behavior_validate_cross_surface_parity`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-24_ |
+| 209 | Work item display-ID project lookup fix | ### #209 - Work item display-ID project lookup fix (2026-04-24)
+**Milestone:** Fixed `workItems.get` failures for display IDs like `guideai-1051` when the board service connection search path does not expose an unqualified `projects` relation.
+
+**Implementation (Completed):**
+- qualified display-ID project joins as `auth.projects`
+- qualified project slug enrichment queries as `auth.projects`
+- added regression coverage for display-ID resolution and slug lookup query targets
+
+**Validation:** `python -m pytest tests/unit/test_display_id.py tests/test_mcp_board_workitem_handlers.py` passes (`26 passed`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_align_storage_layers`, `behavior_design_mcp_tool_schema`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 208 | MCP tool group optimization | ### #208 - MCP tool group optimization (2026-04-24)
+**Milestone:** Optimized MCP lazy-loading groups so the always-loaded core is small and every published manifest is discoverable through either core or an activatable group.
+
+**Implementation (Completed):**
+- reduced `CORE_TOOLS` to authentication/session bootstrap, behavior lookup, active context, lightweight work discovery, and tool-group meta-tools
+- added explicit groups for projects/orgs, behavior management, auth/consent, boards/work items, collaboration/messages, and gated brainstorm/whiteboard tools
+- activated the projects/orgs and boards/work items groups at lazy-loader startup so essential planning tools are immediately available
+- excluded startup groups from auto-deactivation so essential tools remain available during long agent sessions
+- moved research and wiki families out of core while preserving high-priority activation keywords
+- covered slash-style compliance manifests, underscore-style rate-limit manifests, bootstrap, pack, flags, and outcome-style tool manifests
+- stopped auto-loading published outcome-style manifests during lazy-loader initialization so they activate through their groups
+- added tool-group regression tests for stale core entries, feature-gated whiteboard discovery, full manifest discoverability, group budgets, and activation keywords
+
+**Validation:** `python -m pytest tests/test_mcp_tool_groups.py` passes (`7 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`313 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 207 | MCP research handler normalization | ### #207 - MCP research handler normalization (2026-04-24)
+**Milestone:** Normalized the `research.*` MCP tool family so paper evaluation, retrieval, search, and listing share runtime validation, strict enum parsing, and consistent backend search behavior.
+
+**Implementation (Completed):**
+- added `ResearchToolValidationError` with required-parameter, enum, limit, and offset validation
+- mapped research validation failures to MCP `INVALID_PARAMS`
+- fixed `SourceType` parsing so lowercase schema values (`url`, `arxiv`, `pdf`, etc.) are accepted
+- rejected invalid `verdict` and `source_type` values instead of silently ignoring them
+- aligned SQLite research search with Postgres-backed behavior for `query`, `max_score`, `source_type`, `since`, and count filters
+- simplified `research.evaluate` output schema to match the handler response
+- added manifest parity, validation, enum parsing, session propagation, and SQLite filter tests
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_mcp_research_handlers.py", "-q", "--no-cov"]))'` passes (`5 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`313 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 206 | MCP wiki handler normalization | ### #206 - MCP wiki handler normalization (2026-04-24)
+**Milestone:** Normalized the wiki MCP tool family so `research_wiki.*`, `infra_wiki.*`, `platform_wiki.*`, `ai_learning_wiki.*`, and generic `wiki.*` tools share registry-backed validation and routable manifests.
+
+**Implementation (Completed):**
+- added `WikiToolValidationError` with runtime required-parameter and domain validation
+- mapped wiki validation failures to MCP `INVALID_PARAMS`
+- wired `platform_wiki.*` into MCP server dispatch
+- added `platform` to generic `wiki.*` domain schemas
+- removed stale `ai_learning_wiki.path` from core tool advertising because no manifest or handler exists
+- included platform wiki tools in wiki tool-group discovery
+- added manifest-to-handler parity and validation coverage for wiki tools
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_mcp_wiki_handlers.py", "-q", "--no-cov"]))'` passes (`4 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`313 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_maintain_ai_learning_wiki`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 205 | MCP brainstorm/whiteboard handler normalization | ### #205 - MCP brainstorm/whiteboard handler normalization (2026-04-24)
+**Milestone:** Normalized the `brainstorm.*` and `whiteboard.*` MCP surface so brainstorm rooms are created through `brainstorm.openWhiteboard`, canvas tools share session-aware `room_id` fallback, and validation failures map to MCP invalid-params errors.
+
+**Implementation (Completed):**
+- added runtime validation exceptions for brainstorm and whiteboard handlers
+- defaulted `room_id` from MCP session context for canvas and brainstorm board operations
+- removed public `whiteboard.createRoom` manifests in favor of the brainstorm bridge creation path
+- fixed brainstorm summaries to read tldraw StoreSnapshot-backed canvases
+- added manifest-to-handler parity and validation coverage for both namespaces
+- aligned Brainstorm playbook wording with `AMPREALIZE_ENABLE_WHITEBOARD`
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_mcp_brainstorm_whiteboard_handlers.py", "tests/test_brainstorm_bridge.py", "-q", "--no-cov"]))'` passes (`12 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`313 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 204 | WorkItemPlanner agent MCP guidance refresh | ### #204 - WorkItemPlanner agent MCP guidance refresh (2026-04-24)
+**Milestone:** Updated WorkItemPlanner prompts, playbooks, and agent instructions to match the normalized board/work item MCP surface.
+
+**Implementation (Completed):**
+- documented session-aware `project_id`, `org_id`, `user_id`, and comment `author_id` defaults
+- added `board.filterItems` duplicate-check guidance before creating planned hierarchies
+- clarified top-down `workItems.create` parent ID sequencing and canonical `points` usage
+- refreshed GitHub/Cursor WorkItemPlanner agent instructions and tool lists
+- added prompt regression coverage for the MCP guidance
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_work_item_planner.py", "-q"]))'` passes.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_standardize_work_items`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 203 | MCP board/work item handler normalization | ### #203 - MCP board/work item handler normalization (2026-04-24)
+**Milestone:** Normalized the board, column, and work item MCP tool families so published manifests route through handler registries with session-aware defaults and no dead `board.*` descriptors.
+
+**Implementation (Completed):**
+- moved `board.*` label routing into `amprealize/mcp/handlers/board_handlers.py`
+- added registry-backed handlers for `board.filterItems` and `board.suggestAgent`
+- injected MCP session context before board, column, work item, and work item execution dispatch
+- relaxed schemas for session-backed `project_id` and comment `author_id` fields while keeping canonical item IDs explicit
+- added manifest-to-handler parity coverage for board/column/work item tools
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_mcp_board_workitem_handlers.py", "tests/test_mcp_workitems_update_no_cascade.py", "-q"]))'` passes (`3 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`314 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 202 | MCP auth tool handler normalization | ### #202 - MCP auth tool handler normalization (2026-04-24)
+**Milestone:** Normalized the `auth.*` MCP namespace behind a single handler registry so device flow, token refresh, consent, and AgentAuth grant tools share one dispatch path with session-aware defaults and token redaction.
+
+**Implementation (Completed):**
+- added `amprealize/mcp/handlers/auth_handlers.py` covering all published `auth.*` manifests
+- collapsed duplicate `auth.*` routing in `mcp_server.py` into a single registry-backed block
+- preserved device-flow session population, refresh-session updates, and OAuth token redaction before MCP responses
+- published the documented `auth.consentStatus` status-polling alias so `PUBLIC_TOOLS` references a callable manifest
+- relaxed auth MCP schemas for session-backed fields including `agent_id`, `surface`, `revoked_by`, and consent `approver`
+- added focused unit coverage for handler parity, session identity defaults, runtime validation, and token redaction
+
+**Validation:** `python -m pytest tests/test_mcp_auth_handlers.py tests/test_mcp_auth_session.py -q -m unit` passes (`7 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`314 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_lock_down_security_surface`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 201 | MCP behavior tool handler normalization | ### #201 - MCP behavior tool handler normalization (2026-04-24)
+**Milestone:** Refactored `behaviors.*` MCP tools out of inline server routing and into a dedicated handler module so behavior tooling now follows the same session-aware, manifest-backed pattern as projects and orgs.
+
+**Implementation (Completed):**
+- added `amprealize/mcp/handlers/behavior_handlers.py` with a handler registry, runtime required-parameter validation, session-backed actor defaults, and `behaviors.propose` support
+- simplified `mcp_server.py` behavior dispatch to registry lookup, session injection, and JSON-RPC error mapping
+- relaxed behavior MCP manifests so `task_description` and `actor` can be supplied by defaults/session context where appropriate
+- added focused unit coverage for session-only `behaviors.getForTask`, runtime validation, and manifest-to-handler parity
+
+**Validation:** `python -c 'import os, pytest; [os.environ.pop(k, None) for k in list(os.environ) if k.startswith("AMPREALIZE_") and k.endswith("_PG_DSN")]; raise SystemExit(pytest.main(["tests/test_mcp_behavior_handlers.py", "-q"]))'` passes (`3 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`313 MCP tool manifests in sync`). Broader DB-backed behavior MCP tests were not run because configured DSNs are guarded as production-like.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 201 | Amprealize Chat UX north star | ### #201 - Amprealize Chat UX north star (2026-04-24)
+**Milestone:** Captured the `guideai-1037` chat UX direction before continuing governance and execution UI work, so future implementation targets a premium, magical, fast, glassmorphism-forward Amprealize Chat experience.
+
+**Implementation (Completed):**
+
+1. **Conversation UX plan** (`docs/CONVERSATION_SYSTEM_PLAN.md`):
+   - replaced the outdated fixed right-rail chat panel plan with a bottom-first chat surface model
+   - defined resting dock, peek sheet, expanded glass window, and detached draggable window states
+   - specified the magic composer: natural language, `@` users/agents, `#` resources, attachments, and contextual quick chips
+   - defined adaptive agent presence theater with subtle default states and richer planning/execution/tool/handoff moments
+   - made inline live work item cards and run cards the first hero card types
+   - documented speed rituals, streaming/materializing agent responses, empty states, and tiered error recovery
+
+2. **Design constraints** (`docs/COLLAB_SAAS_REQUIREMENTS.md`):
+   - added the Amprealize Chat UX north star and chat-specific requirements for disciplined glassmorphism, speed, accessibility, and recoverable errors
+
+3. **Tracking and learning docs**:
+   - refined `guideai-1043` acceptance criteria around bottom dock expansion, draggable glass chat, inline live cards, adaptive agent presence, speed rituals, and tiered errors
+   - updated `docs/WORK_ITEM_EXECUTION_PLAN.md` and `wiki/ai-learning/in-practice/agent-orchestration.md` to connect chat UX to governed execution
+
+**Behaviors applied:** `behavior_facilitate_brainstorm`, `behavior_launch_plan_seed`, `behavior_define_feature_scope`, `behavior_validate_accessibility`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-24_ |
+| 200 | MCP projects/orgs/context tool optimization | ### #200 - MCP projects/orgs/context tool optimization (2026-04-24)
+**Milestone:** Fixed and normalized the Amprealize MCP project, organization, and context tool families so Copilot-friendly session injection works consistently and published manifests route to implemented handlers.
+
+**Implementation (Completed):**
+- awaited async `orgs.*` and `projects.*` handlers directly from `mcp_server.py`
+- normalized handler user/session resolution and sync-or-async service calls
+- implemented missing `orgs.projects`, `projects.switch`, and project member handlers
+- relaxed canonical MCP schemas so `user_id` is optional and supplied by session context
+- clarified `context.setOrg` wording and added server-level context coverage
+- synced bundled MCP manifests and verified manifest parity
+
+**Validation:** `python -m pytest tests/test_mcp_multi_tenant_handlers.py tests/test_mcp_tenant_context.py -v --tb=short` passes (`64 passed`); `python scripts/verify_mcp_manifests_sync.py` passes (`313 MCP tool manifests in sync`).
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_mcp_tool_schema`, `behavior_validate_cross_surface_parity`, `behavior_design_test_strategy`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
+| 199 | Amprealize Chat workspace contract model | ### #199 - Amprealize Chat workspace contract model (2026-04-24)
+**Milestone:** Started the `guideai-1039` chat workspace design by making the target global chat and project-space conversation model explicit in shared contracts before changing the persistent messaging schema.
+
+**Implementation (Completed):**
+
+1. **Conversation contracts** (`amprealize/conversation_contracts.py`):
+   - added target scopes for `global_user_home`, `project_space`, `dm`, `group_chat`, `work_item_thread`, and `run_thread`
+   - kept legacy `project_room` and `agent_dm` scopes available for compatibility
+   - added scope normalization so legacy `agent_dm` maps to the target `dm` primitive
+   - added `ConversationScopeResolution` to validate global vs project-scoped workspace boundaries
+   - added typed `ConversationResourceLink` support for linking messages to work items, runs, plans, files, uploads, images, agents, MCP tools, and platform actions
+
+2. **Documentation and tests**:
+   - updated `docs/CONVERSATION_SYSTEM_PLAN.md` with global chat, project space, thread, and legacy primitive mapping rules
+   - updated `wiki/ai-learning/in-practice/agent-orchestration.md` with the chat-to-execution coordination model
+   - added focused contract tests in `tests/test_conversation_workspace_contracts.py`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`
+
+_Last Updated: 2026-04-24_ |
+| 198 | ExecutionGateway contract migration start | ### #198 - ExecutionGateway contract migration start (2026-04-24)
+**Milestone:** Started the `guideai-1037` governed agent execution work by making the gateway contract explicit enough for board, chat, API, MCP, and CLI adapters to share one request/result shape.
+
+**Implementation (Completed):**
+
+1. **Contract compatibility** (`amprealize/work_item_execution_contracts.py`):
+   - restored the legacy `GEPPhase` symbol as a compatibility alias for `CyclePhase`, unblocking older MCP execution handlers that still import it
+
+2. **Gateway contract** (`amprealize/execution_gateway_contracts.py`):
+   - added `ExecutionIntent` for `execute` vs `plan_only`
+   - extended `ExecutionRequest` with chat linkage, governance policy context, approval metadata, idempotency metadata, and generic request metadata
+   - added `GatewayQueuePayload` as the normalized payload shape for future queue-first gateway dispatch
+   - extended `ExecutionGatewayResult` with intent, queue job, plan artifact, and compatibility metadata fields
+
+3. **Gateway adapter** (`amprealize/execution_gateway_adapter.py`, `amprealize/services/work_item_execution_api.py`):
+   - added a legacy service-shape adapter that maps REST/MCP `ExecuteWorkItemRequest` calls into `ExecutionRequest`
+   - preserved `ExecuteWorkItemResponse` output for deployed clients
+   - carried REST `idempotency_key`, `agent_id`, and actor surface into request metadata for gateway migration
+   - wired REST and MCP execution factories to use the adapter when an `ExecutionGateway` is supplied
+   - added API/MCP bootstrap support for `AMPREALIZE_EXECUTION_GATEWAY_ENABLED`
+   - fixed `wire_execution_gateway` credential-store construction so gateway wiring can reuse the legacy execution credential store
+
+4. **Queue dispatch** (`amprealize/execution_gateway.py`, `amprealize/execution_wiring.py`):
+   - added explicit gateway dispatch modes: `background` for development and `queue` for worker dispatch
+   - added queue publisher wiring via `AMPREALIZE_EXECUTION_GATEWAY_DISPATCH=queue`
+   - enqueued `ExecutionJob` records with normalized `GatewayQueuePayload`
+   - made queue mode fail before run/cycle creation when no queue publisher is configured
+
+5. **Documentation and tests**:
+   - updated `docs/WORK_ITEM_EXECUTION_PLAN.md` with the current gateway migration contract
+   - added focused contract and adapter tests in `tests/test_execution_gateway.py` and `tests/test_execution_gateway_adapter.py`
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_design_api_contract`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-04-24_ |
 | 197 | Platform runtime metadata endpoint + sidebar chips | ### #197 - Platform runtime metadata for web shell (2026-04-15)
 **Milestone:** Replaced the hardcoded sidebar version pill with dynamic chips (distribution + semver, optional enterprise tier, active Amprealize context) backed by a single read-only `GET /api/v1/platform/runtime` surface in OSS and Enterprise APIs.
 
@@ -3685,3 +5772,39 @@ _Last Updated: 2026-04-03_ |
 **Behaviors applied:** `behavior_update_docs_after_changes`, `behavior_prefer_mcp_tools`
 
 _Last Updated: 2026-04-03_ |
+| 191 | Agent execution model selection e2e | ### #191 - Agent execution model selection e2e (2026-05-14)
+**Milestone:** Added project-level and work-item-level LLM model selection for agent execution. Project settings now persist `agent_model_preferences.default_model_id` in project JSONB settings, sourced from the existing project model availability API. The work item drawer now exposes a per-run model selector and sends `model_override` when starting execution. `ExecutionGateway._resolve_model` and the legacy work-item execution path now apply `work item override -> project default -> agent policy preferred model -> policy fallbacks` while preserving existing BYOK credential resolution. The LLM routing wiki documents the new precedence.
+
+**Validation:** `pytest tests/test_execution_gateway.py::TestExecutionGateway::test_execute_uses_project_model_default_when_no_override tests/test_execution_gateway.py::TestExecutionGateway::test_execute_model_override_beats_project_default` passes. `npm run build` in `web-console` passes, with the existing local Node warning that Vite prefers Node 20.19+ while this machine has 20.13.1.
+
+**Behaviors applied:** `behavior_prefer_mcp_tools`, `behavior_unify_execution_records`, `behavior_maintain_ai_learning_wiki`, `behavior_update_docs_after_changes`
+
+_Last Updated: 2026-05-14_ |
+| 192 | Chat and agent execution reliability | ### #192 - Chat and agent execution reliability (2026-05-26)
+**Milestone:** Fixed the six failure modes from the problematic GuideAI conversation transcript (`conversation_id = e9a2bb22-1293-4f0e-a767-a17e0178ca85`).
+
+**What shipped:**
+
+1. **Read/action boundary** (`chat_action_router.py`): Added `_has_negated_execution_intent` guard (e.g. "not asking you to execute") and tightened the polar-question guard so capability questions like "have we implemented agent execution?" no longer route to `EXECUTION_START`.
+
+2. **Follow-up context** (`conversation_reply_service.py`): Added `_is_referential_followup` and `_is_meta_correction` helpers. `_routing_tail_hints_sync` now sets `referential_followup` and `meta_correction` flags in `request.metadata`. The clarification short-circuit bypasses the generic "Please clarify..." template when prior turns exist and either flag is set (`answer_path="llm_followup_bypass"`).
+
+3. **Work-item text search** (`board_service.py`, `board_handlers.py`, `workItems.list.json`, `chat_workspace_targeted_fetch.py`, `platform_management_actions.py`): Added `text_search: Optional[str]` to `BoardService.list_work_items` (SQL `ILIKE` over title and description), exposed in MCP tool schema and handlers, planner system prompt, and `BoardPlatformManagementAdapter`. Also implemented `ResourceAnalysisService._apply_filters` post-filter for inventory-based answers.
+
+4. **Answer synthesis** (`resource_analysis.py`): Large result sets (>15 rows) now produce a status breakdown + top 10 items instead of dumping all rows. Added positive `status_in` filter for "completed/done/finished" queries. Tightened `_is_agent_project_membership_question` to exclude capability phrasing about execution.
+
+5. **Execution capability Q&A** (`conversation_reply_service.py`): Added `_try_execution_capability_answer` static fast-path that returns factual information about agent execution without an LLM call, distinguishing core GEP execution (implemented) from chat-triggered execution (feature-flagged).
+
+6. **Capability answer enrichment** (`conversation_reply_service.py`): `_try_execution_capability_answer` now accepts the composed context and extracts matching work items from the workspace inventory (`work_items_by_project`). Items whose title/description mentions execution, GEP, etc. are appended as a **Related work items** section. If the user mentioned a specific project (e.g. "from the GuideAI project"), only that project's items are searched. The static text now also includes a **Work items vs runs** terminology note. Structured payload carries `related_work_item_count` and `related_work_items` for the UI card.
+
+7. **Telemetry fix** (`conversation_reply_service.py`): `capability_answer` metadata (`feature_flag`, `related_work_item_count`, `related_work_items`) was only written to the message's internal metadata dict, not the `conversation_reply.generated` telemetry event. Fixed by building a `cap_payload` dict (mirrors `tf_payload` pattern) and spreading it into the event payload.
+
+8. **Keyword matching refinement** (`conversation_reply_service.py`): Split `_EXECUTION_ITEM_KEYWORDS` into two tiers — `_EXECUTION_ITEM_STRONG_PHRASES` (match anywhere in title+description) and `_EXECUTION_ITEM_TITLE_TOKENS` (match title-only). This prevents peripheral items (e.g. "Build web-console trace list" that mentions execution only in description) from being included, while keeping items whose primary subject is execution. `WorkItemStatus` enum rendering fixed in display, structured payload, and sort key.
+
+9. **Regression suite**: Added 15 new tests across `test_chat_action_router.py`, `test_resource_analysis.py`, `test_mcp_board_workitem_handlers.py`, `test_platform_management_actions.py`; fixed stale planner-model assertion in `test_chat_workspace_targeted_fetch.py`; created `test_conversation_reply_followup_context.py` (27 tests including 5 new enrichment + 1 enum-rendering test). All targeted tests pass.
+
+**Telemetry notes:** `answer_path` now includes `llm_followup_bypass` and `capability.agent_execution`. `capability_answer` (with `related_work_item_count`, `related_work_items`, `feature_flag`) now emitted as a top-level key in `conversation_reply.generated`. `TELEMETRY_SCHEMA.md` and `CHAT_ROUTING_AND_COPY.md` updated.
+
+**Behaviors applied:** `behavior_update_docs_after_changes`, `behavior_maintain_ai_learning_wiki`, `behavior_design_test_strategy`, `behavior_validate_cross_surface_parity`
+
+_Last Updated: 2026-05-26_ |

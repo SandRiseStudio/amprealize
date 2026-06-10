@@ -54,6 +54,20 @@ This repo targets **Podman**. `./scripts/run_tests.sh` prefers **`podman compose
 - On macOS, if **`podman compose`** keeps using Homebrew **docker-compose** (warning: “Executing external compose provider”), install **`podman-compose`** and set **`export PODMAN_COMPOSE_PROVIDER="$(command -v podman-compose)"`** before `podman compose`, or let **`./scripts/run_tests.sh`** set it when `podman-compose` is on your `PATH`.
 - To force a specific binary: `export AMPREALIZE_COMPOSE_BIN='podman compose'` before running the script (or `AMPREALIZE_COMPOSE_BIN='podman-compose'`).
 
+### BreakerAmp `apply` feels slow (`--breakeramp --env test`)
+
+First-time or cold-cache **`breakeramp apply`** for **`local-test-env`** is usually dominated by:
+
+1. **Pulling images** (TimescaleDB, `python:3.11-slim-bookworm`, Redis, nginx, …). Pre-pull on a good network:
+   `podman pull docker.io/timescale/timescaledb:latest-pg16` (and the other images referenced in the blueprint).
+2. **`amprealize-api` (and MCP) `pip install -e .`** inside the container on the slim Python image—often **many minutes** the first time. After dependencies are cached in the named volume, later applies are faster.
+3. **Alembic** (main + telemetry) runs from **`amprealize-api` `post_start_commands`** after the API container is healthy.
+
+**Speed-ups:**
+
+- Build or pull a **baked API image** and skip in-container pip (see **`docs/WORK_MANAGEMENT_GUIDE.md`**): set **`AMPREALIZE_API_IMAGE`** and **`AMPREALIZE_API_SKIP_PIP=1`** in your environment before `plan`/`apply` or add them under `test.variables` in `infra/environments.yaml` once the image exists locally.
+- Host-side migrations for the **`test`** environment are **disabled** (`migrations.auto_run: false`) because the blueprint already runs Alembic in the API container—avoids duplicate work at the end of apply.
+
 ### BreakerAmp CLI Output Modes
 ```bash
 # Human-friendly summary (default when running in a terminal)
@@ -66,6 +80,14 @@ amprealize breakeramp plan --blueprint-id tests --environment ci --output json
 BreakerAmp commands now write every raw response to
 `~/.amprealize/breakeramp/snapshots/<timestamp>-<command>.json`. Reference these files
 when you need the exact payload that powered the concise terminal summaries.
+
+---
+
+## Testing layers: CI vs staging smoke vs live stack
+
+**PR and tracker status** reflect automated tests (Vitest, pytest, smoke suites). They do **not** by themselves prove latency, JWT bootstrap paths, or nginx behavior against a **deployed** URL.
+
+For releases and perf-sensitive console work, use the **live stack validation** layer: scripted probes and load sampling against a real gateway base URL (staging or production), documented in **`docs/LIVE_STACK_VALIDATION.md`** (`load_test_console_hot_paths.py`, `validate_gateway_infra_performance.py`, optional health probes).
 
 ---
 
@@ -122,6 +144,58 @@ The script provides:
 - Resource monitoring
 - Safe parallelization limits
 - Helpful error messages
+
+**Why many tests show skipped or ERROR when you run `pytest` directly (IDE, Cursor, raw shell):**
+
+1. **DSN safety guard** (`tests/conftest.py`): If your `.env` or shell exports `AMPREALIZE_*_PG_DSN` values whose database name is exactly `amprealize` or `telemetry`, the session aborts or fixtures refuse to run destructive helpers—those names are treated as production-style. **`./scripts/run_tests.sh --breakeramp --env test`** sets `AMPREALIZE_TEST_SAFETY_OVERRIDE=1` for isolated BreakerAmp containers. For raw pytest against localhost test DBs only, either use DSNs with explicit test DB names (e.g. `behavior_test`, `telemetry_test`, matching `infra/docker-compose.test.yml`) or set `AMPREALIZE_TEST_SAFETY_OVERRIDE=1` (still must be localhost; remote hosts are blocked even with the override).
+
+2. **Amprealize CLI context** (`--breakeramp --env test` only): If `~/.amprealize/config.yaml` still has a **cloud** Postgres context active (e.g. `neon` after `cloud-dev`), the test runner can prompt (TTY only) to switch to a **local** context. It prefers `local-postgres-test`, then `local-test`, `local-postgres-dev`, `local-postgres`, `local`, then other localhost-backed contexts. Seed the canonical pair once with **`amprealize context init-standard-local`** (creates `local-postgres-dev` and `local-postgres-test` with DSNs aligned to `infra/environments.yaml`). Non-interactive runs skip the prompt; set `AMPREALIZE_SKIP_LOCAL_TEST_CONTEXT_PROMPT=1` to silence the notice. **Note:** With `--breakeramp`, `amprealize/runtime_env.py` also skips merging `DATABASE_URL` / `AMPREALIZE_*_PG_DSN` from `.env` into pytest and API startup so those keys stay on the BreakerAmp localhost URLs from `run_tests.sh`, and `api.py` / `mcp_server.py` skip `apply_context_to_environment(force=True)` while `AMPREALIZE_TEST_INFRA_MODE=breakeramp` is set.
+
+3. **`tests/load/` performance suite** is **skipped unless** you set **`AMPREALIZE_RUN_LOAD_TESTS=1`**. Inside that directory, Kafka/streaming scenarios still use their own env flags; retriever tests skip without cached embedding artifacts; BreakerAmp memory tests skip if `_get_current_resource_usage` is absent. When running load tests on constrained hosts, use **`AMPREALIZE_LOAD_RELAXED=1`** or **`AMPREALIZE_LOAD_P95_*`** (see `tests/load/conftest.py` and `tests/load/test_service_load.py`).
+
+4. **Integration / smoke** under `tests/integration/`, `tests/smoke/` skip when **nothing is listening** on `localhost:8000` / `8080` (staging stack, gateway, or API). That is expected if you have not started the compose or BreakerAmp stack they document in skip messages.
+
+5. **Podman stopped** (e.g. after `breakeramp nuke`): legacy `run_tests.sh` needs `podman machine start <name>` so `podman info` succeeds before compose `up`.
+
+6. **Skip catalog & optional CI:** Many skips are intentional. Use the table below, then see **[CI_ENTERPRISE.md](./CI_ENTERPRISE.md)** for GitHub workflow names, secrets, and parity/load job details.
+
+   | Category | Typical cause | Mitigation |
+   |----------|-----------------|------------|
+   | **Enterprise overlay** | Services such as `OrganizationService` / `SettingsService` are absent without `amprealize-enterprise` | Install enterprise over OSS (curated list only); see **Run enterprise-gated tests locally** below and `ci-enterprise.yml` |
+   | **Load / soak** | `tests/load/*` is not collected unless `AMPREALIZE_RUN_LOAD_TESTS=1` (`tests/conftest.py`) | `export AMPREALIZE_RUN_LOAD_TESTS=1` or workflow `ci-load-opt-in.yml` |
+   | **Per-service DSN** | Parity/integration skips when `AMPREALIZE_*_PG_DSN` or reachability checks fail | `./scripts/run_tests.sh` / BreakerAmp `--env test`; CI `test-parity` now wires Postgres + Redis + metrics |
+   | **Optional ML / deps** | e.g. `sentence-transformers`, `scikit-learn`, live models | `pip install -e ".[dev,postgres,telemetry,semantic]"`; heavy torch stack is `[ml]` in `pyproject.toml` |
+   | **Staging / manual** | OAuth, stored tokens, gateway not listening | Configure env per skip message; not required for default unit CI |
+   | **Not yet implemented** | Skip text references missing adapter or CLI | Backlog / product work—not fixed by env alone |
+
+   **Run enterprise-gated tests locally** (sibling `amprealize-enterprise` checkout, or set `AMPREALIZE_ENTERPRISE_REPO_PATH`):
+
+   **Recommended — one command** (BreakerAmp test env, health checks, OSS + enterprise `pip install -e`, curated pytest only):
+
+   ```bash
+   cd /path/to/amprealize
+   ./scripts/run_tests.sh --breakeramp --env test --enterprise
+   ```
+
+   **Check-only** (containers + schema checks + verify enterprise checkout path; no pip, no pytest):
+
+   ```bash
+   ./scripts/run_tests.sh --breakeramp --env test --enterprise --check-only
+   ```
+
+   **Manual** (if you already manage venv and services yourself):
+
+   ```bash
+   cd /path/to/amprealize
+   python -m venv .venv && source .venv/bin/activate
+   pip install -e ".[dev,postgres,telemetry,semantic]"
+   pip install -e "../amprealize-enterprise[dev,postgres,telemetry,semantic,crypto]"
+   # Bring up test Postgres/Redis (e.g. ./scripts/run_tests.sh --check-only then stack, or BreakerAmp --env test)
+   export AMPREALIZE_BEHAVIOR_PG_DSN="postgresql://USER:PASS@localhost:PORT/DBNAME"  # align with your test stack
+   pytest $(grep -v '^#' scripts/enterprise_gated_pytest_files.txt | grep -v '^$' | tr '\n' ' ')
+   ```
+
+   Curated modules are listed in **`scripts/enterprise_gated_pytest_files.txt`**. Do **not** run the full `pytest tests/` after installing enterprise: many OSS tests assert `HAS_ENTERPRISE is False`.
 
 ### 2. Start with Serial Execution
 
@@ -220,7 +294,7 @@ export AMPREALIZE_RUN_PRIMARY_STREAM_LOAD_TEST=1
 ./scripts/run_tests.sh tests/load/test_streaming_pipeline_load.py::test_sustained_10k_events_per_second -v
 ```
 
-Unset the variable (or leave it at the default `0`) for day-to-day suites so the rest of the load tests run without waiting on the production-scale scenario.
+Unset the variable (or leave it at the default `0`) for day-to-day suites so other streaming scenarios remain skipped without waiting on the production-scale scenario (still export **`AMPREALIZE_RUN_LOAD_TESTS=1`** if you intend to run anything under **`tests/load/`** at all).
 
 ### Opt-in to the 5-Minute 1k/sec Streaming Test
 
@@ -235,7 +309,7 @@ Keep the variable unset (default `0`) to skip the test during local development 
 
 ### 8. API Server Auto-Start
 
-`./scripts/run_tests.sh` launches a FastAPI server via `uvicorn amprealize.api:create_app --factory` and automatically exports `AMPREALIZE_API_URL` so integration tests (auth/device flow, CLI parity) and the REST load suite (`tests/load/test_service_load.py`) hit the repo version of the API instead of any long-lived staging container.
+`./scripts/run_tests.sh` launches a FastAPI server via `uvicorn amprealize.api:create_app --factory` and automatically exports `AMPREALIZE_API_URL` so integration tests (auth/device flow, CLI parity) hit the repo version of the API instead of any long-lived staging container. **REST load tests** under `tests/load/test_service_load.py` only run when **`AMPREALIZE_RUN_LOAD_TESTS=1`** is set for that pytest invocation (they share the same server when enabled).
 
 - If `localhost:8000` is free, the runner boots the server there (previous behavior). When the port is already in use but the resident process does **not** expose `/api/v1/auth/*`, the script now finds an open high port, starts a private server there, and rewrites `AMPREALIZE_API_URL` to `http://localhost:<new-port>` for the current test run.
 - Logs stream to `.tmp/api_server.log` (configurable with `AMPREALIZE_API_SERVER_LOG_FILE`). Tail this file if the server fails to boot.
@@ -246,7 +320,7 @@ Keep the variable unset (default `0`) to skip the test during local development 
 
 ### Staging Stack Auto-Start
 
-The staging smoke suite (`tests/smoke/test_staging_core.py`) now runs against a managed staging stack (API + NGINX) whenever it is part of your test selection. `./scripts/run_tests.sh` automatically:
+When staging auto-start applies (see `AMPREALIZE_ENABLE_STAGING_STACK` below), `./scripts/run_tests.sh` runs smoke-style checks against a managed staging stack (API + NGINX). The script automatically:
 
 - Launches `deployment/podman-compose-staging.yml` (amprealize-api, amprealize-mcp, redis, nginx) when needed and keeps it running for the duration of the test run.
 - Waits for `http://localhost:8000` (`STAGING_API_URL`) and `http://localhost:8080` (`STAGING_NGINX_URL`) to respond before punting to pytest.
@@ -254,9 +328,9 @@ The staging smoke suite (`tests/smoke/test_staging_core.py`) now runs against a 
 
 Control the behavior with `AMPREALIZE_ENABLE_STAGING_STACK`:
 
-- `AMPREALIZE_ENABLE_STAGING_STACK=1` – force-enable staging stack startup even if staging tests are not detected.
+- `AMPREALIZE_ENABLE_STAGING_STACK=1` – force-enable staging stack startup even if staging tests are not detected (use this when running the **full** `tests/` tree and you want `localhost:8000` / `8080` for integration/smoke-style checks—otherwise many tests under `tests/integration/` skip because nothing is listening).
 - `AMPREALIZE_ENABLE_STAGING_STACK=0` – skip staging stack management (useful when you already have a remote staging environment wired up via `STAGING_API_URL`).
-- `auto` (default) – enable when the test selection includes `tests/` (full suite) or any argument containing “staging”.
+- `auto` (default) – enable only when the runner detects a **staging-oriented selection** (paths under `tests/smoke/`, or a pytest arg whose text contains `staging`, including `-k` / `-m` values). A bare `tests/` selection does **not** auto-start staging nginx/API compose.
 
 If you need to override the proxied URLs, export `STAGING_API_URL` / `STAGING_NGINX_URL` before running the script. The health checks reuse those values.
 ### Telemetry Warehouse (TimescaleDB) Setup
@@ -597,6 +671,14 @@ pytest -m "not slow" tests/
 
 ---
 
+## Observability testing (telemetry warehouse)
+
+- **Unit tests** for Postgres sink and replay: `tests/test_postgres_telemetry_sink.py`, `tests/test_telemetry_replay_backfill.py`
+- **Telemetry Postgres integration** (GUIDEAI-1238): `pytest tests/test_observability_telemetry_integration.py --run-integration -q` with `AMPREALIZE_TELEMETRY_PG_DSN` or `AMPREALIZE_PG_*_TELEMETRY` (see `infra/docker-compose.test.yml`, telemetry container port **6432**). Marked `telemetry_pg_only` so a lone run skips monolith Alembic and prod DSN guards. **CI:** `.github/workflows/ci.yml` job `observability-telemetry-integration` runs the same tests against the workflow’s Timescale service (port **6438** in CI) after `alembic -c alembic.telemetry.ini upgrade head`.
+- **Local smoke** (requires `psql` + `AMPREALIZE_TELEMETRY_PG_DSN`): `scripts/smoke_observability_warehouse.sh`
+
+---
+
 ## Additional Resources
 
 - **Pytest documentation**: https://docs.pytest.org/
@@ -605,6 +687,7 @@ pytest -m "not slow" tests/
 - **Podman Compose**: https://github.com/containers/podman-compose
 
 For questions or issues, refer to:
+- `docs/LIVE_STACK_VALIDATION.md` for probes against a deployed API/gateway (separate from CI)
 - `AGENTS.md` for agent behaviors
 - `PRD.md` for system architecture
 - `MCP_SERVER_DESIGN.md` for service contracts

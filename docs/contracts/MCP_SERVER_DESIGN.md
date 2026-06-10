@@ -18,7 +18,7 @@ The Metacognitive Control Plane (MCP) server provides a contract-first integrati
 | Behavior Management | `behaviors.search`, `behaviors.get`, `behaviors.createDraft`, `behaviors.update`, `behaviors.approve` | Discover, retrieve, submit, and govern handbook entries. |
 | **BCI Retrieval** | `bci.retrieve`, `bci.retrieveHybrid`, `bci.rebuildIndex` | Retrieve Top-K behaviors via embedding similarity (BGE-M3 + FAISS), keyword matching, or hybrid re-ranking for behavior-conditioned inference. |
 | **BCI Prompting** | `bci.composePrompt`, `bci.parseCitations`, `bci.validateCitations` | Format behavior-conditioned prompts, extract cited behavior names from model output, and validate citation compliance. |
-| Run Orchestration | `runs.create`, `runs.updateStatus`, `runs.list`, `runs.fetchLogs` | Manage Strategist/Student/Teacher runs, progress updates, and telemetry. |
+| Run Orchestration | `runs.create`, `runs.updateStatus`, `runs.list`, `runs.fetchLogs`, `runs.getReliability` | Manage Strategist/Student/Teacher runs, progress updates, telemetry, and run reliability snapshots (GEP checkpoints + outbound policy; see `docs/contracts/RUN_RELIABILITY.md`). |
 | Compliance | `compliance.checklistStatus`, `compliance.recordStep`, `compliance.auditTrail` | Enforce checklist adherence and expose immutable evidence. |
 | Reflection & Suggestions | `reflections.submitTrace`, `reflections.suggestBehaviors` | Upload traces, trigger summarization, and propose new behaviors. |
 | **Trace Analysis** | `traces.segment`, `traces.detectPatterns`, `traces.scoreReusability` | Parse CoT reasoning steps, identify recurring sub-procedures, score candidate behaviors for clarity/generality/reusability. |

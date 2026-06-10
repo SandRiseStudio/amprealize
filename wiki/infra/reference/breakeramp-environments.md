@@ -2,9 +2,9 @@
 title: "BreakerAmp Environment Configuration"
 type: reference
 source_files:
-  - config/breakeramp/environments.yaml
+  - infra/environments.yaml
 source_hash: auto
-last_updated: "2026-04-09"
+last_updated: "2026-05-05"
 applies_to:
   - dev
   - test
@@ -28,15 +28,18 @@ Single source of truth for infrastructure provisioning and environment-specific 
 
 Local development environment. Containers persist between runs for fast iteration.
 
+BreakerAmp aligns the host default Podman connection to the machine for the environment you applied (`amprealize-dev` for development, **cloud-dev**, **neon**, and **test**).
+
 ### Test
 
 | Setting | Value |
 |---------|-------|
-| Podman Machine | `amprealize-test` |
-| Blueprint | `local-test-suite` |
+| Podman Machine | `amprealize-dev` (same VM as dev; stop other stacks on :8080/:8000 before applying **test** if ports collide) |
+| Blueprint | `local-test-env` (distinct from `local-dev` / `local-test-suite`; test-scoped Docker volume names) |
+| Active modules | `core`, `console`, `whiteboard` (same subset as development; no extra services vs dev) |
 | Auto-teardown | Yes |
 
-Test suite environment. Containers spin up fresh and tear down after each run for isolation.
+Test suite environment: Postgres + telemetry + Redis + **gateway (8080)** + API + web console + whiteboard sidecar, for pytest and `run_load_test_console_hot_paths.sh` against `http://localhost:8080`. Containers tear down after each run.
 
 ### Staging
 

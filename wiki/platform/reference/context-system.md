@@ -1,7 +1,7 @@
 ---
 title: "Context System"
 type: reference
-last_updated: 2026-04-14
+last_updated: 2026-04-28
 applies_to:
   - dev
   - test
@@ -98,9 +98,21 @@ Automatic migration from v1 (flat config) to v2 (multi-context) happens on first
 ## CLI Commands
 
 ```bash
-amprealize context list              # Show all contexts with status
-amprealize context use <name>        # Switch active context
-amprealize context add <name> ...    # Register new context
-amprealize context remove <name>     # Delete context
-amprealize context validate          # Test active connection
+amprealize context list                  # Show all contexts with status
+amprealize context use <name>            # Switch active context
+amprealize context add <name> ...        # Register new context
+amprealize context remove <name>         # Delete context
+amprealize context validate              # Test active connection
+amprealize context init-standard-local   # Ensure local-postgres-dev + local-postgres-test (BreakerAmp localhost DSNs)
 ```
+
+### Standard local Postgres contexts (BreakerAmp)
+
+For daily development vs pytest/BreakerAmp test stacks, use two semantic names with the **same** localhost DSNs (separation is workflow only):
+
+| Name | Typical use |
+|------|----------------|
+| `local-postgres-dev` | BreakerAmp **development** / blueprint `local-dev` |
+| `local-postgres-test` | BreakerAmp **`--env test`** / blueprint `local-test-env` |
+
+Run **`amprealize context init-standard-local`** once per machine to create both if missing. The interactive test runner prompt (`run_tests.sh --breakeramp --env test`) prefers **`local-postgres-test`** when offering to leave a cloud context such as Neon.

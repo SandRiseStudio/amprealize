@@ -31,10 +31,30 @@ BehaviorService.approve() → Handbook enrichment
 ### Integration Points
 - **BCIService:** Trace segmentation via `segment_trace()` method
 - **RunService:** Fetch execution traces via `get_run(run_id).trace_text` (TODO)
+- **Observability contracts:** Consume canonical `trace`, `span`, `generation`, `tool_call`, `artifact`, `behavior_candidate`, and `outcome` envelopes from `amprealize.observability_contracts`. See [`CANONICAL_TRACE_CONTRACT.md`](CANONICAL_TRACE_CONTRACT.md) for correlation, capture policy, and warehouse projection scope.
 - **BehaviorService:** Submit approved patterns as behaviors
 - **ReflectionService:** Generate behavior candidates from high-scoring patterns
 - **MetricsService:** Track extraction rates, approval rates, duplicate reduction
 - **PostgreSQL:** Persistence layer for patterns, occurrences, jobs, candidates
+
+### Canonical Trace Input
+
+`GUIDEAI-1101` aligns trace analysis with the canonical observability taxonomy introduced by `GUIDEAI-1111`. TraceAnalysisService should prefer structured canonical records over raw markdown when available:
+
+| Canonical Record | TraceAnalysis Use |
+| --- | --- |
+| `trace` | Establish the root run/chat/conversation boundary and source profile. |
+| `span` | Segment ordered work phases such as routing, context composition, queue dispatch, GEP phases, persistence, and export work. |
+| `generation` | Mine prompt/response summaries, model/provider choices, token usage, latency, cost, retries, and first-token latency for reusable LLM patterns. |
+| `tool_call` | Identify repeated tool plans, input shapes, denied tools, failures, and successful tool sequences. |
+| `action` | Connect governed platform or replay actions to the trace and outcome records. |
+| `artifact` | Link generated plans, summaries, files, and chat artifacts back to source traces. |
+| `behavior_candidate` | Preserve candidate provenance, source trace IDs, confidence, and review lifecycle state. |
+| `outcome` | Separate business outcomes from performance telemetry so behavior mining can distinguish successful process patterns from mere low-latency spans. |
+
+Structured ingestion must preserve the shared `correlation` object (`trace_id`, `span_id`, `project_id`, `surface`, plus optional run/cycle/work-item/chat/tool/LLM/behavior IDs) and use sanitized payloads for any restricted or raw fields before analysis jobs persist derived snippets. OSS, self-hosted enterprise, and managed enterprise profiles use the same canonical record kinds; only the storage/export targets differ.
+
+`GUIDEAI-1100` adds the retention boundary for these inputs. Behavior mining jobs should persist `metadata_trace`, sanitized `summary`, non-reversible `hash`, and `behavior_mining_feature` classes for long-lived analysis. Raw prompts, raw responses, tool args, output previews, command output, and file diffs are short-lived admin/compliance debugging data and should not become durable behavior-mining features without sanitization, actor anonymization, and an explicit legal or compliance exception.
 
 ## Storage Backend
 

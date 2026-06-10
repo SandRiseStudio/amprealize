@@ -26,6 +26,8 @@ amprealize init
 
 **Desktop app:** not shipped from this repository yet; use the **cloud** console, **CLI**, **VS Code extension**, or **MCP** today. Watch [GitHub Releases](https://github.com/SandRiseStudio/amprealize/releases) for future desktop builds.
 
+**Cursor users:** install the bundled **Amprealize Cursor plugin** (MCP + rules + skills) from the plugin layout under [`plugins/amprealize/`](plugins/amprealize/README.md); submit/list via [Cursor Marketplace publish](https://cursor.com/marketplace/publish) when using the public GitHub repo. This is separate from the VS Code extension in [`extension/`](extension/).
+
 ---
 
 ## What Is Amprealize?

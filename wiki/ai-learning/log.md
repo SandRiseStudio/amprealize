@@ -40,3 +40,13 @@
 | 2026-04-23 | create | Created concepts/agents.md: AI Agents — What They Are and How They Work — intermediate |
 | 2026-04-23 | update | Updated index.md — added agents.md before multi-agent.md in Concepts |
 | 2026-04-23 | update | Updated glossary/terms.md — added Agent, Agent Loop, ReAct, Tool Call, Observation, Human-in-Loop |
+| 2026-04-24 | update | Updated in-practice/agent-orchestration.md — added governed chat audit records for policy decisions, approvals/denials, tool calls, and execution starts |
+| 2026-04-26 | create | Created in-practice/llm-routing-in-amprealize.md — documented model selection, BYOK resolution, schema-constrained chat routing, fallback, and permission recomputation |
+| 2026-04-28 | update | Updated in-practice/agent-orchestration.md — documented natural-language resource analysis across chat, agent execution, and MCP |
+| 2026-04-28 | update | Updated in-practice/agent-orchestration.md — added REST `POST /api/v1/resources:analyze` to the analyst surface |
+| 2026-04-28 | update | Updated in-practice/agent-orchestration.md — added enriched execution trace status/step surfaces for work item runs |
+| 2026-05-05 | create | Created in-practice/principal-data-science-in-chat.md — chat DS system suffix, BCI behavior, orchestrator persona; external taxonomy link only |
+| 2026-05-05 | update | Updated index.md — linked principal-data-science-in-chat under In Practice |
+| 2026-05-14 | update | Updated in-practice/llm-routing-in-amprealize.md — documented project defaults and work-item model overrides for agent execution |
+| 2026-05-26 | update | Updated in-practice/llm-routing-in-amprealize.md — added read/action boundary guards, follow-up context bypass, and answer synthesis patterns from chat reliability work |
+| 2026-05-27 | update | Updated in-practice/llm-routing-in-amprealize.md — documented Fast Chat Query Planner, typed `ChatQueryPlan` validation, generic resource execution, and topic-based targeted fetch handoff |

@@ -42,9 +42,14 @@ Amprealize uses the [OAuth 2.0 Device Authorization Grant (RFC 8628)](https://da
 
 ### 1. CLI Authentication
 
+`amprealize auth login` registers the device session with the **API** (`POST /api/v1/auth/device`) so the browser consent page (`/device/activate` on the same deployment) can find your user code (PostgreSQL-backed store on cloud-dev/staging). Set **`AMPREALIZE_API_URL`** to the base URL your gateway uses (often **`http://localhost:8080`** through nginx, or **`http://localhost:8000`** if you call the API container directly). If the CLI cannot reach the API, follow the printed hint.
+
+To force the legacy **in-process** flow (sessions exist only in the CLI process; **browser activation will not work**), set **`AMPREALIZE_CLI_AUTH_LOGIN_LOCAL_ONLY=1`**.
+
 ```bash
-# Start device flow login
-amprealize auth login
+# Typical cloud-dev (nginx on 8080)
+export AMPREALIZE_API_URL=http://localhost:8080
+amprealize auth login --provider=github
 
 # Output:
 # Amprealize Device Authorization
@@ -60,8 +65,8 @@ amprealize auth login
 
 ### 2. Web Consent Approval
 
-1. Visit verification URL: `https://device.amprealize.dev/activate`
-2. Enter user code: `ABCD-EFGH`
+1. Open the **Verification URL** printed by the CLI (often your gateway, e.g. `http://localhost:8080/device/activate?user_code=...`, or a hosted `https://.../activate` when `AMPREALIZE_DEVICE_VERIFICATION_URI` is set on the server).
+2. Enter the user code (or use the pre-filled link from `verification_uri_complete`).
 3. Review requested scopes
 4. Click "Approve" or "Deny"
 
