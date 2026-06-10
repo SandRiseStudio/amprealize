@@ -98,5 +98,45 @@ class TestSchemaSearchPath:
         pytest.skip("Requires database connection - run in integration suite")
 
 
+class TestStripDsnOptions:
+    """Pooler compatibility: the libpq ``options`` startup parameter (used to
+    carry ``search_path``) must be stripped before connecting, because Neon's
+    pgBouncer rejects it with "unsupported startup parameter". search_path is
+    instead applied post-connect via the SQLAlchemy "connect" event.
+    """
+
+    def test_strips_options_preserves_other_params(self):
+        from amprealize.storage.postgres_pool import _strip_dsn_options
+
+        dsn = "postgresql://u:p@host/db?sslmode=require&options=-csearch_path%3Dbehavior"
+        out = _strip_dsn_options(dsn)
+        assert "options=" not in out
+        assert "sslmode=require" in out
+
+    def test_strips_sole_options_param(self):
+        from amprealize.storage.postgres_pool import _strip_dsn_options
+
+        out = _strip_dsn_options("postgresql://u:p@host/db?options=-csearch_path%3Dbehavior")
+        assert "?" not in out
+        assert out == "postgresql://u:p@host/db"
+
+    def test_noop_when_no_options(self):
+        from amprealize.storage.postgres_pool import _strip_dsn_options
+
+        for dsn in (
+            "postgresql://u:p@host/db",
+            "postgresql://u:p@host/db?sslmode=require",
+        ):
+            assert _strip_dsn_options(dsn) == dsn
+
+    def test_search_path_still_extractable_after_strip(self):
+        """The stripped DSN drops options, but search_path is read from the
+        original DSN and applied via the connect event, so it is not lost."""
+        from amprealize.storage.postgres_pool import _dsn_search_path
+
+        dsn = "postgresql://u:p@host/db?options=-csearch_path%3Dbehavior"
+        assert _dsn_search_path(dsn) == "behavior"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -8,7 +8,7 @@ import threading
 import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, Optional, Tuple, TypeVar
-from urllib.parse import parse_qs, unquote_plus, urlparse
+from urllib.parse import parse_qs, unquote_plus, urlencode, urlparse, urlunparse
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
@@ -56,6 +56,28 @@ def _dsn_search_path(dsn: str) -> Optional[str]:
             if schemas:
                 return ", ".join(schemas)
     return None
+
+
+def _strip_dsn_options(dsn: str) -> str:
+    """Remove the libpq ``options`` startup parameter from a DSN.
+
+    Poolers such as Neon's pgBouncer reject ``options=-csearch_path=...`` as an
+    "unsupported startup parameter", failing the connection before any query
+    runs. The search_path is already applied post-connect via the SQLAlchemy
+    "connect" event (and optionally on checkout), so the startup option is
+    redundant. Strip it so pooled/serverless connections succeed; the extracted
+    search_path is preserved separately by ``_dsn_search_path``.
+    """
+
+    parsed = urlparse(dsn)
+    if not parsed.query:
+        return dsn
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    if "options" not in query:
+        return dsn
+    query.pop("options", None)
+    new_query = urlencode(query, doseq=True)
+    return urlunparse(parsed._replace(query=new_query))
 
 
 def _bool_env(name: str, default: bool) -> bool:
@@ -120,8 +142,11 @@ def _get_engine(dsn: str) -> Engine:
         if engine is None:
             pool_size, max_overflow, pool_timeout, pool_recycle, connect_timeout = config
             search_path = _dsn_search_path(dsn) or _APP_SEARCH_PATH
+            # Apply search_path via the "connect" event below instead of the
+            # libpq ``options`` startup parameter, which Neon/pgBouncer reject.
+            connect_dsn = _strip_dsn_options(dsn)
             engine = create_engine(
-                dsn,
+                connect_dsn,
                 pool_size=pool_size,
                 max_overflow=max_overflow,
                 pool_timeout=pool_timeout,
