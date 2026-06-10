@@ -32,7 +32,7 @@
         "description": "Project-specific settings"
       }
     },
-    "required": ["org_id"]
+    "required": []
   },
   "outputSchema": {
     "type": "object",

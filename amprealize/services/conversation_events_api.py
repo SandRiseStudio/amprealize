@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -32,10 +33,37 @@ from amprealize.conversation_event_hub import (
     EVENT_MESSAGE_UPDATED,
     EVENT_REACTION_ADDED,
     EVENT_REACTION_REMOVED,
+    EVENT_REPLY_COMPLETE,
+    EVENT_REPLY_ERROR,
     ConversationEventHub,
 )
+from amprealize.llm.credential_factory import build_credential_store
+from amprealize.llm.model_readiness import validate_and_enrich_chat_message_metadata
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_model_metadata(
+    metadata: Dict[str, Any],
+    *,
+    conversation_id: str,
+    user_id: str,
+    conversation_service: Any,
+) -> Dict[str, Any]:
+    model_id = metadata.get("llm_model_id")
+    provider = metadata.get("llm_provider")
+    credential_scope = metadata.get("credential_scope")
+    if model_id is None and provider is None and credential_scope is None:
+        return metadata
+
+    conversation = conversation_service.get_conversation(conversation_id, user_id=user_id)
+    return validate_and_enrich_chat_message_metadata(
+        credential_store=build_credential_store(),
+        conversation=conversation,
+        user_id=user_id,
+        effective_org_id=conversation.org_id,
+        metadata=metadata,
+    )
 
 
 def create_conversation_ws_routes(
@@ -80,7 +108,7 @@ def create_conversation_ws_routes(
                     yield f"event: {event_type}\ndata: {data}\n\n"
 
                     # Stop streaming on completion or error
-                    if event_type in (EVENT_COMPLETE, EVENT_ERROR):
+                    if event_type in (EVENT_COMPLETE, EVENT_ERROR, EVENT_REPLY_COMPLETE, EVENT_REPLY_ERROR):
                         break
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
@@ -178,13 +206,26 @@ async def _handle_client_message(
     user_id: str,
     hub: ConversationEventHub,
     conversation_service: Any,
+    conversation_reply_service: Optional[Any] = None,
 ) -> None:
     """Process a single client→server WebSocket command."""
     msg_type = data.get("type", "")
 
     if msg_type == "ping":
+        logger.debug(
+            "conversation.ws.ping conversation_id=%s user_id=%s",
+            conversation_id,
+            user_id,
+        )
         await ws.send_json({"type": "pong"})
         return
+
+    logger.info(
+        "conversation.ws.command conversation_id=%s user_id=%s command=%s",
+        conversation_id,
+        user_id,
+        msg_type,
+    )
 
     if msg_type == "typing.start":
         hub.set_typing(conversation_id, user_id, "user", True)
@@ -214,11 +255,24 @@ async def _handle_client_message(
         message_type_str = data.get("message_type", "text")
         parent_id = data.get("parent_id")
         structured_payload = data.get("structured_payload")
+        metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
         try:
             message_type = MessageType(message_type_str)
         except ValueError:
             message_type = MessageType.TEXT
+        run_id = data.get("run_id")
+        work_item_id = data.get("work_item_id")
         try:
+            metadata = _validate_model_metadata(
+                metadata,
+                conversation_id=conversation_id,
+                user_id=user_id,
+                conversation_service=conversation_service,
+            )
+            conversation = conversation_service.get_conversation(
+                conversation_id,
+                user_id=user_id,
+            )
             msg = conversation_service.send_message(
                 conversation_id,
                 sender_id=user_id,
@@ -226,9 +280,97 @@ async def _handle_client_message(
                 message_type=message_type,
                 structured_payload=structured_payload,
                 parent_id=parent_id,
+                run_id=run_id,
+                work_item_id=work_item_id,
+                metadata=metadata,
+                org_id=conversation.org_id,
             )
             # The event is published by the service via the hub hook
+            is_agent = bool(metadata.get("actor_type") == "agent") if metadata else False
+            if (
+                conversation_reply_service is not None
+                and not is_agent
+                and message_type.value == "text"
+                and content
+                and metadata.get("llm_model_id")
+            ):
+                from amprealize.services.conversation_reply_service import ReplyRequest
+
+                stream_message_id = str(
+                    metadata.get("stream_message_id")
+                    or f"msg-{uuid.uuid4().hex[:12]}"
+                )
+                msg.metadata = {
+                    **(msg.metadata or {}),
+                    "stream_message_id": stream_message_id,
+                }
+                reply_metadata = {
+                    **metadata,
+                    "stream_message_id": stream_message_id,
+                    "conversation_scope": conversation.scope.value,
+                }
+
+                async def _run_reply() -> None:
+                    await conversation_reply_service.generate_reply(
+                        ReplyRequest(
+                            conversation_id=conversation_id,
+                            user_message_id=msg.id,
+                            user_message_content=content,
+                            user_id=user_id,
+                            work_item_id=work_item_id,
+                            run_id=run_id,
+                            org_id=conversation.org_id,
+                            project_id=conversation.project_id,
+                            metadata=reply_metadata,
+                            stream_message_id=stream_message_id,
+                        )
+                    )
+
+                reply_task = asyncio.create_task(_run_reply())
+
+                def _log_reply_task_done(t: asyncio.Task) -> None:
+                    try:
+                        exc = t.exception()
+                    except asyncio.CancelledError:
+                        return
+                    if exc is not None:
+                        logger.error(
+                            "conversation_reply.task_failed conversation_id=%s user_message_id=%s",
+                            conversation_id,
+                            msg.id,
+                            exc_info=exc,
+                        )
+
+                reply_task.add_done_callback(_log_reply_task_done)
+                logger.info(
+                    "conversation_reply.scheduled conversation_id=%s user_message_id=%s model=%s",
+                    conversation_id,
+                    msg.id,
+                    metadata.get("llm_model_id"),
+                )
+            elif message_type.value == "text" and content and not is_agent:
+                skip_reasons: List[str] = []
+                if conversation_reply_service is None:
+                    skip_reasons.append("no_reply_service")
+                if not metadata.get("llm_model_id"):
+                    skip_reasons.append("no_llm_model_id_in_metadata")
+                if skip_reasons:
+                    logger.info(
+                        "conversation_reply.skipped_ws conversation_id=%s user_message_id=%s "
+                        "reasons=%s has_metadata_keys=%s",
+                        conversation_id,
+                        msg.id,
+                        ",".join(skip_reasons),
+                        sorted(metadata.keys()) if metadata else [],
+                    )
         except Exception as exc:
+            logger.warning(
+                "conversation.ws.message_send_failed conversation_id=%s user_id=%s: %s",
+                conversation_id,
+                user_id,
+                exc,
+                exc_info=True,
+            )
             await ws.send_json({
                 "type": "error",
                 "payload": {"code": "SEND_FAILED", "message": str(exc)},
@@ -297,6 +439,7 @@ def register_conversation_ws(
     app: Any,
     conversation_event_hub: ConversationEventHub,
     conversation_service: Any,
+    conversation_reply_service: Optional[Any] = None,
 ) -> None:
     """Register the conversation WebSocket endpoint directly on the FastAPI app.
 
@@ -331,15 +474,58 @@ def register_conversation_ws(
             })
 
             while True:
-                data = await websocket.receive_json()
-                await _handle_client_message(
-                    websocket,
-                    data,
-                    conversation_id,
-                    user_id,
-                    conversation_event_hub,
-                    conversation_service,
-                )
+                try:
+                    raw = await websocket.receive()
+                except WebSocketDisconnect:
+                    break
+                if raw.get("type") == "websocket.disconnect":
+                    break
+                if raw.get("type") != "websocket.receive":
+                    continue
+                text = raw.get("text")
+                if text is None:
+                    continue
+                try:
+                    data = json.loads(text)
+                except json.JSONDecodeError:
+                    await websocket.send_json({
+                        "type": "error",
+                        "payload": {"code": "BAD_JSON", "message": "Invalid JSON"},
+                    })
+                    continue
+                if not isinstance(data, dict):
+                    await websocket.send_json({
+                        "type": "error",
+                        "payload": {"code": "BAD_MESSAGE", "message": "JSON object expected"},
+                    })
+                    continue
+                try:
+                    await _handle_client_message(
+                        websocket,
+                        data,
+                        conversation_id,
+                        user_id,
+                        conversation_event_hub,
+                        conversation_service,
+                        conversation_reply_service=conversation_reply_service,
+                    )
+                except WebSocketDisconnect:
+                    break
+                except Exception:
+                    logger.exception(
+                        "Conversation WS handler error for %s",
+                        conversation_id,
+                    )
+                    try:
+                        await websocket.send_json({
+                            "type": "error",
+                            "payload": {
+                                "code": "INTERNAL",
+                                "message": "Command failed",
+                            },
+                        })
+                    except Exception:
+                        break
 
         except WebSocketDisconnect:
             pass

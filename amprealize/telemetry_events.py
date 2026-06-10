@@ -53,6 +53,7 @@ class TelemetryEventType(str, enum.Enum):
     # -- E4: Reflection events -------
     REFLECTION_CANDIDATE_EXTRACTED = "reflection.candidate_extracted"
     REFLECTION_CANDIDATE_APPROVED = "reflection.candidate_approved"
+    REFLECTION_CANDIDATE_REJECTED = "reflection.candidate_rejected"
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +175,10 @@ class ReflectionCandidateExtractedPayload:
     run_id: Optional[str] = None
     candidate_slug: Optional[str] = None
     pattern_type: Optional[str] = None
+    pattern_id: Optional[str] = None
+    source_trace_ids: List[str] = field(default_factory=list)
+    extraction_job_id: Optional[str] = None
+    execution_observability: Optional[Dict[str, Any]] = None
     quality_scores: Optional[Dict[str, float]] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -188,7 +193,23 @@ class ReflectionCandidateApprovedPayload:
     behavior_id: Optional[str] = None
     behavior_version: Optional[str] = None
     reviewer_role: Optional[str] = None
+    source_trace_ids: List[str] = field(default_factory=list)
+    execution_observability: Optional[Dict[str, Any]] = None
     auto_approved: bool = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+
+@dataclass
+class ReflectionCandidateRejectedPayload:
+    """Emitted when a reflection candidate is rejected during review."""
+
+    candidate_id: str
+    reviewer_role: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    source_trace_ids: List[str] = field(default_factory=list)
+    execution_observability: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v is not None}
@@ -207,6 +228,7 @@ EVENT_TYPE_PAYLOAD_MAP = {
     TelemetryEventType.BCI_CITATION_VALIDATED: BCICitationValidatedPayload,
     TelemetryEventType.REFLECTION_CANDIDATE_EXTRACTED: ReflectionCandidateExtractedPayload,
     TelemetryEventType.REFLECTION_CANDIDATE_APPROVED: ReflectionCandidateApprovedPayload,
+    TelemetryEventType.REFLECTION_CANDIDATE_REJECTED: ReflectionCandidateRejectedPayload,
 }
 
 
@@ -220,5 +242,6 @@ __all__ = [
     "BCICitationValidatedPayload",
     "ReflectionCandidateExtractedPayload",
     "ReflectionCandidateApprovedPayload",
+    "ReflectionCandidateRejectedPayload",
     "EVENT_TYPE_PAYLOAD_MAP",
 ]

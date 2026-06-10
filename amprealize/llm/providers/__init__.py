@@ -26,6 +26,7 @@ def _register_providers() -> None:
         ProviderType.ANTHROPIC: AnthropicProvider,
         ProviderType.OPENAI: OpenAIProvider,
         ProviderType.OPENROUTER: OpenRouterProvider,
+        ProviderType.NVIDIA: OpenAIProvider,      # OpenAI-compatible NVIDIA NIM
         ProviderType.OLLAMA: OllamaProvider,
         ProviderType.TOGETHER: OpenAIProvider,   # OpenAI-compatible
         ProviderType.GROQ: OpenAIProvider,       # OpenAI-compatible

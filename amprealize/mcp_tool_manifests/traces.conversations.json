@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "traces.conversations",
+  "description": "List conversation-level observability summaries for a project (parity with POST /api/v1/observability/traces/conversations). Requires VIEW_RUNS on project_id when permission service is configured.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_id": {
+        "type": "string",
+        "description": "Project scope (optional, uses session project_id)"
+      },
+      "conversation_id": {
+        "type": "string",
+        "description": "Filter to a single conversation"
+      },
+      "since": {
+        "type": "string",
+        "description": "ISO timestamp or relative window (e.g. 7d)"
+      },
+      "until": {
+        "type": "string",
+        "description": "ISO timestamp or relative window"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 50
+      },
+      "offset": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000,
+        "default": 0
+      }
+    },
+    "additionalProperties": false,
+    "required": []
+  }
+}

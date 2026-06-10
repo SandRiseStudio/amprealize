@@ -31,9 +31,27 @@ from .run_service import RunService
 from .services.board_service import BoardService
 from .task_cycle_service import TaskCycleService
 from .telemetry import TelemetryClient
-from .work_item_execution_contracts import ExecutionPolicy
+from .work_item_execution_contracts import ExecutionPolicy, MODEL_CATALOG
 
 logger = logging.getLogger(__name__)
+
+
+def first_chat_model_id_for_provider(provider: str) -> Optional[str]:
+    """Pick a catalog model_id for credential resolution for the given provider."""
+    candidates: list[tuple[str, Any]] = []
+    for mid, mdef in MODEL_CATALOG.items():
+        pv = mdef.provider.value if hasattr(mdef.provider, "value") else str(mdef.provider)
+        if pv != provider:
+            continue
+        if not mdef.metadata.get("chat_model", True):
+            continue
+        candidates.append((mid, mdef))
+    if not candidates:
+        return None
+    defaults = [c for c in candidates if c[1].metadata.get("is_default")]
+    if defaults:
+        return defaults[0][0]
+    return candidates[0][0]
 
 
 def _create_credential_resolver_from_store(
@@ -54,23 +72,24 @@ def _create_credential_resolver_from_store(
         provider: str,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user_credential: bool = False,
     ) -> Optional[str]:
         """Resolve API key for a provider using CredentialStore."""
-        # Map provider name to a model_id from that provider to use resolution
-        provider_to_model = {
-            "anthropic": "claude-sonnet-4-5",
-            "openai": "gpt-4o",
-            "openrouter": "claude-sonnet-4-5",  # Use any model for OpenRouter
-        }
-
-        model_id = provider_to_model.get(provider)
+        model_id = first_chat_model_id_for_provider(provider)
         if not model_id:
             return None
 
-        result = credential_store.get_credential_for_model(model_id, project_id, org_id)
+        result = credential_store.get_credential_for_model(
+            model_id,
+            project_id=project_id,
+            org_id=org_id,
+            user_id=user_id,
+            prefer_user=prefer_user_credential,
+        )
         if result:
             api_key, source, is_byok = result
-            logger.debug(f"Resolved credential for {provider}: source={source}, byok={is_byok}")
+            logger.debug("Resolved credential for %s: source=%s, byok=%s", provider, source, is_byok)
             return api_key
         return None
 
@@ -286,6 +305,9 @@ def create_tool_executor_for_run(
     github_context: Optional[Dict[str, Any]] = None,
     workspace_info: Optional[Any] = None,
     workspace_manager: Optional[Any] = None,
+    connector_delegate: Optional[Any] = None,
+    run_service: Optional[Any] = None,
+    run_id: Optional[str] = None,
 ) -> Any:
     """Create a ToolExecutor for a specific execution run.
 
@@ -322,6 +344,9 @@ def create_tool_executor_for_run(
         github_context=github_context,
         workspace_info=workspace_info,
         workspace_manager=workspace_manager,
+        connector_delegate=connector_delegate,
+        run_service=run_service,
+        run_id=run_id,
     )
 
 
@@ -337,6 +362,9 @@ def wire_execution_gateway(
     enable_early_retrieval: Optional[bool] = None,
     gate_notifier: Optional[Any] = None,
     agent_registry: Optional[Any] = None,
+    credential_store: Optional[Any] = None,
+    queue_publisher: Optional[Any] = None,
+    dispatch_mode: str = "background",
     settings_service: Optional[Any] = None,
     orchestrator: Optional[Any] = None,
     github_service: Optional[Any] = None,
@@ -361,6 +389,9 @@ def wire_execution_gateway(
         enable_early_retrieval: Override env var for EKA.
         gate_notifier: GateNotifier for gate events.
         agent_registry: AgentRegistryService for agent lookup.
+        credential_store: CredentialStore for LLM model/key resolution.
+        queue_publisher: ExecutionQueuePublisher for queue dispatch mode.
+        dispatch_mode: "background" for local/dev or "queue" for worker dispatch.
         settings_service: SettingsService for project-level config.
         orchestrator: AmpOrchestrator (or AmprealizeWorkspaceClient).
         github_service: GitHubService for token/PR resolution (legacy).
@@ -375,6 +406,7 @@ def wire_execution_gateway(
     from .mode_executors import (
         ContainerConnectedExecutor,
         ContainerIsolatedExecutor,
+        LocalConnectorHybridExecutor,
         LocalDirectExecutor,
     )
     from .source_providers import build_source_provider_registry
@@ -398,11 +430,10 @@ def wire_execution_gateway(
     # If no credential_resolver was passed we still need a CredentialStore
     # instance for the gateway's _resolve_model().  Build one from the
     # WorkItemExecutionService module.
-    credential_store = None
-    if agent_registry is None or credential_resolver is None:
+    if credential_store is None:
         try:
             from .work_item_execution_service import CredentialStore
-            credential_store = CredentialStore(dsn=dsn)
+            credential_store = CredentialStore()
         except Exception as e:
             logger.warning(f"Could not create CredentialStore: {e}")
 
@@ -412,6 +443,13 @@ def wire_execution_gateway(
             agent_registry = AgentRegistryService(dsn=dsn, telemetry=telemetry)
         except Exception as e:
             logger.warning(f"Could not create AgentRegistryService: {e}")
+
+    if dispatch_mode == "queue" and queue_publisher is None:
+        try:
+            from execution_queue import ExecutionQueuePublisher
+            queue_publisher = ExecutionQueuePublisher()
+        except Exception as e:
+            logger.warning(f"Could not create ExecutionQueuePublisher: {e}")
 
     # --- Build execution loop factory ---
     def _loop_factory(resolved: Any) -> Any:
@@ -435,6 +473,8 @@ def wire_execution_gateway(
         telemetry=telemetry,
         execution_loop_factory=_loop_factory,
         settings_service=settings_service,
+        queue_publisher=queue_publisher,
+        dispatch_mode=dispatch_mode,
     )
 
     # --- Build source provider registry (Phase 2) ---
@@ -470,7 +510,8 @@ def wire_execution_gateway(
         )
 
     gateway.register_executor(LocalDirectExecutor())
-    logger.info("Registered LOCAL_DIRECT executor")
+    gateway.register_executor(LocalConnectorHybridExecutor())
+    logger.info("Registered LOCAL_DIRECT and LOCAL_CONNECTOR_HYBRID executors")
 
     logger.info("ExecutionGateway wiring complete")
     return gateway

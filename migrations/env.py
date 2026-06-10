@@ -33,11 +33,14 @@ from alembic import context
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Apply active context DSN(s) to environment so migrations use the correct DB.
-try:
-    from amprealize.context import apply_context_to_environment
-    apply_context_to_environment()
-except Exception:
-    pass  # Best-effort; context system may not be available
+# Skip when ``run_tests.sh --breakeramp`` exports localhost DSNs (avoid Neon overwrite).
+if os.environ.get("AMPREALIZE_TEST_INFRA_MODE") != "breakeramp":
+    try:
+        from amprealize.context import apply_context_to_environment
+
+        apply_context_to_environment()
+    except Exception:
+        pass  # Best-effort; context system may not be available
 
 # Prefer explicit DATABASE_URL (tests, CI, one-off upgrades) over settings import.
 if os.environ.get("DATABASE_URL"):

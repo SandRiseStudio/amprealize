@@ -938,6 +938,18 @@ class BehaviorService:
             "versions": [v.to_dict() for v in versions],
         }
 
+    def count_behaviors_total(self) -> int:
+        """Return COUNT(*) on behavior.behaviors for dashboard metrics.
+
+        Avoids ``list_behaviors()`` which materializes full JOIN rows + cache payloads when only a
+        scalar total is needed (see dashboard stats hot path / guideai-1151).
+        """
+        conn = self._ensure_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM behavior.behaviors")
+            row = cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+
     def list_behaviors(
         self,
         *,
@@ -999,7 +1011,13 @@ class BehaviorService:
 
         return results
 
-    def search_behaviors(self, request: SearchBehaviorsRequest, actor: Optional[Actor] = None) -> List[BehaviorSearchResult]:
+    def search_behaviors(
+        self,
+        request: SearchBehaviorsRequest,
+        actor: Optional[Actor] = None,
+        *,
+        telemetry_session_id: Optional[str] = None,
+    ) -> List[BehaviorSearchResult]:
         """Search behaviors by query, tags, role focus.
 
         Uses optimized JOIN query to eliminate N+1 performance problem.
@@ -1033,11 +1051,21 @@ class BehaviorService:
             ]
 
         query = (request.query or "").lower()
-        # Use optimized fetch that gets behaviors + versions in single query
-        behavior_tuples = self._fetch_behaviors_with_versions(
-            status=request.status,
-            namespace=request.namespace
-        )
+        query_tokens = self._tokenize(query)
+        candidate_limit = max(request.limit * 10, 50)
+        if query_tokens:
+            behavior_tuples = self._fetch_behavior_candidates_with_versions(
+                query_tokens=query_tokens,
+                status=request.status,
+                namespace=request.namespace,
+                limit=candidate_limit,
+            )
+        else:
+            # Use optimized fetch that gets behaviors + versions in single query
+            behavior_tuples = self._fetch_behaviors_with_versions(
+                status=request.status,
+                namespace=request.namespace
+            )
         matches: List[BehaviorSearchResult] = []
 
         for behavior, versions in behavior_tuples:
@@ -1079,6 +1107,7 @@ class BehaviorService:
                 "results": len(limited),
             },
             actor=self._actor_payload(actor) if actor else None,
+            session_id=telemetry_session_id,
         )
         return limited
 
@@ -1089,6 +1118,8 @@ class BehaviorService:
         limit: int = 5,
         actor: Optional[Actor] = None,
         role_context: Optional[RoleContext] = None,
+        *,
+        telemetry_session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get relevant behaviors for a task before execution.
 
@@ -1117,6 +1148,7 @@ class BehaviorService:
                     **role_context.to_telemetry_payload(),
                 },
                 actor=self._actor_payload(actor) if actor else None,
+                session_id=telemetry_session_id,
             )
 
         # Search for relevant behaviors
@@ -1129,7 +1161,11 @@ class BehaviorService:
             status="APPROVED",
             limit=limit,
         )
-        results = self.search_behaviors(search_request, actor)
+        results = self.search_behaviors(
+            search_request,
+            actor,
+            telemetry_session_id=telemetry_session_id,
+        )
 
         # Format behaviors for agent prompt consumption
         recommended = []
@@ -1159,6 +1195,7 @@ class BehaviorService:
                 "behavior_names": [r.behavior.name for r in results[:limit]],
             },
             actor=self._actor_payload(actor) if actor else None,
+            session_id=telemetry_session_id,
         )
 
         return {
@@ -1313,6 +1350,111 @@ class BehaviorService:
             cur.execute(query, params)
             rows = cur.fetchall()
 
+        return self._behavior_tuples_from_join_rows(rows)
+
+    def _fetch_behavior_candidates_with_versions(
+        self,
+        *,
+        query_tokens: List[str],
+        status: Optional[str] = None,
+        namespace: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Tuple[Behavior, List[BehaviorVersion]]]:
+        """Fetch a ranked candidate subset for behavior search.
+
+        This keeps cache-miss retrieval bounded by asking PostgreSQL to narrow
+        candidates before the existing Python scoring pass. It works with the
+        current schema and benefits from text/trigram indexes when present.
+        """
+        if not query_tokens:
+            return self._fetch_behaviors_with_versions(status=status, namespace=namespace)
+
+        conn = self._ensure_connection()
+        behavior_search_blob = """
+            lower(
+                concat_ws(
+                    ' ',
+                    b.name,
+                    b.description,
+                    array_to_string(b.keywords, ' '),
+                    b.category,
+                    b.role,
+                    b.triggers::text,
+                    b.steps::text
+                )
+            )
+        """
+        version_search_blob = """
+            lower(
+                concat_ws(
+                    ' ',
+                    bv.name,
+                    bv.description,
+                    bv.triggers::text,
+                    bv.steps::text
+                )
+            )
+        """
+        predicates = [
+            f"({behavior_search_blob} LIKE %s OR {version_search_blob} LIKE %s)"
+            for _ in query_tokens
+        ]
+        score_terms = [
+            f"CASE WHEN {behavior_search_blob} LIKE %s OR {version_search_blob} LIKE %s THEN 1 ELSE 0 END"
+            for _ in query_tokens
+        ]
+        predicate_params = [
+            param
+            for token in query_tokens
+            for param in (f"%{token}%", f"%{token}%")
+        ]
+        score_params = [
+            param
+            for token in query_tokens
+            for param in (f"%{token}%", f"%{token}%")
+        ]
+        params: List[Any] = [*score_params, *predicate_params]
+
+        query = f"""
+            SELECT
+                b.id, b.name, b.description, b.keywords, b.created_at,
+                b.updated_at, b.version, b.is_active, b.is_deprecated, b.namespace,
+                b.category, b.role, b.triggers, b.steps, b.confidence_threshold,
+                bv.id as version_id, bv.version as bv_version, bv.name as bv_name,
+                bv.description as bv_description, bv.triggers as bv_triggers,
+                bv.steps as bv_steps, bv.change_reason, bv.changed_by, bv.created_at as bv_created_at,
+                ({' + '.join(score_terms)}) AS search_score
+            FROM behavior.behaviors b
+            LEFT JOIN behavior.behavior_versions bv ON b.id = bv.behavior_id
+            WHERE ({' OR '.join(predicates)})
+        """
+
+        if status:
+            if status == "APPROVED":
+                query += " AND b.is_active = true AND b.is_deprecated = false"
+            elif status == "DEPRECATED":
+                query += " AND b.is_deprecated = true"
+            elif status == "DRAFT":
+                query += " AND b.is_active = false AND b.is_deprecated = false"
+
+        if namespace:
+            query += " AND COALESCE(b.namespace, %s) = %s"
+            params.extend([DEFAULT_BEHAVIOR_NAMESPACE, namespace])
+
+        params.append(max(1, limit))
+        query += " ORDER BY search_score DESC, b.updated_at DESC, bv.version DESC LIMIT %s"
+
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+
+        return self._behavior_tuples_from_join_rows(rows)
+
+    def _behavior_tuples_from_join_rows(
+        self,
+        rows: Iterable[tuple],
+    ) -> List[Tuple[Behavior, List[BehaviorVersion]]]:
+        """Map behavior/version JOIN rows into service dataclasses."""
         # Group results by behavior_id since we're now getting all versions
         behavior_map: Dict[str, Tuple[Behavior, List[BehaviorVersion]]] = {}
 

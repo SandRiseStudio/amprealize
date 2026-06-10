@@ -132,7 +132,7 @@ Once you have the user's first answer, determine session type:
 | Research | Investigation directions, hypotheses | → Research plan |
 | Open-ended | Any creative exploration | → Memory note, summary |
 
-## Whiteboard Offering (gated by `ENABLE_WHITEBOARD` feature flag)
+## Whiteboard Offering (gated by `AMPREALIZE_ENABLE_WHITEBOARD` feature flag)
 
    **When to suggest a whiteboard** (after the session is underway):
    - After 3+ exchanges, when ideas are multiplying and spatial arrangement would help organize them
@@ -144,7 +144,7 @@ Once you have the user's first answer, determine session type:
    **How to offer** (conversational, not mechanical):
    > "These ideas are branching in interesting directions — want to sketch this out on a whiteboard? I can open one where we can arrange ideas spatially and diagram connections."
 
-   **Whiteboard MCP tools** (only available when `ENABLE_WHITEBOARD` is enabled):
+   **Whiteboard MCP tools** (only available when `AMPREALIZE_ENABLE_WHITEBOARD` is enabled):
    - `brainstorm.openWhiteboard` — create or reuse the session board; returns a URL the user can open in their browser
    - `brainstorm.addIdea` — place ideas, themes, or categories as sticky notes/frames on the canvas
    - `brainstorm.summarizeBoard` — read and synthesize the current canvas state
@@ -481,7 +481,7 @@ rate limiting, circuit breakers, or something else entirely?
 ## Integration Points
 
 - **MCP Tools**: `behaviors.getForTask`, `context.getContext`, `research.search`
-- **Whiteboard MCP Tools** (gated by `ENABLE_WHITEBOARD` flag):
+- **Whiteboard MCP Tools** (gated by `AMPREALIZE_ENABLE_WHITEBOARD` flag):
   - `brainstorm.openWhiteboard` — create/reuse session board, returns web console URL
   - `brainstorm.addIdea` — place ideas, themes, categories on canvas
   - `brainstorm.summarizeBoard` — synthesize current canvas state

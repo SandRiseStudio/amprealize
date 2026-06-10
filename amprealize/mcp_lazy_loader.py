@@ -21,14 +21,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from .mcp_guidance import build_mcp_usage_guide
 from .mcp_tools_dir import get_mcp_tools_directory
 from .mcp_tool_groups import (
     CORE_TOOLS,
+    CORE_TOOL_PREFIXES,
     OUTCOME_TOOLS,
     TOOL_GROUPS,
     ToolGroup,
     ToolGroupId,
     calculate_tool_allocation,
+    get_startup_tool_groups,
     get_max_tools_budget,
     match_tool_to_group,
     suggest_groups_for_query,
@@ -40,6 +43,7 @@ class ToolLoadState:
     """Tracks the state of loaded tools and active groups."""
 
     active_groups: Set[ToolGroupId] = field(default_factory=lambda: {ToolGroupId.CORE})
+    startup_groups: Set[ToolGroupId] = field(default_factory=get_startup_tool_groups)
     loaded_tools: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     tool_scopes: Dict[str, List[str]] = field(default_factory=dict)
     last_activation: Dict[ToolGroupId, datetime] = field(default_factory=dict)
@@ -58,8 +62,8 @@ class ToolLoadState:
         stale = []
 
         for group_id in self.active_groups:
-            if group_id == ToolGroupId.CORE:
-                continue  # Never deactivate core
+            if group_id == ToolGroupId.CORE or group_id in self.startup_groups:
+                continue  # Never auto-deactivate core/startup groups
 
             last_use = self.last_activation.get(group_id)
             if last_use and (now - last_use) > timedelta(minutes=self.auto_deactivate_minutes):
@@ -145,13 +149,21 @@ class MCPLazyToolLoader:
         # Load core tools
         self._activate_group(ToolGroupId.CORE)
 
-        # Load outcome tools (high-level consolidated tools)
+        # Load explicitly configured groups that should be available without
+        # keyword activation. Defaults to none because core now contains the
+        # common Cursor agent startup surface.
+        self._state.startup_groups = get_startup_tool_groups()
+        for group_id in sorted(self._state.startup_groups, key=lambda group: TOOL_GROUPS[group].priority):
+            self._activate_group(group_id)
+
+        # Load only explicitly curated synthetic outcome tools. Published outcome
+        # manifests are activated through their normal tool groups.
         self._load_outcome_tools()
 
         self._initialized = True
         self._logger.info(
             f"MCPLazyToolLoader initialized: {len(self._all_tool_manifests)} total tools, "
-            f"{len(self._state.loaded_tools)} active (core + outcome tools)"
+            f"{len(self._state.loaded_tools)} active"
         )
 
     def _scan_all_manifests(self) -> None:
@@ -184,6 +196,110 @@ class MCPLazyToolLoader:
         normalized = normalized.lower()
         normalized = re.sub(r"[^a-z0-9_-]", "_", normalized)
         return normalized
+
+    def get_usage_guide(self) -> Dict[str, Any]:
+        """Return the canonical startup guide for agents using Amprealize MCP."""
+        stats = self.get_stats()
+        return build_mcp_usage_guide(
+            active_groups=stats["active_groups"],
+            startup_groups=[group.value for group in sorted(self._state.startup_groups, key=lambda g: g.value)],
+            total_available_tools=stats["total_available_tools"],
+            active_tools=stats["active_tools"],
+        )
+
+    def get_tool_catalog(
+        self,
+        *,
+        group: Optional[str] = None,
+        query: Optional[str] = None,
+        use_case: Optional[str] = None,
+        include_inactive: bool = True,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """Return searchable tool metadata without requiring manifest spelunking."""
+        limit = max(1, min(int(limit or 50), 200))
+        search_text = " ".join(part for part in [query, use_case] if part).lower()
+        group_id: Optional[ToolGroupId] = None
+
+        if group:
+            normalized_group = group.strip().lower()
+            for candidate in ToolGroupId:
+                if candidate.value == normalized_group:
+                    group_id = candidate
+                    break
+            if group_id is None:
+                return {
+                    "success": False,
+                    "error": f"Unknown tool group: {group}",
+                    "available_groups": [candidate.value for candidate in TOOL_GROUPS],
+                }
+
+        catalog: List[Dict[str, Any]] = []
+        source = self._all_tool_manifests
+        if not include_inactive:
+            source = {
+                manifest.get("_original_name", name): {"manifest": manifest, "group": match_tool_to_group(manifest.get("_original_name", name))}
+                for name, manifest in self._state.loaded_tools.items()
+            }
+
+        for original_name, tool_info in source.items():
+            manifest = tool_info["manifest"]
+            matched_group = tool_info.get("group") or match_tool_to_group(original_name)
+
+            if group_id is not None and matched_group != group_id:
+                continue
+
+            haystack = " ".join(
+                [
+                    original_name,
+                    self._normalize_tool_name(original_name),
+                    manifest.get("description", ""),
+                    matched_group.value if matched_group else "",
+                ]
+            ).lower()
+            if search_text and not all(token in haystack for token in search_text.split()):
+                continue
+
+            input_schema = manifest.get("inputSchema") or manifest.get("arguments") or {}
+            properties = input_schema.get("properties", {}) if isinstance(input_schema, dict) else {}
+            required = input_schema.get("required", []) if isinstance(input_schema, dict) else []
+            catalog.append(
+                {
+                    "original_name": original_name,
+                    "normalized_name": self._normalize_tool_name(original_name),
+                    "group": matched_group.value if matched_group else None,
+                    "is_active": self._normalize_tool_name(original_name) in self._state.loaded_tools,
+                    "description": manifest.get("description", ""),
+                    "input_fields": sorted(properties),
+                    "required_fields": list(required),
+                    "session_friendly": len(required) == 0,
+                    "example": {
+                        "tool": original_name,
+                        "arguments": {},
+                    },
+                }
+            )
+
+        catalog.sort(key=lambda item: (item["group"] or "zzz", item["original_name"]))
+        total_matches = len(catalog)
+        return {
+            "success": True,
+            "tools": catalog[:limit],
+            "total_matches": total_matches,
+            "has_more": total_matches > limit,
+            "filters": {
+                "group": group,
+                "query": query,
+                "use_case": use_case,
+                "include_inactive": include_inactive,
+                "limit": limit,
+            },
+            "next_steps": [
+                "Use original_name when discussing Amprealize docs or manifests.",
+                "Use normalized_name when calling tools from clients that normalize MCP names.",
+                "If a matching tool is inactive, call tools.activateGroup with its group.",
+            ],
+        }
 
     def _load_tool_manifest(self, original_name: str) -> Optional[Dict[str, Any]]:
         """Load a specific tool manifest into the active set."""
@@ -267,8 +383,14 @@ class MCPLazyToolLoader:
         return obj
 
     def _load_outcome_tools(self) -> None:
-        """Load high-level outcome-focused tools."""
+        """Load high-level outcome-focused tools explicitly included in core."""
         for tool_name, tool_def in OUTCOME_TOOLS.items():
+            if tool_name not in CORE_TOOLS:
+                continue
+
+            if tool_name in self._all_tool_manifests:
+                continue
+
             # Module gating — skip tools whose module is disabled
             if not self._is_tool_allowed_by_module(tool_name):
                 self._logger.debug(f"Skipping outcome tool (module disabled): {tool_name}")
@@ -304,11 +426,13 @@ class MCPLazyToolLoader:
         # Find tools matching this group's prefixes
         for original_name, tool_info in self._all_tool_manifests.items():
             if group_id == ToolGroupId.CORE:
-                # CORE group uses CORE_TOOLS as the authoritative set —
-                # it contains tools from many prefixes (auth, behaviors,
-                # research_wiki, tools, etc.) so prefix matching alone
-                # would miss cross-cutting tools.
-                if original_name not in CORE_TOOLS:
+                # CORE loads exact cross-cutting tools plus high-frequency
+                # Cursor agent families (auth/project/org/boards/work items/
+                # behaviors/wiki/tools) by prefix.
+                matches_core_prefix = any(
+                    original_name.startswith(prefix) for prefix in CORE_TOOL_PREFIXES
+                )
+                if original_name not in CORE_TOOLS and not matches_core_prefix:
                     continue
             else:
                 # Non-core groups use prefix matching

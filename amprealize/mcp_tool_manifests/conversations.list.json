@@ -1,18 +1,26 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "name": "conversations.list",
-  "description": "List conversations for a project. Filters by scope, archived status, and user participation.",
+  "description": "List conversations visible to a user. Optionally filter by project, target scope, and archived status.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "project_id": {
         "type": "string",
-        "description": "Project ID to list conversations for (required)"
+        "description": "Optional project ID to list conversations for"
       },
       "scope": {
         "type": "string",
-        "enum": ["project_room", "direct_message", "agent_thread", "topic"],
-        "description": "Optional filter by conversation scope"
+        "enum": ["project_room", "agent_dm", "global_user_home", "global_personal_thread", "project_space", "dm", "group_chat", "work_item_thread", "run_thread"],
+        "description": "Optional filter by a single conversation scope (ignored when `scopes` is non-empty)"
+      },
+      "scopes": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["project_room", "agent_dm", "global_user_home", "global_personal_thread", "project_space", "dm", "group_chat", "work_item_thread", "run_thread"]
+        },
+        "description": "Optional union filter over multiple scopes in one call (overrides `scope`)"
       },
       "include_archived": {
         "type": "boolean",
@@ -39,9 +47,14 @@
         "default": 0,
         "minimum": 0,
         "description": "Number of conversations to skip for pagination"
+      },
+      "include_total": {
+        "type": "boolean",
+        "default": true,
+        "description": "When false, skips COUNT; `total` is -1 (use page size for pagination hints)"
       }
     },
-    "required": ["project_id"]
+    "required": []
   },
   "outputSchema": {
     "type": "object",

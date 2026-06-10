@@ -185,6 +185,62 @@ class OSSProjectService:
         finally:
             conn.close()
 
+    def patch_project_settings(
+        self,
+        *,
+        owner_id: str,
+        project_id: str,
+        patch: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Merge *patch* into ``auth.projects.settings`` for an owned project.
+
+        ``None`` values remove top-level keys. ``agent_presence`` dicts are
+        shallow-merged into any existing ``agent_presence`` object.
+
+        Returns the updated settings mapping, or ``None`` if the project is
+        missing or not owned by *owner_id*.
+        """
+        import json
+
+        project = self.get_project(project_id)
+        if project is None or project.owner_id != owner_id:
+            return None
+
+        settings: Dict[str, Any] = dict(project.settings or {})
+        for key, value in patch.items():
+            if value is None:
+                settings.pop(key, None)
+            elif key == "agent_presence" and isinstance(value, dict):
+                merged = dict(settings.get("agent_presence") or {})
+                merged.update(value)
+                settings["agent_presence"] = merged
+            else:
+                settings[key] = value
+
+        now = _utc_now()
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE auth.projects
+                    SET settings = %s::jsonb, updated_at = %s
+                    WHERE project_id = %s AND owner_id = %s
+                    RETURNING settings
+                    """,
+                    (json.dumps(settings), now, project_id, owner_id),
+                )
+                row = cur.fetchone()
+                conn.commit()
+            if not row:
+                return None
+            out = row[0]
+            if isinstance(out, str):
+                out = json.loads(out)
+            return dict(out or {})
+        finally:
+            conn.close()
+
     def get_projects(self, project_ids: List[str]) -> List[Project]:
         """Batch-load multiple projects by id in one round-trip.
 

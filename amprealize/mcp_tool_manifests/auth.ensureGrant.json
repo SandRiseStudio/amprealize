@@ -4,11 +4,11 @@
   "description": "Perform a just-in-time authorization check for a tool invocation and return consent details or grant metadata.",
   "inputSchema": {
     "type": "object",
-    "required": ["agent_id", "surface", "tool_name", "scopes"],
+    "required": ["tool_name", "scopes"],
     "properties": {
-      "agent_id": {"type": "string", "description": "Registered agent identifier."},
+      "agent_id": {"type": "string", "description": "Registered agent identifier (optional, uses session identity)."},
       "user_id": {"type": "string", "description": "Human user id when acting on behalf of a person."},
-      "surface": {"type": "string", "enum": ["WEB", "CLI", "API", "VS_CODE", "MCP"]},
+      "surface": {"type": "string", "enum": ["WEB", "CLI", "API", "VS_CODE", "MCP"], "description": "Calling surface (optional, defaults to MCP)."},
       "tool_name": {"type": "string", "description": "Tool/action identifier. Must match ACTION_REGISTRY_SPEC."},
       "scopes": {
         "type": "array",

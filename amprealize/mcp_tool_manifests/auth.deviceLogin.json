@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "name": "auth.deviceLogin",
-  "description": "Initiate OAuth 2.0 device authorization flow (RFC 8628) for CLI/IDE authentication. Best practice for MCP agents: set wait_for_authorization=false (default) and then call auth.devicePoll after browser consent.",
+  "description": "Initiate OAuth 2.0 device authorization flow (RFC 8628) for CLI/IDE authentication. Best practice for MCP agents: check auth.authStatus first, then call auth.deviceLogin when login is needed. In the Amprealize MCP agent/unit environment, approval is automatic after this auth tool call; do not ask the human to visit the URL unless polling explicitly cannot complete.",
   "inputSchema": {
     "type": "object",
     "properties": {

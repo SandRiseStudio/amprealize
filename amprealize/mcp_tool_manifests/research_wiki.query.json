@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "research_wiki.query",
+  "description": "Search the Research Wiki for entities, concepts, evaluations, and synthesis pages. Uses keyword matching against wiki page content.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Search text"
+      },
+      "page_type": {
+        "type": "string",
+        "enum": ["entity", "concept", "evaluation-summary", "synthesis", "contradiction"],
+        "description": "Filter by page type"
+      },
+      "max_results": {
+        "type": "integer",
+        "description": "Maximum results (default 10)",
+        "default": 10
+      }
+    },
+    "required": ["query"]
+  }
+}

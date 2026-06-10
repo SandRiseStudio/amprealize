@@ -57,6 +57,7 @@ class NewExecutionMode(str, Enum):
     CONTAINER_ISOLATED = "container_isolated"
     CONTAINER_CONNECTED = "container_connected"
     LOCAL_DIRECT = "local_direct"
+    LOCAL_CONNECTOR_HYBRID = "local_connector_hybrid"
 
 
 class OutputTarget(str, Enum):
@@ -76,6 +77,13 @@ class SourceType(str, Enum):
     BITBUCKET = "bitbucket"
     BARE_GIT = "bare_git"
     LOCAL_DIR = "local_dir"
+
+
+class ExecutionIntent(str, Enum):
+    """What the gateway should produce for a work item request."""
+
+    EXECUTE = "execute"
+    PLAN_ONLY = "plan_only"
 
 
 # =============================================================================
@@ -121,6 +129,8 @@ class ExecutionRequest:
     # Surface context
     surface: str = "api"                # web, api, mcp, cli, vscode
     workspace_path: Optional[str] = None  # For local/connected modes
+    conversation_id: Optional[str] = None
+    message_id: Optional[str] = None
 
     # Source override (auto-detected from project if absent)
     source_type: Optional[SourceType] = None
@@ -133,16 +143,108 @@ class ExecutionRequest:
     model_override: Optional[str] = None
     agent_id_override: Optional[str] = None
     agent_execution_mode: Optional["AgentExecutionMode"] = None  # GEP or SESSION
+    intent: ExecutionIntent = ExecutionIntent.EXECUTE
 
     # Idempotency
     idempotency_key: Optional[str] = None
+
+    # Governance and policy context
+    policy_context: Dict[str, Any] = field(default_factory=dict)
+    risk_classification: Optional[str] = None
+    requires_approval: bool = False
+    approved_by: Optional[str] = None
+    plan_artifact_id: Optional[str] = None
 
     # Callback
     callback_url: Optional[str] = None
 
     # Request metadata
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    #: Explicit override; if unset, ``metadata["execution_workspace_kind"]`` is used in the gateway.
+    execution_workspace_kind: Optional[str] = None
     request_id: str = field(default_factory=lambda: f"req-{uuid.uuid4().hex[:12]}")
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    @property
+    def is_plan_only(self) -> bool:
+        """Whether this request should create a plan artifact instead of executing."""
+        return self.intent == ExecutionIntent.PLAN_ONLY
+
+
+@dataclass
+class GatewayQueuePayload:
+    """Normalized payload stored on execution-queue jobs created by the gateway.
+
+    ExecutionJob keeps queue-level fields at the top level. This payload carries
+    gateway-specific intent, source, output, surface, and governance metadata so
+    workers can resume the same resolved path across board, chat, API, MCP, and CLI.
+    """
+
+    request_id: str
+    surface: str
+    intent: ExecutionIntent
+    mode: NewExecutionMode
+    output_target: OutputTarget
+    source_type: SourceType
+    source_url: Optional[str] = None
+    source_ref: Optional[str] = None
+    conversation_id: Optional[str] = None
+    message_id: Optional[str] = None
+    idempotency_key: Optional[str] = None
+    agent_execution_mode: Optional[str] = None
+    policy_context: Dict[str, Any] = field(default_factory=dict)
+    risk_classification: Optional[str] = None
+    requires_approval: bool = False
+    approved_by: Optional[str] = None
+    plan_artifact_id: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_resolved(cls, resolved: "ResolvedExecution") -> "GatewayQueuePayload":
+        request = resolved.request
+        return cls(
+            request_id=request.request_id,
+            surface=request.surface,
+            intent=request.intent,
+            mode=resolved.mode,
+            output_target=resolved.output_target,
+            source_type=resolved.source_type,
+            source_url=resolved.source_url,
+            source_ref=resolved.source_ref,
+            conversation_id=request.conversation_id,
+            message_id=request.message_id,
+            idempotency_key=request.idempotency_key,
+            agent_execution_mode=request.agent_execution_mode.value
+            if request.agent_execution_mode else None,
+            policy_context=dict(request.policy_context),
+            risk_classification=request.risk_classification,
+            requires_approval=request.requires_approval,
+            approved_by=request.approved_by,
+            plan_artifact_id=request.plan_artifact_id,
+            metadata=dict(request.metadata),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "gateway_request_id": self.request_id,
+            "surface": self.surface,
+            "intent": self.intent.value,
+            "mode": self.mode.value,
+            "output_target": self.output_target.value,
+            "source_type": self.source_type.value,
+            "source_url": self.source_url,
+            "source_ref": self.source_ref,
+            "conversation_id": self.conversation_id,
+            "message_id": self.message_id,
+            "idempotency_key": self.idempotency_key,
+            "agent_execution_mode": self.agent_execution_mode,
+            "policy_context": self.policy_context,
+            "risk_classification": self.risk_classification,
+            "requires_approval": self.requires_approval,
+            "approved_by": self.approved_by,
+            "plan_artifact_id": self.plan_artifact_id,
+            "metadata": self.metadata,
+        }
 
 
 @dataclass
@@ -194,6 +296,10 @@ class ExecutionGatewayResult:
     cycle_id: Optional[str] = None
     mode: Optional[NewExecutionMode] = None
     output_target: Optional[OutputTarget] = None
+    intent: ExecutionIntent = ExecutionIntent.EXECUTE
+    queue_job_id: Optional[str] = None
+    plan_artifact_id: Optional[str] = None
+    compatibility: Dict[str, Any] = field(default_factory=dict)
     message: str = ""
     error: Optional[str] = None
 
@@ -344,7 +450,7 @@ def resolve_output_target(
     if output_override is not None:
         return output_override
 
-    if mode == NewExecutionMode.LOCAL_DIRECT:
+    if mode in (NewExecutionMode.LOCAL_DIRECT, NewExecutionMode.LOCAL_CONNECTOR_HYBRID):
         return OutputTarget.LOCAL_SYNC
 
     if mode == NewExecutionMode.CONTAINER_CONNECTED:

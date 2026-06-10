@@ -30,6 +30,7 @@
     "properties": {
       "success": { "type": "boolean" },
       "room_id": { "type": "string" },
+      "snapshot_id": { "type": "string", "description": "ID of the persisted snapshot saved to the archive." },
       "snapshot_format": { "type": "string" },
       "snapshot_data": {},
       "exported_at": { "type": "string" },

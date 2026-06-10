@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "executionConnector.claimDevice",
+  "description": "Exchange a pairing code for a long-lived device_token (POST /api/v1/execution-connector/devices). Does not require MCP session auth (same as REST).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "code": {
+        "type": "string",
+        "description": "Pairing code from createPairingCode"
+      },
+      "label": {
+        "type": "string",
+        "description": "Optional device label (default device)"
+      }
+    },
+    "required": []
+  }
+}

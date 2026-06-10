@@ -11,7 +11,7 @@
       },
       "item_type": {
         "type": "string",
-        "enum": ["goal", "feature", "task", "bug"],
+        "enum": ["goal", "feature", "task", "bug", "research"],
         "description": "Change the work item type (optional, uses session). Accepts legacy names: epic→goal, story→feature."
       },
       "title": {
@@ -85,9 +85,14 @@
         "type": "string",
         "description": "Associated run ID"
       },
+      "research_url": {
+        "type": "string",
+        "format": "uri",
+        "description": "Research URL for research work items. Required when converting an item to research; stored as metadata.research_url."
+      },
       "metadata": {
         "type": "object",
-        "description": "Additional metadata"
+        "description": "Additional metadata. For research work items, include research_url if not provided as a top-level field."
       },
       "parent_id": {
         "type": "string",
@@ -105,6 +110,11 @@
       "org_id": {
         "type": "string",
         "description": "Optional organization ID for multi-tenant context"
+      },
+      "brief": {
+        "type": "boolean",
+        "default": true,
+        "description": "Return a compact updated-item summary. Set false to return the full work item record."
       }
     },
     "required": ["item_id"]

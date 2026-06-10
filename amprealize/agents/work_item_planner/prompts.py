@@ -26,7 +26,7 @@ HIERARCHY = {
     },
     "feature": {
         "description": "Deliverable capability under a goal",
-        "allowed_children": ["task", "bug"],
+        "allowed_children": ["task", "bug", "research"],
     },
     "task": {
         "description": "Atomic unit of work under a feature",
@@ -34,6 +34,10 @@ HIERARCHY = {
     },
     "bug": {
         "description": "Defect or issue to fix under a feature",
+        "allowed_children": [],
+    },
+    "research": {
+        "description": "Research source to evaluate; may be linked anywhere it adds context",
         "allowed_children": [],
     },
 }
@@ -70,11 +74,17 @@ _BUG_PATTERN = re.compile(
     r"""^[A-Z][A-Za-z0-9 :'‘’&/,\-–—()._+#@*~"`→<>\[\]?!;=]{4,120}$"""
 )
 
+# Research titles: clearly name the article, paper, or question being evaluated.
+_RESEARCH_PATTERN = re.compile(
+    r"""^[A-Z][A-Za-z0-9 :'‘’&/,\-–—()._+#@*~"`→<>\[\]?!;=]{4,120}$"""
+)
+
 GWS_TITLE_PATTERNS: Dict[str, re.Pattern[str]] = {
     "goal": _GOAL_PATTERN,
     "feature": _FEATURE_PATTERN,
     "task": _TASK_PATTERN,
     "bug": _BUG_PATTERN,
+    "research": _RESEARCH_PATTERN,
 }
 
 # =============================================================================
@@ -137,6 +147,7 @@ GWS_CONVENTION_TEXT = f"""\
   - **Feature**: Deliverable capability under a goal (parent_id=goal_id)
     - **Task**: Atomic unit of work (parent_id=feature_id)
     - **Bug**: Defect or issue to fix (parent_id=feature_id)
+- **Research**: Flexible research source to evaluate; include metadata.research_url
 
 ## Naming Rules
 1. Titles start with an UPPERCASE letter
@@ -157,6 +168,14 @@ GWS_CONVENTION_TEXT = f"""\
 Instead of "Phase 1: …" in titles, add labels:
   labels: ["phase:1", "track:backend"]
 
+## MCP Creation Guidance
+- Prefer the active MCP session context for `project_id`, `org_id`, `user_id`, and comment `author_id` when it is available.
+- Ask for a target project only when there is no active project context or the user requests a different project.
+- Before creating, inspect existing work with `board.filterItems` or `workItems.list` to avoid duplicates.
+- Create hierarchy top-down with `workItems.create`; use the created goal ID as feature `parent_id`, and created feature IDs as task/bug `parent_id`.
+- Use `points` for sizing and do not emit `story_points`.
+- Treat `workItems.move` as a compatibility alias; use `workItems.moveToColumn` for new instructions.
+
 ## Examples
 | Type    | Good ✅                                           | Bad ❌                          |
 |---------|----------------------------------------------------|---------------------------------|
@@ -164,6 +183,7 @@ Instead of "Phase 1: …" in titles, add labels:
 | Feature | Add GWS Title Validation to MCP Handler            | STORY-042 Add validation        |
 | Task    | Write unit tests for title regex                   | Task 1 - tests                  |
 | Bug     | Fix race condition in board column reorder          | BUG-99 column issue             |
+| Research| Evaluate Metacognitive Reuse for Amprealize        | [Research] paper review         |
 """
 
 # =============================================================================
@@ -172,7 +192,7 @@ Instead of "Phase 1: …" in titles, add labels:
 
 GWS_COMPACT_SUMMARY = f"""\
 [GWS v{GWS_VERSION}] Work Item Naming Standard:
-- Hierarchy: goal → feature → task/bug
+- Hierarchy: goal → feature → task/bug; research can be linked wherever context fits
 - Titles: uppercase start, imperative verb phrase, 5-120 chars
 - Sizing: use "points" (not story_points)
 - Depth: goal_only | goal_and_features | full
@@ -182,9 +202,13 @@ GWS_COMPACT_SUMMARY = f"""\
 - NO status prefixes (TODO, WIP) — use status field
 - NO coded-section prefixes (A1:, S1.1 —) — use labels: ["section:a1"]
 - NO bracket-type prefixes ([Bug]) — use item_type field
+- MCP: active session may supply project/user context; only ask for project_id when context is missing or ambiguous
+- MCP: check duplicates with board.filterItems/workItems.list, create top-down with workItems.create, use points only
+- Research: include metadata.research_url or research_url with an absolute http(s) URL
 Examples:
   goal:    "Standardize Work Item Creation Across Agents"
   feature: "Add GWS Title Validation to MCP Handler"
   task:    "Write unit tests for title regex"
-  bug:     "Fix race condition in board column reorder"\
+  bug:     "Fix race condition in board column reorder"
+  research:"Evaluate Metacognitive Reuse for Amprealize"\
 """

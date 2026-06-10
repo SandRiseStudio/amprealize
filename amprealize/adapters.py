@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Type, TypeVar, Union
 import json
+import os
 from pathlib import Path
 
 from .action_contracts import (
@@ -25,6 +26,8 @@ from .behavior_service import (
     BehaviorService,
     CreateBehaviorDraftRequest,
     DeprecateBehaviorRequest,
+    ProposeBehaviorRequest,
+    RoleContext,
     SearchBehaviorsRequest,
     UpdateBehaviorDraftRequest,
 )
@@ -144,6 +147,10 @@ class RestActionServiceAdapter(BaseAdapter):
             related_run_id=payload.get("related_run_id"),
             checksum=payload.get("checksum"),
             audit_log_event_id=payload.get("audit_log_event_id"),
+            trace_id=payload.get("trace_id"),
+            span_id=payload.get("span_id"),
+            parent_span_id=payload.get("parent_span_id"),
+            outcome_ref=payload.get("outcome_ref"),
         )
         action = self._service.create_action(request, actor)
         return self._format_action(action)
@@ -189,6 +196,10 @@ class CLIActionServiceAdapter(BaseAdapter):
         checksum: str | None = None,
         related_run_id: str | None = None,
         audit_log_event_id: str | None = None,
+        trace_id: str | None = None,
+        span_id: str | None = None,
+        parent_span_id: str | None = None,
+        outcome_ref: str | None = None,
     ) -> Dict[str, Any]:
         actor = Actor(id=actor_id, role=actor_role, surface=self.surface)
         request = ActionCreateRequest(
@@ -199,6 +210,10 @@ class CLIActionServiceAdapter(BaseAdapter):
             related_run_id=related_run_id,
             checksum=checksum,
             audit_log_event_id=audit_log_event_id,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            outcome_ref=outcome_ref,
         )
         action = self._service.create_action(request, actor)
         return self._format_action(action)
@@ -248,6 +263,10 @@ class MCPActionServiceAdapter(BaseAdapter):
             related_run_id=payload.get("related_run_id"),
             checksum=payload.get("checksum"),
             audit_log_event_id=payload.get("audit_log_event_id"),
+            trace_id=payload.get("trace_id"),
+            span_id=payload.get("span_id"),
+            parent_span_id=payload.get("parent_span_id"),
+            outcome_ref=payload.get("outcome_ref"),
         )
         action = self._service.create_action(request, actor)
         return self._format_action(action)
@@ -478,6 +497,7 @@ class RestBehaviorServiceAdapter(BehaviorAdapterBase):
             base_version=payload.get("base_version"),
         )
         version = self._service.create_behavior_draft(request, actor)
+        _invalidate_console_dashboard_stats_cache()
         return self._behavior_detail(version.behavior_id)
 
     def update_draft(self, behavior_id: str, version: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -510,6 +530,7 @@ class RestBehaviorServiceAdapter(BehaviorAdapterBase):
             approval_action_id=payload.get("approval_action_id"),
         )
         self._service.approve_behavior(request, actor)
+        _invalidate_console_dashboard_stats_cache()
         return self._behavior_detail(behavior_id, request.version)
 
     def deprecate(self, behavior_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -521,11 +542,13 @@ class RestBehaviorServiceAdapter(BehaviorAdapterBase):
             successor_behavior_id=payload.get("successor_behavior_id"),
         )
         self._service.deprecate_behavior(request, actor)
+        _invalidate_console_dashboard_stats_cache()
         return self._behavior_detail(behavior_id, request.version)
 
     def delete_draft(self, behavior_id: str, version: str, payload: Dict[str, Any]) -> None:
         actor = self._build_actor(payload.get("actor", {}))
         self._service.delete_behavior_draft(behavior_id, version, actor)
+        _invalidate_console_dashboard_stats_cache()
 
     def get_behavior(self, behavior_id: str, version: Optional[str] = None) -> Dict[str, Any]:
         return self._behavior_detail(behavior_id, version)
@@ -776,6 +799,33 @@ class MCPBehaviorServiceAdapter(BehaviorAdapterBase):
         version = self._service.create_behavior_draft(request, actor)
         return self._behavior_detail(version.behavior_id)
 
+    def propose(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        actor = self._build_actor(payload.get("actor", {}))
+        role_context = None
+        if payload.get("role_context"):
+            rc = payload["role_context"]
+            role_context = RoleContext(
+                role=rc.get("role", payload.get("proposed_by_role", "Strategist")),
+                rationale=rc.get("rationale", ""),
+                behaviors_cited=rc.get("behaviors_cited", []),
+            )
+        request = ProposeBehaviorRequest(
+            name=payload["name"],
+            description=payload["description"],
+            instruction=payload["instruction"],
+            role_focus=payload["role_focus"],
+            trigger_keywords=list(payload.get("trigger_keywords", [])),
+            tags=list(payload.get("tags", [])),
+            examples=list(payload.get("examples", [])),
+            metadata=dict(payload.get("metadata", {})),
+            confidence_score=float(payload.get("confidence_score", 0.0)),
+            historical_validations=list(payload.get("historical_validations", [])),
+            pattern_id=payload.get("pattern_id"),
+            proposed_by_role=payload.get("proposed_by_role", "Strategist"),
+            rationale=payload.get("rationale"),
+        )
+        return self._service.propose_behavior(request, actor, role_context)
+
     def update(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         actor = self._build_actor(payload.get("actor", {}))
         request = UpdateBehaviorDraftRequest(
@@ -828,11 +878,9 @@ class MCPBehaviorServiceAdapter(BehaviorAdapterBase):
 
     def get_for_task(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Get relevant behaviors for a task before execution."""
-        from .behavior_service import RoleContext
-
         actor = self._build_actor(payload.get("actor", {}))
         role = payload.get("role", "Student")
-        task_description = payload["task_description"]
+        task_description = payload.get("task_description") or "Start a new Amprealize task using the current session context"
         limit = min(int(payload.get("limit", 5)), 20)
 
         role_context = None
@@ -852,18 +900,70 @@ class MCPBehaviorServiceAdapter(BehaviorAdapterBase):
             role_context=role_context,
         )
 
+        brief = payload.get("brief")
+        if brief is None:
+            brief = os.environ.get("AMPREALIZE_MCP_BRIEF_RESULTS", "false").lower() in (
+                "1",
+                "true",
+                "yes",
+                "on",
+            )
+        if brief:
+            recommended_behaviors = [
+                {
+                    "name": behavior.get("name"),
+                    "instruction": behavior.get("instruction"),
+                    "role_focus": behavior.get("role_focus"),
+                    "score": behavior.get("score"),
+                }
+                for behavior in result["recommended_behaviors"]
+            ]
+        else:
+            recommended_behaviors = result["recommended_behaviors"]
+
+        behavior_retrieval_refs: List[Dict[str, Any]] = []
+        raw_behaviors = result.get("behaviors") or []
+        if raw_behaviors:
+            for r in raw_behaviors[:limit]:
+                if hasattr(r, "behavior"):
+                    behavior_retrieval_refs.append(
+                        {
+                            "behavior_id": r.behavior.behavior_id,
+                            "name": r.behavior.name,
+                            "version": r.active_version.version,
+                            "score": float(r.score),
+                        }
+                    )
+        else:
+            for b in result.get("recommended_behaviors") or []:
+                if isinstance(b, dict):
+                    sc = b.get("score")
+                    try:
+                        score_f = float(sc) if sc is not None else 0.0
+                    except (TypeError, ValueError):
+                        score_f = 0.0
+                    behavior_retrieval_refs.append(
+                        {
+                            "behavior_id": str(b.get("behavior_id") or ""),
+                            "name": b.get("name"),
+                            "version": str(b.get("version") or ""),
+                            "score": score_f,
+                        }
+                    )
+
         return {
             "role": result["role"],
             "task_description": result["task_description"],
             "role_advisory": result["role_advisory"],
-            "recommended_behaviors": result["recommended_behaviors"],
+            "recommended_behaviors": recommended_behaviors,
+            "behavior_retrieval_refs": behavior_retrieval_refs,
         }
 
 
 class BaseTaskAdapter:
     """Common adapter utilities for task assignments."""
 
-    def __init__(self, service: TaskAssignmentService) -> None:
+    def __init__(self, service: Any) -> None:
         self._service = service
 
     def _list(self, function: str | None, agent: str | None = None) -> List[Dict[str, Any]]:
@@ -873,7 +973,7 @@ class BaseTaskAdapter:
 class RestTaskAssignmentAdapter(BaseTaskAdapter):
     """Mimics REST API payloads for task assignment queries."""
 
-    def __init__(self, service: TaskAssignmentService) -> None:
+    def __init__(self, service: Any) -> None:
         super().__init__(service)
 
     def list_assignments(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -885,7 +985,9 @@ class RestTaskAssignmentAdapter(BaseTaskAdapter):
 class CLITaskAssignmentAdapter(BaseTaskAdapter):
     """Adapter backing CLI task assignment commands."""
 
-    def __init__(self, service: TaskAssignmentService) -> None:
+    surface = "cli"
+
+    def __init__(self, service: Any) -> None:
         super().__init__(service)
 
     def list_assignments(self, function: str | None = None, agent: str | None = None) -> List[Dict[str, Any]]:
@@ -895,13 +997,40 @@ class CLITaskAssignmentAdapter(BaseTaskAdapter):
 class MCPTaskAssignmentAdapter(BaseTaskAdapter):
     """Adapter providing MCP task listing parity."""
 
-    def __init__(self, service: TaskAssignmentService) -> None:
+    surface = "mcp"
+
+    def __init__(self, service: Any) -> None:
         super().__init__(service)
 
     def list_assignments(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
         function = payload.get("function") if isinstance(payload, dict) else None
         agent = payload.get("agent") if isinstance(payload, dict) else None
         return self._list(function, agent)
+
+    def suggest_agent(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Suggest agents for an assignable entity (same contract as RestAssignmentAdapter)."""
+        from amprealize.boards.contracts import SuggestAgentRequest
+
+        request = SuggestAgentRequest(
+            assignable_id=payload["assignable_id"],
+            assignable_type=payload["assignable_type"],
+            required_behaviors=payload.get("required_behaviors", []),
+            exclude_agent_ids=payload.get("exclude_agent_ids") or [],
+            max_suggestions=payload.get("max_suggestions", 5),
+        )
+        actor_payload = payload.get("actor")
+        actor = None
+        if actor_payload:
+            from amprealize.services.board_service import Actor as BoardActor
+
+            actor = BoardActor(
+                id=actor_payload.get("id", "unknown"),
+                role=actor_payload.get("role", "UNKNOWN"),
+                surface=actor_payload.get("surface", "mcp"),
+            )
+        org_id = payload.get("org_id")
+        response = self._service.suggest_agent(request, actor=actor, org_id=org_id)
+        return response.model_dump() if hasattr(response, "model_dump") else response.dict()
 
 
 # ------------------------------------------------------------------
@@ -940,9 +1069,10 @@ class RestAgentRegistryAdapter:
         except Exception:
             return raw
 
-    def list_agents(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def list_agents(self, payload: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         from .agent_registry_contracts import AgentStatus, AgentVisibility, ListAgentsRequest, RoleAlignment
 
+        payload = payload or {}
         request = ListAgentsRequest(
             status=self._coerce_enum(AgentStatus, payload.get("status")),
             visibility=self._coerce_enum(AgentVisibility, payload.get("visibility")),
@@ -980,23 +1110,26 @@ class RestAgentRegistryAdapter:
         )
         response = self._service.create_agent(request, actor, org_id=payload.get("org_id"))
 
-        # Build response with agent and optional credentials
-        result: Dict[str, Any] = {}
-        if hasattr(response, "agent"):
-            # New CreateAgentResponse format
-            result = response.agent.to_dict() if hasattr(response.agent, "to_dict") else cast(Dict[str, Any], response.agent)
-            if response.client_id:
-                result["credentials"] = {
-                    "client_id": response.client_id,
-                    "client_secret": response.client_secret,
-                }
-        else:
-            # Legacy Agent format (for backwards compatibility)
-            result = response.to_dict() if hasattr(response, "to_dict") else cast(Dict[str, Any], response)
+        agent_id = (
+            response.agent.agent_id
+            if hasattr(response, "agent") and hasattr(response.agent, "agent_id")
+            else (response.agent.get("agent_id") if isinstance(response.agent, dict) else None)
+        )
+        if not agent_id and hasattr(response, "to_dict"):
+            legacy = response.to_dict()
+            agent_id = legacy.get("agent_id")
+        if not agent_id:
+            raise RuntimeError("create_agent response missing agent_id")
 
-        return result
+        nested = self._service.get_agent(agent_id)
+        if hasattr(response, "client_id") and response.client_id:
+            nested["credentials"] = {
+                "client_id": response.client_id,
+                "client_secret": response.client_secret,
+            }
+        return nested
 
-    def search_agents(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def search_agents(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
         from .agent_registry_contracts import (
             AgentStatus,
             AgentVisibility,
@@ -1018,8 +1151,7 @@ class RestAgentRegistryAdapter:
             org_id=payload.get("org_id"),
         )
         results = self._service.search_agents(request, actor=actor)
-        formatted = [result.to_dict() if hasattr(result, "to_dict") else result for result in results]
-        return {"results": formatted, "total": len(formatted)}
+        return [result.to_dict() if hasattr(result, "to_dict") else result for result in results]
 
     def get_agent(
         self,
@@ -1088,27 +1220,128 @@ class RestAgentRegistryAdapter:
             or AgentVisibility.PUBLIC.value,
             effective_from=payload.get("effective_from"),
         )
-        agent = self._service.publish_agent(request, actor)
-        return agent.to_dict() if hasattr(agent, "to_dict") else cast(Dict[str, Any], agent)
+        self._service.publish_agent(request, actor)
+        return self._service.get_agent(agent_id)
 
     def deprecate_agent(self, agent_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         from .agent_registry_contracts import DeprecateAgentRequest
 
         actor = self._build_actor(payload.get("actor"))
+        effective_to = payload.get("effective_to") or ""
         request = DeprecateAgentRequest(
             agent_id=agent_id,
             version=str(payload["version"]),
-            effective_to=payload["effective_to"],
+            effective_to=effective_to,
             successor_agent_id=payload.get("successor_agent_id"),
         )
-        agent = self._service.deprecate_agent(request, actor)
-        return agent.to_dict() if hasattr(agent, "to_dict") else cast(Dict[str, Any], agent)
+        self._service.deprecate_agent(request, actor)
+        return self._service.get_agent(agent_id)
 
     def bootstrap_from_playbooks(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         actor_payload = payload.get("actor")
         actor = self._build_actor(actor_payload) if actor_payload else None
         force = bool(payload.get("force", False))
         return self._service.bootstrap_from_playbooks(actor=actor, force=force)
+
+
+class CLIAgentRegistryAdapter(RestAgentRegistryAdapter):
+    """Agent registry adapter for CLI (keyword args and sensible default actor)."""
+
+    surface = "cli"
+
+    def _cli_actor(self, actor_id: Optional[str] = None) -> Dict[str, Any]:
+        return {"id": actor_id or "cli", "role": "user", "surface": "cli"}
+
+    def create_agent(self, **kwargs: Any) -> Dict[str, Any]:  # type: ignore[override]
+        actor = kwargs.pop("actor", None)
+        actor_id = kwargs.pop("actor_id", None)
+        payload: Dict[str, Any] = dict(kwargs)
+        if actor is not None:
+            payload["actor"] = actor
+        elif "actor" not in payload:
+            payload["actor"] = self._cli_actor(actor_id)
+        return super().create_agent(payload)
+
+    def list_agents(self, **kwargs: Any) -> List[Dict[str, Any]]:  # type: ignore[override]
+        return super().list_agents(kwargs if kwargs else None)
+
+    def get_agent(self, agent_id: str, **kwargs: Any) -> Dict[str, Any]:  # type: ignore[override]
+        version = kwargs.get("version")
+        include_history = bool(kwargs.get("include_history", False))
+        return super().get_agent(agent_id, version=version, include_history=include_history)
+
+    def search_agents(self, query: Optional[str] = None, **kwargs: Any) -> List[Dict[str, Any]]:  # type: ignore[override]
+        payload: Dict[str, Any] = dict(kwargs)
+        if query is not None:
+            payload["query"] = query
+        return super().search_agents(payload)
+
+    def publish_agent(self, *, agent_id: str, version: str, **kwargs: Any) -> Dict[str, Any]:
+        inner: Dict[str, Any] = {"version": version}
+        for key in ("visibility", "effective_from", "actor"):
+            if key in kwargs:
+                inner[key] = kwargs[key]
+        if "actor" not in inner:
+            inner["actor"] = self._cli_actor(kwargs.get("actor_id"))
+        return super().publish_agent(agent_id, inner)
+
+
+class MCPAgentRegistryAdapter(RestAgentRegistryAdapter):
+    """Agent registry adapter for MCP tools (tool-shaped responses where required)."""
+
+    surface = "mcp"
+
+    def create_agent(self, payload: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
+        nested = super().create_agent(payload)
+        agent = nested["agent"]
+        versions = nested.get("versions") or []
+        v0 = versions[0] if versions else {}
+        return {
+            "agent_id": agent["agent_id"],
+            "name": agent["name"],
+            "version": v0.get("version") or agent.get("latest_version") or "1.0.0",
+            "status": v0.get("status") or agent.get("status"),
+            "_links": {"self": f"/api/v1/agents/{agent['agent_id']}"},
+        }
+
+    def list_agents(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:  # type: ignore[override]
+        items = super().list_agents(payload or {})
+        return {"agents": items, "count": len(items), "_links": {"self": "/api/v1/agents"}}
+
+    def search_agents(self, payload: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
+        items = super().search_agents(payload)
+        return {"results": items, "count": len(items)}
+
+    def get_agent(self, payload: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
+        agent_id = payload["agent_id"]
+        version = payload.get("version")
+        return super().get_agent(agent_id, version=version)
+
+    def publish_agent(self, payload: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
+        agent_id = payload["agent_id"]
+        inner = {k: v for k, v in payload.items() if k != "agent_id"}
+        nested = super().publish_agent(agent_id, inner)
+        agent = nested["agent"]
+        versions = nested.get("versions") or []
+        active = [v for v in versions if v.get("status") == "ACTIVE"]
+        msg = "Agent version published successfully"
+        if active:
+            msg = f"Version {active[0].get('version', '')} published"
+        return {
+            "agent_id": agent["agent_id"],
+            "status": agent.get("status") or "ACTIVE",
+            "message": msg,
+        }
+
+    def deprecate_agent(self, payload: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
+        agent_id = payload["agent_id"]
+        inner = {k: v for k, v in payload.items() if k != "agent_id"}
+        nested = super().deprecate_agent(agent_id, inner)
+        agent = nested["agent"]
+        return {
+            "agent_id": agent["agent_id"],
+            "status": agent["status"],
+        }
 
 
 # ------------------------------------------------------------------
@@ -1128,7 +1361,7 @@ class RestAssignmentAdapter:
         return Actor(
             id=actor_payload.get("id", "unknown"),
             role=actor_payload.get("role", "UNKNOWN"),
-            surface="api",
+            surface=actor_payload.get("surface", "api"),
         )
 
     def suggest_agent(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1139,7 +1372,7 @@ class RestAssignmentAdapter:
             assignable_id=payload["assignable_id"],
             assignable_type=payload["assignable_type"],
             required_behaviors=payload.get("required_behaviors", []),
-            exclude_agent_ids=payload.get("exclude_agent_ids"),
+            exclude_agent_ids=payload.get("exclude_agent_ids") or [],
             max_suggestions=payload.get("max_suggestions", 5),
         )
         actor = self._build_actor(payload.get("actor"))
@@ -1528,6 +1761,12 @@ class CLIRunServiceAdapter(BaseRunServiceAdapter):
     def get_run(self, run_id: str) -> Dict[str, Any]:
         return self._format_run(self._service.get_run(run_id))
 
+    def get_run_reliability(self, run_id: str) -> Dict[str, Any]:
+        from amprealize.run_reliability import build_reliability_snapshot
+
+        run = self._service.get_run(run_id)
+        return build_reliability_snapshot(run)
+
     def list_runs(
         self,
         *,
@@ -1600,6 +1839,16 @@ class CLIRunServiceAdapter(BaseRunServiceAdapter):
         self._service.delete_run(run_id)
 
 
+def _invalidate_console_dashboard_stats_cache() -> None:
+    """Bust Redis cache for ``GET /api/v1/dashboard/stats`` after mutations."""
+    try:
+        from amprealize.storage.redis_cache import invalidate_console_dashboard_stats_cache
+
+        invalidate_console_dashboard_stats_cache()
+    except Exception:
+        pass
+
+
 class RestRunServiceAdapter(BaseRunServiceAdapter):
     """REST-style adapter for RunService endpoints."""
 
@@ -1621,10 +1870,17 @@ class RestRunServiceAdapter(BaseRunServiceAdapter):
             triggering_user_id=payload.get("triggering_user_id"),
         )
         run = self._service.create_run(request)
+        _invalidate_console_dashboard_stats_cache()
         return self._format_run(run)
 
     def get_run(self, run_id: str) -> Dict[str, Any]:
         return self._format_run(self._service.get_run(run_id))
+
+    def get_run_reliability(self, run_id: str) -> Dict[str, Any]:
+        from amprealize.run_reliability import build_reliability_snapshot
+
+        run = self._service.get_run(run_id)
+        return build_reliability_snapshot(run)
 
     def list_runs(self, payload: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
         payload = payload or {}
@@ -1649,6 +1905,7 @@ class RestRunServiceAdapter(BaseRunServiceAdapter):
             metadata=payload.get("metadata", {}),
         )
         run = self._service.update_run(run_id, update)
+        _invalidate_console_dashboard_stats_cache()
         return self._format_run(run)
 
     def complete_run(self, run_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1660,15 +1917,18 @@ class RestRunServiceAdapter(BaseRunServiceAdapter):
             metadata=payload.get("metadata", {}),
         )
         run = self._service.complete_run(run_id, completion)
+        _invalidate_console_dashboard_stats_cache()
         return self._format_run(run)
 
     def cancel_run(self, run_id: str, payload: Dict[str, Any] | None = None) -> Dict[str, Any]:
         reason = (payload or {}).get("reason")
         run = self._service.cancel_run(run_id, reason=reason)
+        _invalidate_console_dashboard_stats_cache()
         return self._format_run(run)
 
     def delete_run(self, run_id: str) -> None:
         self._service.delete_run(run_id)
+        _invalidate_console_dashboard_stats_cache()
 
     def update_status(self, run_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Update only the status of a run (convenience wrapper around update_run).
@@ -1685,6 +1945,7 @@ class RestRunServiceAdapter(BaseRunServiceAdapter):
             message=payload.get("message"),
         )
         run = self._service.update_run(run_id, update)
+        _invalidate_console_dashboard_stats_cache()
         return self._format_run(run)
 
     async def fetch_logs(
@@ -1749,6 +2010,12 @@ class MCPRunServiceAdapter(BaseRunServiceAdapter):
 
     def get(self, run_id: str) -> Dict[str, Any]:
         return self._format_run(self._service.get_run(run_id))
+
+    def get_reliability(self, run_id: str) -> Dict[str, Any]:
+        from amprealize.run_reliability import build_reliability_snapshot
+
+        run = self._service.get_run(run_id)
+        return build_reliability_snapshot(run)
 
     def update(self, run_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         update = RunProgressUpdate(
@@ -4054,6 +4321,17 @@ class MCPReflectionServiceAdapter:
         candidate = self._service.get_candidate(candidate_id)
         if not candidate:
             return {"success": False, "error": f"Candidate not found: {candidate_id}"}
+        candidate_metadata = (
+            candidate.metadata if isinstance(getattr(candidate, "metadata", None), dict) else {}
+        )
+        execution_observability = (
+            candidate_metadata.get("execution_observability")
+            if isinstance(candidate_metadata.get("execution_observability"), dict)
+            else None
+        )
+        source_trace_ids = self._normalize_candidate_source_trace_ids(
+            candidate_metadata.get("source_trace_ids")
+        )
 
         # Auto-approval: confidence >= 0.8 triggers automatic approval
         auto_approved = candidate.confidence >= 0.8
@@ -4080,8 +4358,11 @@ class MCPReflectionServiceAdapter:
                     candidate_id=candidate_id,
                     behavior_id=merged_behavior_id,
                     reviewer_role="teacher" if not auto_approved else "auto",
+                    source_trace_ids=source_trace_ids,
+                    execution_observability=execution_observability,
                     auto_approved=auto_approved,
                 ).to_dict(),
+                run_id=self._observability_run_id(execution_observability),
             )
         except Exception:
             pass  # Telemetry should not block approval
@@ -4130,6 +4411,8 @@ class MCPReflectionServiceAdapter:
 
     def reject_candidate(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """MCP tool: reflection.rejectCandidate - Reject a behavior candidate."""
+        from .telemetry_events import ReflectionCandidateRejectedPayload, TelemetryEventType
+
         if not hasattr(self._service, "reject_candidate"):
             return {
                 "success": False,
@@ -4143,11 +4426,44 @@ class MCPReflectionServiceAdapter:
         if not candidate_id:
             return {"success": False, "error": "candidate_id is required"}
 
+        candidate = self._service.get_candidate(candidate_id)
+        if not candidate:
+            return {"success": False, "error": f"Candidate not found: {candidate_id}"}
+        candidate_metadata = (
+            candidate.metadata if isinstance(getattr(candidate, "metadata", None), dict) else {}
+        )
+        execution_observability = (
+            candidate_metadata.get("execution_observability")
+            if isinstance(candidate_metadata.get("execution_observability"), dict)
+            else None
+        )
+        source_trace_ids = self._normalize_candidate_source_trace_ids(
+            candidate_metadata.get("source_trace_ids")
+        )
+
         updated = self._service.reject_candidate(
             candidate_id=candidate_id,
             reviewed_by=reviewed_by,
             reason=reason,
         )
+
+        try:
+            from .telemetry import TelemetryClient, create_sink_from_env
+
+            telemetry = TelemetryClient(sink=create_sink_from_env())
+            telemetry.emit_event(
+                event_type=TelemetryEventType.REFLECTION_CANDIDATE_REJECTED.value,
+                payload=ReflectionCandidateRejectedPayload(
+                    candidate_id=candidate_id,
+                    reviewer_role="teacher",
+                    rejection_reason=reason,
+                    source_trace_ids=source_trace_ids,
+                    execution_observability=execution_observability,
+                ).to_dict(),
+                run_id=self._observability_run_id(execution_observability),
+            )
+        except Exception:
+            pass  # Telemetry should not block rejection
 
         return {
             "success": True,
@@ -4155,6 +4471,24 @@ class MCPReflectionServiceAdapter:
             "status": updated.status,
             "message": f"Candidate {candidate_id} rejected" + (f": {reason}" if reason else ""),
         }
+
+    @staticmethod
+    def _normalize_candidate_source_trace_ids(raw_source_trace_ids: Any) -> List[str]:
+        """Normalize candidate provenance trace identifiers for telemetry projection."""
+        if isinstance(raw_source_trace_ids, str):
+            return [raw_source_trace_ids] if raw_source_trace_ids else []
+        if isinstance(raw_source_trace_ids, (list, tuple, set)):
+            return [str(value) for value in raw_source_trace_ids if value]
+        return []
+
+    @staticmethod
+    def _observability_run_id(execution_observability: Optional[Dict[str, Any]]) -> Optional[str]:
+        """Return a run_id from execution observability metadata when present."""
+        if isinstance(execution_observability, dict):
+            value = execution_observability.get("run_id")
+            if value:
+                return str(value)
+        return None
 
 
 # ============================================================================
@@ -4917,16 +5251,16 @@ class CLIConversationServiceAdapter:
     def create_conversation(
         self,
         *,
-        project_id: str,
-        scope: str = "agent_dm",
+        project_id: Optional[str],
+        scope: str = "dm",
         title: Optional[str] = None,
         created_by: str,
         participant_ids: Optional[List[str]] = None,
         org_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        from .conversation_contracts import ConversationScope
+        from .conversation_contracts import ConversationScope, normalize_conversation_scope
 
-        scope_enum = ConversationScope(scope)
+        scope_enum = normalize_conversation_scope(ConversationScope(scope))
         conv = self._service.create_conversation(
             project_id=project_id,
             scope=scope_enum,
@@ -4940,25 +5274,34 @@ class CLIConversationServiceAdapter:
     def list_conversations(
         self,
         *,
-        project_id: str,
+        project_id: Optional[str],
         user_id: str,
         org_id: Optional[str] = None,
         scope: Optional[str] = None,
+        scopes: Optional[List[str]] = None,
         include_archived: bool = False,
         limit: int = 50,
         offset: int = 0,
+        include_total: bool = True,
     ) -> Dict[str, Any]:
-        from .conversation_contracts import ConversationScope
+        from .conversation_contracts import ConversationScope, normalize_conversation_scope
 
-        scope_enum = ConversationScope(scope) if scope else None
+        scopes_enum = None
+        scope_enum = None
+        if scopes:
+            scopes_enum = [normalize_conversation_scope(ConversationScope(s)) for s in scopes]
+        elif scope:
+            scope_enum = normalize_conversation_scope(ConversationScope(scope))
         convs, total = self._service.list_conversations(
             project_id=project_id,
             user_id=user_id,
             org_id=org_id,
             scope=scope_enum,
+            scopes=scopes_enum,
             include_archived=include_archived,
             limit=limit,
             offset=offset,
+            include_total=include_total,
         )
         return {
             "conversations": [c.to_dict() for c in convs],
@@ -4988,6 +5331,22 @@ class CLIConversationServiceAdapter:
             conversation_id, user_id=user_id, org_id=org_id,
         )
         return {"status": "archived", "conversation_id": conversation_id}
+
+    def patch_conversation(
+        self,
+        conversation_id: str,
+        *,
+        user_id: str,
+        org_id: Optional[str] = None,
+        patch: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        conv = self._service.patch_conversation(
+            conversation_id,
+            user_id=user_id,
+            org_id=org_id,
+            patch=patch,
+        )
+        return conv.to_dict()
 
     # -- Messages -------------------------------------------------------------
 
@@ -5026,16 +5385,20 @@ class CLIConversationServiceAdapter:
         user_id: str,
         org_id: Optional[str] = None,
         parent_id: Optional[str] = None,
+        include_thread_replies: bool = False,
         limit: int = 50,
         offset: int = 0,
+        include_total: bool = True,
     ) -> Dict[str, Any]:
         messages, total, has_more = self._service.list_messages(
             conversation_id,
             user_id=user_id,
             org_id=org_id,
             parent_id=parent_id,
+            include_thread_replies=include_thread_replies,
             limit=limit,
             offset=offset,
+            include_total=include_total,
         )
         return {
             "messages": [m.to_dict() for m in messages],

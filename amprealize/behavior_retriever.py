@@ -96,9 +96,14 @@ class BehaviorRetriever:
         db_dsn: Optional[str] = None,
         cache_ttl: int = 600,  # 10 minutes for retrieval results
         eager_load_model: Optional[bool] = None,  # Defaults from EMBEDDING_MODEL_LAZY_LOAD env var
+        feature_flags: Optional[Any] = None,
+        nvidia_rerank_client: Optional[Any] = None,
     ) -> None:
         self._behavior_service = behavior_service
         self._telemetry = telemetry or TelemetryClient.noop()
+        self._feature_flags = feature_flags
+        self._nvidia_rerank_client_injected = nvidia_rerank_client
+        self._nvidia_rerank_client_cached: Optional[Any] = None
 
         # Phase 2 gradual rollout: Support A/B testing between models
         # EMBEDDING_ROLLOUT_PERCENTAGE=0-100 controls traffic split
@@ -184,6 +189,115 @@ class BehaviorRetriever:
             logger.info(
                 "Semantic retrieval dependencies missing; operating in keyword-only mode."
             )
+
+    def _feature_flag_service(self) -> Any:
+        if self._feature_flags is not None:
+            return self._feature_flags
+        from .feature_flags import FeatureFlagService
+
+        return FeatureFlagService()
+
+    def _bcir_rerank_pool_size(self) -> int:
+        raw = os.getenv("BCI_RERANK_POOL_SIZE", "32")
+        try:
+            n = int(raw)
+        except ValueError:
+            n = 32
+        return max(2, min(n, 512))
+
+    def _rerank_cache_signature(self, request: RetrieveRequest) -> str:
+        if not self._nvidia_bci_rerank_eligible(request):
+            return "rerank:off"
+        model = os.getenv("NVIDIA_RERANK_MODEL_ID", "nvidia/llama-3.2-nv-rerankqa-1b-v2")
+        path = os.getenv("NVIDIA_RERANK_INVOKE_PATH", "")
+        return f"rerank:on:{self._bcir_rerank_pool_size()}:{model}:{path}"
+
+    def _nvidia_bci_rerank_eligible(self, request: RetrieveRequest) -> bool:
+        if not self._feature_flag_service().is_enabled(
+            "feature.nvidia_bci_rerank", {"user_id": request.user_id or ""}
+        ):
+            return False
+        key = os.getenv("NVIDIA_NIM_API_KEY") or os.getenv("NVIDIA_API_KEY")
+        return bool(key and str(key).strip())
+
+    def _get_nvidia_rerank_client(self) -> Optional[Any]:
+        if self._nvidia_rerank_client_injected is not None:
+            return self._nvidia_rerank_client_injected
+        if self._nvidia_rerank_client_cached is None:
+            from .nvidia_nim_rerank import NvidiaNimRerankClient
+
+            self._nvidia_rerank_client_cached = NvidiaNimRerankClient.from_env()
+        client = self._nvidia_rerank_client_cached
+        return client if client.is_configured() else None
+
+    def _effective_rerank_query(self, request: RetrieveRequest) -> str:
+        query = request.query or ""
+        if request.phase:
+            from .bci_contracts import PHASE_BOOST_CONFIG
+
+            phase_cfg = PHASE_BOOST_CONFIG.get(request.phase, {})
+            hint = phase_cfg.get("query_hint", "")
+            if hint:
+                query = f"{hint} {query}"
+        return query
+
+    def _behavior_passage_for_rerank(self, match: BehaviorMatch, max_chars: int = 6000) -> str:
+        parts = [match.name or "", (match.description or "").strip(), (match.instruction or "").strip()]
+        text = "\n\n".join(p for p in parts if p).strip()
+        if not text:
+            text = (match.behavior_id or "").strip() or " "
+        return text[:max_chars]
+
+    def _maybe_nvidia_rerank_matches(
+        self,
+        request: RetrieveRequest,
+        matches: List[BehaviorMatch],
+        *,
+        query_text: str,
+    ) -> List[BehaviorMatch]:
+        if len(matches) < 2 or not self._nvidia_bci_rerank_eligible(request):
+            return matches
+        client = self._get_nvidia_rerank_client()
+        if client is None:
+            return matches
+        passages = [self._behavior_passage_for_rerank(m) for m in matches]
+        start = time.time()
+        result = client.rank_passages_safe(query=query_text, passages=passages)
+        elapsed_ms = (time.time() - start) * 1000.0
+        if result is None:
+            self._telemetry.emit_event(
+                event_type="bci.behavior_retriever.nvidia_rerank",
+                payload={
+                    "status": "failed",
+                    "pool": len(matches),
+                    "latency_ms": round(elapsed_ms, 3),
+                },
+            )
+            return matches
+        seen: set[int] = set()
+        out: List[BehaviorMatch] = []
+        for idx, logit in result.rankings:
+            if idx < 0 or idx >= len(matches) or idx in seen:
+                continue
+            seen.add(idx)
+            m = matches[idx]
+            breakdown = dict(m.strategy_breakdown or {})
+            breakdown["nvidia_rerank_logit"] = float(logit)
+            out.append(replace(m, score=float(logit), strategy_breakdown=breakdown))
+        if len(out) < len(matches):
+            for i, m in enumerate(matches):
+                if i not in seen:
+                    out.append(m)
+        self._telemetry.emit_event(
+            event_type="bci.behavior_retriever.nvidia_rerank",
+            payload={
+                "status": "ok",
+                "pool": len(matches),
+                "returned": len(out),
+                "latency_ms": round(elapsed_ms, 3),
+            },
+        )
+        return out
 
     # ------------------------------------------------------------------
     # Public API
@@ -417,6 +531,7 @@ class BehaviorRetriever:
                 "surface": request.surface,
                 "task_type": request.task_type,
                 "phase": request.phase,
+                "rerank_sig": self._rerank_cache_signature(request),
             }
             cache_key = cache._make_key("retriever", "query", cache_params)
 
@@ -461,7 +576,11 @@ class BehaviorRetriever:
 
             embedding_matches = self._embedding_retrieve(request, cohort_model)
             if request.strategy == RetrievalStrategy.EMBEDDING:
-                matches = embedding_matches[: request.top_k]
+                q_text = self._effective_rerank_query(request)
+                emb_pool = self._maybe_nvidia_rerank_matches(
+                    request, embedding_matches, query_text=q_text
+                )
+                matches = emb_pool[: request.top_k]
                 matches = self._apply_context_boosts(matches, request)
                 matches = self._apply_fallback_rules(request, matches)
                 self._emit_retrieval_event(request, matches, "semantic")
@@ -470,9 +589,16 @@ class BehaviorRetriever:
                 record_retrieval_matches(request.strategy.value, len(matches), cohort_model)
                 return matches
 
-            keyword_matches = self._keyword_retrieve(request, limit=max(request.top_k * 3, 15))
+            kw_limit = max(request.top_k * 3, 15)
+            if self._nvidia_bci_rerank_eligible(request):
+                kw_limit = max(kw_limit, self._bcir_rerank_pool_size())
+            keyword_matches = self._keyword_retrieve(request, limit=kw_limit)
             if request.strategy == RetrievalStrategy.KEYWORD:
-                matches = keyword_matches[: request.top_k]
+                q_text = self._effective_rerank_query(request)
+                kw_pool = self._maybe_nvidia_rerank_matches(
+                    request, keyword_matches, query_text=q_text
+                )
+                matches = kw_pool[: request.top_k]
                 matches = self._apply_context_boosts(matches, request)
                 matches = self._apply_fallback_rules(request, matches)
                 self._emit_retrieval_event(request, matches, "keyword")
@@ -481,7 +607,17 @@ class BehaviorRetriever:
                 record_retrieval_matches(request.strategy.value, len(matches), cohort_model)
                 return matches
 
-            matches = self._merge_hybrid(embedding_matches, keyword_matches, request)
+            merge_limit = (
+                self._bcir_rerank_pool_size()
+                if self._nvidia_bci_rerank_eligible(request)
+                else request.top_k
+            )
+            matches = self._merge_hybrid(
+                embedding_matches, keyword_matches, request, result_limit=merge_limit
+            )
+            q_text = self._effective_rerank_query(request)
+            matches = self._maybe_nvidia_rerank_matches(request, matches, query_text=q_text)
+            matches = matches[: request.top_k]
             # E3: apply context-aware boosts and fallback rules
             matches = self._apply_context_boosts(matches, request)
             matches = self._apply_fallback_rules(request, matches)
@@ -549,6 +685,7 @@ class BehaviorRetriever:
                 "tags": sorted(request.tags) if request.tags else [],
                 "role_focus": request.role_focus.value if request.role_focus else None,
                 "include_metadata": request.include_metadata,
+                "rerank_sig": self._rerank_cache_signature(request),
             }
             cache_key = cache._make_key("retriever", "query", cache_params)
 
@@ -572,7 +709,14 @@ class BehaviorRetriever:
 
                 # KEYWORD strategy doesn't need embeddings at all.
                 if request.strategy == RetrievalStrategy.KEYWORD:
-                    final_matches = self._keyword_retrieve(request, limit=request.top_k)
+                    kw_limit = max(request.top_k * 3, 15)
+                    if self._nvidia_bci_rerank_eligible(request):
+                        kw_limit = max(kw_limit, self._bcir_rerank_pool_size())
+                    raw_kw = self._keyword_retrieve(request, limit=kw_limit)
+                    q_text = self._effective_rerank_query(request)
+                    final_matches = self._maybe_nvidia_rerank_matches(
+                        request, raw_kw, query_text=q_text
+                    )[: request.top_k]
                     results[request_idx] = final_matches
                     self._emit_retrieval_event(request, final_matches, "keyword")
 
@@ -583,6 +727,7 @@ class BehaviorRetriever:
                         "tags": sorted(request.tags) if request.tags else [],
                         "role_focus": request.role_focus.value if request.role_focus else None,
                         "include_metadata": request.include_metadata,
+                        "rerank_sig": self._rerank_cache_signature(request),
                     }
                     cache_key = cache._make_key("retriever", "query", cache_params)
                     self._cache_matches(cache_key, final_matches)
@@ -604,11 +749,32 @@ class BehaviorRetriever:
                     )
 
                     if request.strategy == RetrievalStrategy.EMBEDDING:
-                        final_matches = matches[: request.top_k]
+                        q_text = self._effective_rerank_query(request)
+                        pool = self._maybe_nvidia_rerank_matches(
+                            request, matches, query_text=q_text
+                        )
+                        final_matches = pool[: request.top_k]
                         mode = "semantic"
                     else:  # HYBRID
-                        keyword_matches = self._keyword_retrieve(request, limit=max(request.top_k * 3, 15))
-                        final_matches = self._merge_hybrid(matches, keyword_matches, request)
+                        kw_limit = max(request.top_k * 3, 15)
+                        if self._nvidia_bci_rerank_eligible(request):
+                            kw_limit = max(kw_limit, self._bcir_rerank_pool_size())
+                        keyword_matches = self._keyword_retrieve(request, limit=kw_limit)
+                        merge_limit = (
+                            self._bcir_rerank_pool_size()
+                            if self._nvidia_bci_rerank_eligible(request)
+                            else request.top_k
+                        )
+                        merged = self._merge_hybrid(
+                            matches,
+                            keyword_matches,
+                            request,
+                            result_limit=merge_limit,
+                        )
+                        q_text = self._effective_rerank_query(request)
+                        final_matches = self._maybe_nvidia_rerank_matches(
+                            request, merged, query_text=q_text
+                        )[: request.top_k]
                         mode = "hybrid"
 
                     results[request_idx] = final_matches
@@ -621,6 +787,7 @@ class BehaviorRetriever:
                         "tags": sorted(request.tags) if request.tags else [],
                         "role_focus": request.role_focus.value if request.role_focus else None,
                         "include_metadata": request.include_metadata,
+                        "rerank_sig": self._rerank_cache_signature(request),
                     }
                     cache_key = cache._make_key("retriever", "query", cache_params)
                     self._cache_matches(cache_key, final_matches)
@@ -1252,7 +1419,12 @@ class BehaviorRetriever:
         assert faiss is not None  # narrow optional dependency for type checkers
 
         multiplier = 2 if request.strategy == RetrievalStrategy.HYBRID else 1
-        k = min(len(self._behavior_ids), max(request.top_k, 1) * multiplier)
+        base_k = max(request.top_k, 1) * multiplier
+        if self._nvidia_bci_rerank_eligible(request):
+            pool = self._bcir_rerank_pool_size()
+            k = min(len(self._behavior_ids), max(base_k, pool))
+        else:
+            k = min(len(self._behavior_ids), base_k)
         if k == 0:
             return []
 
@@ -1356,6 +1528,8 @@ class BehaviorRetriever:
         embedding_matches: List[BehaviorMatch],
         keyword_matches: List[BehaviorMatch],
         request: RetrieveRequest,
+        *,
+        result_limit: Optional[int] = None,
     ) -> List[BehaviorMatch]:
         combined: Dict[str, BehaviorMatch] = {}
         for match in embedding_matches:
@@ -1392,7 +1566,8 @@ class BehaviorRetriever:
                 )
 
         ranked = sorted(combined.values(), key=lambda match: match.score, reverse=True)
-        return ranked[: request.top_k]
+        limit = result_limit if result_limit is not None else request.top_k
+        return ranked[:limit]
 
     def _emit_retrieval_event(
         self,

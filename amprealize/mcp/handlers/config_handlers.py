@@ -59,11 +59,18 @@ def _available_model_to_dict(
     model = available.model
     result = {
         "model_id": model.model_id,
+        "api_name": model.api_name,
         "provider": model.provider.value if hasattr(model.provider, 'value') else str(model.provider),
         "display_name": model.display_name,
         "context_limit": model.context_limit,
         "max_output_tokens": model.max_output_tokens,
         "supports_tool_calls": model.supports_tool_calls,
+        "supports_structured_output": model.metadata.get("supports_structured_output", False),
+        "supports_reasoning_delta": model.metadata.get("supports_reasoning_delta", False),
+        "supports_streaming": model.metadata.get("supports_streaming", True),
+        "is_open_model": model.metadata.get("is_open_model", False),
+        "is_default": model.metadata.get("is_default", False),
+        "free_endpoint": model.metadata.get("free_endpoint", False),
         "credential_source": available.credential_source,
         "is_byok": available.is_byok,
     }
@@ -113,23 +120,30 @@ def handle_get_model_availability(
         }
     """
     project_id = arguments.get("project_id")
-    if not project_id:
-        raise KeyError("project_id")
+    if project_id in (None, ""):
+        project_id = None
 
     org_id = arguments.get("org_id")
+    user_id = arguments.get("user_id")
+    prefer_user = arguments.get("prefer_user", False)
     include_pricing = arguments.get("include_pricing", True)
     provider_filter = arguments.get("provider_filter")
+    free_open_only = arguments.get("free_open_only", False)
 
     # Validate provider filter if provided
     if provider_filter:
-        valid_providers = {"anthropic", "openai", "openrouter", "local"}
+        valid_providers = {provider.value for provider in LLMProvider}
         if provider_filter not in valid_providers:
             raise ValueError(f"Invalid provider_filter: {provider_filter}. Must be one of: {', '.join(valid_providers)}")
 
-    # Get available models from credential store
+    # Get available models from credential store (project_id=None → platform/org/user only)
     available_models = credential_store.get_available_models(
         project_id=project_id,
         org_id=org_id,
+        user_id=user_id,
+        prefer_user=prefer_user,
+        provider_filter=provider_filter,
+        free_open_only=free_open_only,
     )
 
     # Apply provider filter if specified
@@ -147,6 +161,14 @@ def handle_get_model_availability(
                 if (m.model.provider.value if hasattr(m.model.provider, 'value') else str(m.model.provider)) == provider_filter
             ]
 
+    if free_open_only:
+        available_models = [
+            m for m in available_models
+            if m.model.metadata.get("is_open_model", False)
+            and m.model.metadata.get("free_endpoint", False)
+            and m.model.metadata.get("chat_model", True)
+        ]
+
     # Convert to response format
     models = [
         _available_model_to_dict(m, include_pricing=include_pricing)
@@ -157,12 +179,37 @@ def handle_get_model_availability(
     has_byok = any(m.is_byok for m in available_models)
 
     return {
-        "project_id": project_id,
+        "project_id": project_id or "",
         "org_id": org_id,
+        "user_id": user_id,
         "models": models,
         "total_count": len(models),
         "has_byok": has_byok,
     }
+
+
+def handle_get_model_readiness(
+    credential_store: CredentialStore,
+    arguments: Dict[str, Any],
+) -> Dict[str, Any]:
+    """MCP Tool: config.getModelReadiness — same payload as ``GET /api/v1/model-readiness``."""
+    from amprealize.llm.model_readiness import compute_model_readiness_payload
+
+    session = arguments.get("_session") or {}
+    user_id = arguments.get("user_id") or session.get("user_id")
+    if not user_id:
+        raise KeyError("user_id")
+
+    return compute_model_readiness_payload(
+        credential_store,
+        user_id=str(user_id),
+        org_id=arguments.get("org_id"),
+        project_id=arguments.get("project_id"),
+        prefer_user=bool(arguments.get("prefer_user", False)),
+        provider_filter=arguments.get("provider_filter"),
+        free_open_only=bool(arguments.get("free_open_only", False)),
+        selected_model_id=arguments.get("selected_model_id"),
+    )
 
 
 def handle_list_llm_connectors(
@@ -243,5 +290,6 @@ def handle_list_llm_connectors(
 # Maps MCP tool names to handler functions
 CONFIG_HANDLERS: Dict[str, Callable[[CredentialStore, Dict[str, Any]], Dict[str, Any]]] = {
     "config.getModelAvailability": handle_get_model_availability,
+    "config.getModelReadiness": handle_get_model_readiness,
     "config.listLLMConnectors": handle_list_llm_connectors,
 }

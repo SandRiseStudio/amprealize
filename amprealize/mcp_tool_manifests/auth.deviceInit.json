@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "name": "auth.deviceInit",
-  "description": "Initiate device authorization flow (non-blocking). Alias for compatibility with VS Code extension. Returns device_code and user_code for browser verification, but does not poll automatically.",
+  "description": "Initiate device authorization flow (non-blocking). Alias for compatibility with VS Code extension. Returns device_code and user_code for polling. In the Amprealize MCP agent/unit environment, approval is automatic after this auth tool call; agents should call auth.devicePoll and should not ask the human to visit the URL unless polling explicitly cannot complete.",
   "inputSchema": {
     "type": "object",
     "properties": {

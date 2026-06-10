@@ -11,12 +11,13 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from amprealize.conversation_contracts import (
     ActorType,
     Conversation,
     ConversationScope,
+    ConversationResourceLink,
     ExternalBinding,
     ExternalProvider,
     Message,
@@ -25,11 +26,20 @@ from amprealize.conversation_contracts import (
     Participant,
     ParticipantRole,
     Reaction,
+    conversation_scope_storage_values,
+    normalize_conversation_scope,
 )
 from amprealize.storage.postgres_pool import PostgresPool
 from amprealize.utils.dsn import resolve_postgres_dsn
 
 logger = logging.getLogger(__name__)
+
+_PATCH_OMIT = object()
+
+try:
+    from psycopg2 import errors as _pg_errors
+except ImportError:  # pragma: no cover
+    _pg_errors = None
 
 _MSG_PG_DSN_ENV = "MESSAGING_POSTGRES_DSN"
 _DEFAULT_PG_DSN = "postgresql://amprealize:amprealize@localhost:5432/amprealize"  # pragma: allowlist secret
@@ -47,6 +57,20 @@ def _now() -> datetime:
 
 def _new_id() -> str:
     return str(uuid.uuid4())
+
+
+def _is_postgres_unique_violation(exc: BaseException) -> bool:
+    """True if ``exc`` or its __cause__/__context__ chain is a Postgres UNIQUE (23505)."""
+    seen: set[int] = set()
+    err: BaseException | None = exc
+    while err is not None and id(err) not in seen:
+        seen.add(id(err))
+        if _pg_errors is not None and isinstance(err, _pg_errors.UniqueViolation):
+            return True
+        if getattr(err, "pgcode", None) == "23505":
+            return True
+        err = err.__cause__ or err.__context__
+    return False
 
 
 def _parse_jsonb(value: Any, default: Any = None) -> Any:
@@ -145,6 +169,7 @@ def _row_to_participant(cols: List[str], row: tuple) -> Participant:
 
 def _row_to_message(cols: List[str], row: tuple) -> Message:
     d = dict(zip(cols, row))
+    metadata = _parse_jsonb(d.get("metadata"))
     return Message(
         id=str(d["id"]),
         conversation_id=str(d["conversation_id"]),
@@ -161,7 +186,8 @@ def _row_to_message(cols: List[str], row: tuple) -> Message:
         edited_at=d.get("edited_at"),
         is_deleted=d.get("is_deleted", False),
         deleted_at=d.get("deleted_at"),
-        metadata=_parse_jsonb(d.get("metadata")),
+        resource_links=metadata.get("resource_links", []),
+        metadata=metadata,
         created_at=d.get("created_at"),
     )
 
@@ -221,17 +247,36 @@ class ConversationService:
     # Conversations
     # =========================================================================
 
+    @staticmethod
+    def _normalize_and_validate_scope(
+        scope: ConversationScope,
+        project_id: Optional[str],
+    ) -> ConversationScope:
+        normalized_scope = normalize_conversation_scope(scope)
+        if normalized_scope.is_global:
+            if project_id is not None:
+                raise ConversationServiceError(
+                    "global workspace conversations must not include project_id"
+                )
+            return normalized_scope
+        if normalized_scope.is_project_scoped and not project_id:
+            raise ConversationServiceError(
+                f"{normalized_scope.value} conversations require project_id"
+            )
+        return normalized_scope
+
     def create_conversation(
         self,
         *,
-        project_id: str,
-        scope: ConversationScope = ConversationScope.AGENT_DM,
+        project_id: Optional[str],
+        scope: ConversationScope = ConversationScope.DM,
         title: Optional[str] = None,
         created_by: str,
         participant_ids: Optional[List[str]] = None,
         org_id: Optional[str] = None,
     ) -> Conversation:
         """Create a new conversation and add participants."""
+        scope = self._normalize_and_validate_scope(scope, project_id)
         now = _now()
         conv_id = _new_id()
         participants = participant_ids or []
@@ -250,8 +295,17 @@ class ConversationService:
                          metadata, created_at, updated_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (conv_id, project_id, org_id, scope.value, title,
-                     created_by, json.dumps({}), now, now),
+                    (
+                        conv_id,
+                        project_id,
+                        org_id,
+                        scope.value,
+                        title,
+                        created_by,
+                        json.dumps({}),
+                        now,
+                        now,
+                    ),
                 )
                 # Insert participants
                 for pid in participants:
@@ -270,7 +324,11 @@ class ConversationService:
         self._pool.run_transaction(
             operation="conversation.create",
             service_prefix="messaging",
-            metadata={"conversation_id": conv_id, "project_id": project_id},
+            metadata={
+                "conversation_id": conv_id,
+                "project_id": project_id,
+                "scope": scope.value,
+            },
             executor=_execute,
             telemetry=self._telemetry,
         )
@@ -301,14 +359,14 @@ class ConversationService:
         def _execute(conn: Any) -> Optional[str]:
             _set_messaging_search_path(conn, org_id, user_id)
             with conn.cursor() as cur:
-                # Look for an existing AGENT_DM between these two participants
+                # Look for an existing target or legacy DM between these participants
                 # Lock matching rows to prevent racing inserts.
                 cur.execute(
                     """
                     SELECT c.id
                     FROM messaging.conversations c
                     WHERE c.project_id = %s
-                      AND c.scope = %s
+                      AND c.scope = ANY(%s)
                       AND c.is_archived = false
                       AND EXISTS (
                           SELECT 1 FROM messaging.participants p1
@@ -325,8 +383,12 @@ class ConversationService:
                     FOR UPDATE OF c
                     LIMIT 1
                     """,
-                    (project_id, ConversationScope.AGENT_DM.value,
-                     user_id, target_participant_id),
+                    (
+                        project_id,
+                        list(conversation_scope_storage_values(ConversationScope.DM)),
+                        user_id,
+                        target_participant_id,
+                    ),
                 )
                 existing = cur.fetchone()
                 if existing:
@@ -340,9 +402,17 @@ class ConversationService:
                          metadata, created_at, updated_at)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (conv_id, project_id, org_id,
-                     ConversationScope.AGENT_DM.value, None,
-                     user_id, json.dumps({}), now, now),
+                    (
+                        conv_id,
+                        project_id,
+                        org_id,
+                        ConversationScope.DM.value,
+                        None,
+                        user_id,
+                        json.dumps({}),
+                        now,
+                        now,
+                    ),
                 )
                 # Add creator as USER participant
                 cur.execute(
@@ -386,6 +456,82 @@ class ConversationService:
         conv = self.get_conversation(final_id, org_id=org_id, user_id=user_id)
         return conv, created_flag[0]
 
+    def bootstrap_global_user_home(
+        self,
+        *,
+        user_id: str,
+        org_id: Optional[str] = None,
+        message_limit: int = 50,
+        message_offset: int = 0,
+        include_thread_replies: bool = True,
+    ) -> Tuple[Conversation, List[Message], int, bool]:
+        """Return the global_user_home conversation (creating if missing) and the first message page."""
+        convs, _total = self.list_conversations(
+            project_id=None,
+            user_id=user_id,
+            org_id=org_id,
+            scope=ConversationScope.GLOBAL_USER_HOME,
+            include_archived=False,
+            limit=1,
+            offset=0,
+        )
+        if convs:
+            conv = convs[0]
+        else:
+            try:
+                conv = self.create_conversation(
+                    project_id=None,
+                    scope=ConversationScope.GLOBAL_USER_HOME,
+                    title="Global chat",
+                    created_by=user_id,
+                    participant_ids=[],
+                    org_id=org_id,
+                )
+            except ConversationServiceError:
+                convs_retry, _ = self.list_conversations(
+                    project_id=None,
+                    user_id=user_id,
+                    org_id=org_id,
+                    scope=ConversationScope.GLOBAL_USER_HOME,
+                    include_archived=False,
+                    limit=1,
+                    offset=0,
+                )
+                if not convs_retry:
+                    raise
+                conv = convs_retry[0]
+            except Exception as exc:
+                if not _is_postgres_unique_violation(exc):
+                    raise
+                # Concurrent bootstrap: another request created global_user_home (uq_global_user_home).
+                logger.info(
+                    "bootstrap_global_user_home: unique constraint (concurrent create) for user_id=%s; reloading",
+                    user_id[:16],
+                )
+                convs_retry, _ = self.list_conversations(
+                    project_id=None,
+                    user_id=user_id,
+                    org_id=org_id,
+                    scope=ConversationScope.GLOBAL_USER_HOME,
+                    include_archived=False,
+                    limit=1,
+                    offset=0,
+                )
+                if not convs_retry:
+                    raise
+                conv = convs_retry[0]
+
+        msgs, total, has_more = self.list_messages(
+            conv.id,
+            user_id=user_id,
+            org_id=org_id,
+            parent_id=None,
+            include_thread_replies=include_thread_replies,
+            limit=message_limit,
+            offset=message_offset,
+        )
+        return conv, msgs, total, has_more
+
     def get_conversation(
         self,
         conversation_id: str,
@@ -400,13 +546,17 @@ class ConversationService:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT c.*,
-                           (SELECT count(*) FROM messaging.participants p
-                            WHERE p.conversation_id = c.id AND p.left_at IS NULL) AS participant_count
+                    SELECT c.*, coalesce(pc.cnt, 0)::bigint AS participant_count
                     FROM messaging.conversations c
+                    LEFT JOIN (
+                        SELECT p.conversation_id, count(*)::bigint AS cnt
+                        FROM messaging.participants p
+                        WHERE p.conversation_id = %s AND p.left_at IS NULL
+                        GROUP BY p.conversation_id
+                    ) pc ON pc.conversation_id = c.id
                     WHERE c.id = %s AND c.is_archived = false
                     """,
-                    (conversation_id,),
+                    (conversation_id, conversation_id),
                 )
                 row = cur.fetchone()
                 if not row:
@@ -431,23 +581,55 @@ class ConversationService:
     def list_conversations(
         self,
         *,
-        project_id: str,
+        project_id: Optional[str],
         user_id: str,
         org_id: Optional[str] = None,
         scope: Optional[ConversationScope] = None,
+        scopes: Optional[Sequence[ConversationScope]] = None,
         include_archived: bool = False,
         limit: int = 50,
         offset: int = 0,
+        include_total: bool = True,
     ) -> Tuple[List[Conversation], int]:
-        """List conversations the user participates in within a project."""
+        """List conversations the user participates in.
+
+        When ``scopes`` is non-empty, it replaces ``scope`` and matches rows whose
+        ``c.scope`` is in the union of storage values for each requested scope.
+
+        When ``include_total`` is False, skips the COUNT query and returns ``total=-1``
+        (unknown); callers should derive pagination from ``len(items)`` and ``limit``.
+        """
         limit = min(limit, MAX_PAGE_SIZE)
+
+        effective_scopes: Optional[List[ConversationScope]] = None
+        if scopes:
+            raw = list(scopes)
+            if raw:
+                effective_scopes = [normalize_conversation_scope(s) for s in raw]
+        elif scope is not None:
+            effective_scopes = [normalize_conversation_scope(scope)]
+
+        if effective_scopes:
+            for s in effective_scopes:
+                if s.is_project_scoped and project_id is None:
+                    raise ConversationServiceError(f"{s.value} requires project_id")
+                if s.is_global and project_id is not None:
+                    raise ConversationServiceError(
+                        "global workspace conversations must not include project_id"
+                    )
+
+        storage_values: Optional[List[str]] = None
+        if effective_scopes:
+            merged: Set[str] = set()
+            for s in effective_scopes:
+                merged.update(conversation_scope_storage_values(s))
+            storage_values = sorted(merged)
 
         def _query(conn: Any) -> Tuple[List[Conversation], int]:
             _set_messaging_search_path(conn, org_id, user_id)
             with conn.cursor() as cur:
                 # Base conditions
                 conditions = [
-                    "c.project_id = %s",
                     """EXISTS (
                         SELECT 1 FROM messaging.participants p
                         WHERE p.conversation_id = c.id
@@ -455,34 +637,51 @@ class ConversationService:
                           AND p.left_at IS NULL
                     )""",
                 ]
-                params: List[Any] = [project_id, user_id]
+                params: List[Any] = [user_id]
+
+                if project_id is not None:
+                    conditions.insert(0, "c.project_id = %s")
+                    params.insert(0, project_id)
 
                 if not include_archived:
                     conditions.append("c.is_archived = false")
 
-                if scope:
-                    conditions.append("c.scope = %s")
-                    params.append(scope.value)
+                if storage_values is not None:
+                    conditions.append("c.scope = ANY(%s)")
+                    params.append(storage_values)
 
                 where = " AND ".join(conditions)
 
-                # Count
-                cur.execute(
-                    f"SELECT count(*) FROM messaging.conversations c WHERE {where}",
-                    params,
-                )
-                total = cur.fetchone()[0]
+                if include_total:
+                    cur.execute(
+                        f"SELECT count(*) FROM messaging.conversations c WHERE {where}",
+                        params,
+                    )
+                    total = cur.fetchone()[0]
+                else:
+                    total = -1
 
-                # Fetch
+                # Page-limited CTE so participant counts aggregate only for visible rows
+                # (avoids scanning all participants).
                 cur.execute(
                     f"""
-                    SELECT c.*,
-                           (SELECT count(*) FROM messaging.participants p
-                            WHERE p.conversation_id = c.id AND p.left_at IS NULL) AS participant_count
-                    FROM messaging.conversations c
-                    WHERE {where}
-                    ORDER BY c.updated_at DESC
-                    LIMIT %s OFFSET %s
+                    WITH page AS (
+                        SELECT c.*
+                        FROM messaging.conversations c
+                        WHERE {where}
+                        ORDER BY c.updated_at DESC
+                        LIMIT %s OFFSET %s
+                    )
+                    SELECT page.*, coalesce(pc.cnt, 0)::bigint AS participant_count
+                    FROM page
+                    LEFT JOIN (
+                        SELECT p.conversation_id, count(*)::bigint AS cnt
+                        FROM messaging.participants p
+                        WHERE p.left_at IS NULL
+                          AND p.conversation_id IN (SELECT id FROM page)
+                        GROUP BY p.conversation_id
+                    ) pc ON pc.conversation_id = page.id
+                    ORDER BY page.updated_at DESC
                     """,
                     params + [limit, offset],
                 )
@@ -491,7 +690,7 @@ class ConversationService:
                 for row in cur.fetchall():
                     conv = _row_to_conversation(cols, row)
                     d = dict(zip(cols, row))
-                    conv.participant_count = d.get("participant_count", 0)
+                    conv.participant_count = int(d.get("participant_count") or 0)
                     convs.append(conv)
 
                 return convs, total
@@ -534,6 +733,74 @@ class ConversationService:
             executor=_execute,
             telemetry=self._telemetry,
         )
+
+    def patch_conversation(
+        self,
+        conversation_id: str,
+        *,
+        user_id: str,
+        org_id: Optional[str] = None,
+        patch: Dict[str, Any],
+    ) -> Conversation:
+        """Update mutable conversation fields (owner/admin)."""
+        if not patch:
+            raise ConversationServiceError("No fields to update")
+        allowed = {"title"}
+        extra = set(patch.keys()) - allowed
+        if extra:
+            raise ConversationServiceError(f"Unsupported patch fields: {sorted(extra)}")
+
+        self._require_participant_role(
+            conversation_id,
+            user_id,
+            org_id=org_id,
+            required_roles=[ParticipantRole.OWNER, ParticipantRole.ADMIN],
+        )
+
+        title_val = patch.get("title", _PATCH_OMIT)
+        if title_val is _PATCH_OMIT:
+            raise ConversationServiceError("No fields to update")
+
+        normalized_title: Optional[str]
+        if title_val is None:
+            normalized_title = None
+        else:
+            if not isinstance(title_val, str):
+                raise ConversationServiceError("title must be a string or null")
+            stripped = title_val.strip()
+            normalized_title = stripped or None
+            if stripped and len(stripped) > 500:
+                raise ConversationServiceError("title exceeds 500 characters")
+
+        now = _now()
+
+        def _execute(conn: Any) -> None:
+            _set_messaging_search_path(conn, org_id, user_id)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE messaging.conversations
+                    SET title = %s, updated_at = %s
+                    WHERE id = %s
+                    """,
+                    (normalized_title, now, conversation_id),
+                )
+                if cur.rowcount == 0:
+                    raise ConversationNotFoundError(f"Conversation {conversation_id} not found")
+
+        self._pool.run_transaction(
+            operation="conversation.patch",
+            service_prefix="messaging",
+            metadata={"conversation_id": conversation_id, "fields": list(patch.keys())},
+            executor=_execute,
+            telemetry=self._telemetry,
+        )
+        self._publish_event(
+            "conversation.updated",
+            conversation_id,
+            {"title": normalized_title},
+        )
+        return self.get_conversation(conversation_id, org_id=org_id, user_id=user_id)
 
     # =========================================================================
     # Participants
@@ -760,6 +1027,7 @@ class ConversationService:
         run_id: Optional[str] = None,
         behavior_id: Optional[str] = None,
         work_item_id: Optional[str] = None,
+        resource_links: Optional[List[ConversationResourceLink | Dict[str, Any]]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         org_id: Optional[str] = None,
     ) -> Message:
@@ -769,6 +1037,12 @@ class ConversationService:
         """
         now = _now()
         msg_id = _new_id()
+        message_metadata = dict(metadata or {})
+        if resource_links:
+            message_metadata["resource_links"] = [
+                link.model_dump() if hasattr(link, "model_dump") else dict(link)
+                for link in resource_links
+            ]
 
         def _execute(conn: Any) -> None:
             _set_messaging_search_path(conn, org_id, sender_id)
@@ -807,9 +1081,9 @@ class ConversationService:
                     """,
                     (msg_id, conversation_id, sender_id, sender_type.value,
                      content, message_type.value,
-                     json.dumps(structured_payload) if structured_payload else None,
+                     json.dumps(structured_payload, default=str) if structured_payload else None,
                      parent_id, run_id, behavior_id, work_item_id,
-                     json.dumps(metadata or {}), now),
+                     json.dumps(message_metadata, default=str), now),
                 )
 
                 # Touch conversation updated_at
@@ -891,12 +1165,19 @@ class ConversationService:
         user_id: str,
         org_id: Optional[str] = None,
         parent_id: Optional[str] = None,
+        include_thread_replies: bool = False,
         before: Optional[datetime] = None,
         after: Optional[datetime] = None,
         limit: int = 50,
         offset: int = 0,
+        include_total: bool = True,
     ) -> Tuple[List[Message], int, bool]:
         """List messages in a conversation.
+
+        Args:
+            include_thread_replies: When ``True`` and ``parent_id`` is omitted, return all
+                messages (roots and replies). When ``False`` (default), only root messages
+                (``parent_id IS NULL``). Ignored when ``parent_id`` is set (thread view).
 
         Returns:
             (messages, total_count, has_more)
@@ -915,8 +1196,8 @@ class ConversationService:
                 if parent_id is not None:
                     conditions.append("m.parent_id = %s")
                     params.append(parent_id)
-                else:
-                    # Top-level messages only by default
+                elif not include_thread_replies:
+                    # Top-level messages only unless caller wants full transcript
                     conditions.append("m.parent_id IS NULL")
 
                 if before:
@@ -929,12 +1210,14 @@ class ConversationService:
 
                 where = " AND ".join(conditions)
 
-                # Count
-                cur.execute(
-                    f"SELECT count(*) FROM messaging.messages m WHERE {where}",
-                    params,
-                )
-                total = cur.fetchone()[0]
+                if include_total:
+                    cur.execute(
+                        f"SELECT count(*) FROM messaging.messages m WHERE {where}",
+                        params,
+                    )
+                    total = cur.fetchone()[0]
+                else:
+                    total = -1
 
                 # Fetch messages
                 cur.execute(
@@ -984,7 +1267,10 @@ class ConversationService:
                     for m in messages:
                         m.reply_count = reply_counts.get(m.id, 0)
 
-                has_more = (offset + limit) < total
+                if total >= 0:
+                    has_more = (offset + limit) < total
+                else:
+                    has_more = len(messages) >= limit
                 return messages, total, has_more
 
         return self._pool.run_query(

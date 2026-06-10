@@ -30,6 +30,7 @@ from amprealize.research.prompts import (
 from amprealize.research.codebase_analyzer import (
     CodebaseAnalyzer,
     CodebaseSnapshot,
+    StructuralIndex,
     get_codebase_context,
     TOKEN_BUDGETS,
 )
@@ -60,6 +61,7 @@ __all__ = [
     # Codebase analysis
     "CodebaseAnalyzer",
     "CodebaseSnapshot",
+    "StructuralIndex",
     "get_codebase_context",
     "TOKEN_BUDGETS",
     # Report rendering

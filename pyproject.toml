@@ -41,6 +41,9 @@ dependencies = [
   "alembic>=1.13,<2.0",  # Database migrations
   "podman>=5.0,<6.0",  # Podman socket API for container management
   "pyyaml>=6.0,<7.0",  # YAML config loader
+  "opentelemetry-api>=1.22.0,<2.0",
+  "opentelemetry-semantic-conventions>=0.46b0,<1.0",
+  "trafilatura>=1.6,<2.0",
 ]
 
 [project.urls]
@@ -52,6 +55,7 @@ Changelog = "https://github.com/SandRiseStudio/amprealize/blob/main/BUILD_TIMELI
 
 [project.optional-dependencies]
 dev = [
+  "jsonschema>=4.19,<5.0",
   "pytest>=7.4,<9.0",
   "pytest-cov>=4.1,<6.0",
   "pytest-asyncio>=0.21,<1.0",
@@ -68,6 +72,9 @@ telemetry = [
   "duckdb>=1.1,<2.0",
   "pytz>=2023.3",
   "psycopg2-binary>=2.9,<3.0",
+  "opentelemetry-sdk>=1.22.0,<2.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.22.0,<2.0",
+  "opentelemetry-exporter-otlp-proto-grpc>=1.22.0,<2.0",
 ]
 redis = [
   "redis>=5.0,<6.0",
@@ -94,6 +101,9 @@ ml = [
 breakeramp = [
   "breakeramp[cli]>=0.1.0",
 ]
+connector = [
+  "websockets>=12.0,<14.0",
+]
 
 [project.scripts]
 amprealize = "amprealize.cli:main"
@@ -103,10 +113,11 @@ amprealize-mcp-server = "amprealize.cli:main_mcp_server"
 include-package-data = true
 
 [tool.setuptools.package-data]
-amprealize = ["agents/playbooks/*.md", "mcp_tool_manifests/*.json"]
+amprealize = ["agents/playbooks/*.md", "mcp_tool_manifests/*.json", "static/mcp_icon.png"]
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["amprealize*", "schema*", "migrations*", "migrations_telemetry*"]
 
 [tool.pytest.ini_options]
 minversion = "7.4"

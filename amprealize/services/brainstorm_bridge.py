@@ -51,6 +51,12 @@ class BrainstormBridge:
 		# Defaults to the console dev server when not set.
 		self._console_base_url = (console_base_url or "http://localhost:5173").rstrip("/")
 
+	def _notify_sync_reload(self, room_id: str) -> None:
+		"""Best-effort: tell the sync sidecar to rebroadcast agent edits live."""
+		from .whiteboard_sync_notify import notify_whiteboard_reload
+
+		notify_whiteboard_reload(room_id, sync_base_url=self._sync_base_url)
+
 	def open_whiteboard(
 		self,
 		session_id: str,
@@ -129,6 +135,7 @@ class BrainstormBridge:
 			raise ValueError(f"Whiteboard room {room_id} not found")
 
 		_, shape_id = result
+		self._notify_sync_reload(room_id)
 		return {
 			"room_id": room_id,
 			"shape_id": shape_id,
@@ -161,6 +168,8 @@ class BrainstormBridge:
 				"name": theme,
 				"w": _FRAME_WIDTH,
 				"h": max(_FRAME_MIN_HEIGHT, 160 + (len(ideas) * 40)),
+				# tldraw 4.x frame requires a color enum value.
+				"color": "black",
 			},
 		}
 		meta = {
@@ -178,6 +187,7 @@ class BrainstormBridge:
 			raise ValueError(f"Whiteboard room {room_id} not found")
 
 		_, shape_id = result
+		self._notify_sync_reload(room_id)
 		return {
 			"room_id": room_id,
 			"shape_id": shape_id,
@@ -199,7 +209,8 @@ class BrainstormBridge:
 		ideas: List[Dict[str, Any]] = []
 		themes: List[Dict[str, Any]] = []
 
-		for record in canvas.values():
+		records = canvas.get("store", canvas) if isinstance(canvas, dict) else {}
+		for record in records.values():
 			if not isinstance(record, dict) or record.get("typeName") != "shape":
 				continue
 			meta = record.get("meta", {}) or {}

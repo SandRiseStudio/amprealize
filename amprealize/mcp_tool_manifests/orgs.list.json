@@ -7,7 +7,7 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user to list organizations for (required for authorization)"
+        "description": "ID of the user to list organizations for (optional, uses session)"
       },
       "include_deleted": {
         "type": "boolean",
@@ -15,7 +15,7 @@
         "description": "Include soft-deleted organizations in results"
       }
     },
-    "required": ["user_id"]
+    "required": []
   },
   "outputSchema": {
     "type": "object",

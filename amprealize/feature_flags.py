@@ -121,6 +121,20 @@ _MIGRATED_FLAGS: List[FeatureFlag] = [
     ),
 ]
 
+# BCI / retrieval (NVIDIA NeMo rerank NIM — optional post-FAISS reordering).
+_BCI_RETRIEVAL_FLAGS: List[FeatureFlag] = [
+    FeatureFlag(
+        name="feature.nvidia_bci_rerank",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_NVIDIA_BCI_RERANK", "false").lower() == "true",
+        description=(
+            "Re-order BCI behavior candidates using NVIDIA NeMo rerank NIM after "
+            "FAISS / hybrid merge (requires NVIDIA_API_KEY or NVIDIA_NIM_API_KEY)"
+        ),
+        metadata={"legacy_env": "AMPREALIZE_NVIDIA_BCI_RERANK"},
+    ),
+]
+
 # New E4 flags.
 _E4_FLAGS: List[FeatureFlag] = [
     FeatureFlag(
@@ -171,7 +185,92 @@ _WHITEBOARD_FLAGS: List[FeatureFlag] = [
     ),
 ]
 
-DEFAULT_FLAGS: List[FeatureFlag] = _MIGRATED_FLAGS + _E4_FLAGS + _WHITEBOARD_FLAGS
+# Chat analysis (Layer 1 narrator + Layer 2 bounded runner). Boolean flags use
+# user_id context only — org_id is optional on the platform.
+_CHAT_ANALYSIS_FLAGS: List[FeatureFlag] = [
+    FeatureFlag(
+        name="feature.chat_insight_narrator",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_CHAT_INSIGHT_NARRATOR", "true").lower() == "true",
+        description="Append LLM interpretation to deterministic resource_analysis replies (no new numbers)",
+        metadata={"surface": "chat"},
+    ),
+    FeatureFlag(
+        name="feature.chat_analysis_runner",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_CHAT_ANALYSIS_RUNNER", "true").lower() == "true",
+        description="Bounded multi-step resource analysis when analytics intent and fast path misses",
+        metadata={"surface": "chat"},
+    ),
+    FeatureFlag(
+        name="feature.chat_query_planner",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_CHAT_QUERY_PLANNER", "true").lower() == "true",
+        description="Use a bounded typed planner before static chat answer paths",
+        metadata={"surface": "chat", "legacy_env": "AMPREALIZE_ENABLE_CHAT_QUERY_PLANNER"},
+    ),
+    FeatureFlag(
+        name="feature.chat_workspace_targeted_fetch",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_CHAT_WORKSPACE_TARGETED_FETCH", "false").lower()
+        == "true",
+        description="LLM-planned targeted work-item fetch for global workspace_prioritize chat intents",
+        metadata={
+            "surface": "chat",
+            "legacy_env": "AMPREALIZE_ENABLE_CHAT_WORKSPACE_TARGETED_FETCH",
+            "planner_timeout_env": "AMPREALIZE_TARGETED_FETCH_PLANNER_TIMEOUT_SEC",
+            "planner_retry_env": "AMPREALIZE_TARGETED_FETCH_PLANNER_RETRY_COUNT",
+            "planner_retry_timeout_env": "AMPREALIZE_TARGETED_FETCH_PLANNER_RETRY_TIMEOUT_SEC",
+            "planner_model_env": "AMPREALIZE_TARGETED_FETCH_PLANNER_MODEL_ID",
+            "workspace_activity_recency_env": "AMPREALIZE_WORKSPACE_ACTIVITY_RECENCY_DAYS",
+            "cap_envs": (
+                "AMPREALIZE_TARGETED_FETCH_MAX_QUERIES,AMPREALIZE_TARGETED_FETCH_MAX_LIMIT,"
+                "AMPREALIZE_TARGETED_FETCH_MAX_TOTAL_ROWS,AMPREALIZE_TARGETED_FETCH_PLANNER_MAX_TOKENS"
+            ),
+        },
+    ),
+    FeatureFlag(
+        name="feature.chat_agent_work_item_execution",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_CHAT_AGENT_WORK_ITEM_EXECUTION", "false").lower()
+        == "true",
+        description=(
+            "Allow governed chat to start or cancel work item execution via ExecutionGateway "
+            "(requires confirm_chat_execution to start and confirm_chat_execution_cancel to cancel "
+            "in message metadata; Option B server agent)"
+        ),
+        metadata={"surface": "chat", "legacy_env": "AMPREALIZE_ENABLE_CHAT_AGENT_WORK_ITEM_EXECUTION"},
+    ),
+    FeatureFlag(
+        name="feature.chat_inventory_fast_path_strict",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_CHAT_INVENTORY_FAST_PATH_STRICT", "false").lower()
+        == "true",
+        description=(
+            "When enabled, list_inventory chat only uses the workspace inventory fast path "
+            "for high-confidence tabular phrasing (allowlist) without conversational soft markers"
+        ),
+        metadata={"surface": "chat", "legacy_env": "AMPREALIZE_ENABLE_CHAT_INVENTORY_FAST_PATH_STRICT"},
+    ),
+    FeatureFlag(
+        name="feature.local_execution_connector",
+        flag_type=FlagType.BOOLEAN,
+        enabled=os.getenv("AMPREALIZE_ENABLE_LOCAL_EXECUTION_CONNECTOR", "false").lower() == "true",
+        description=(
+            "Allow execution_workspace_kind=local_connector: stage run leases for outbound "
+            "WebSocket daemons (user-scoped pairing); same ExecutionGateway state machine as cloud"
+        ),
+        metadata={"legacy_env": "AMPREALIZE_ENABLE_LOCAL_EXECUTION_CONNECTOR"},
+    ),
+]
+
+DEFAULT_FLAGS: List[FeatureFlag] = (
+    _MIGRATED_FLAGS
+    + _BCI_RETRIEVAL_FLAGS
+    + _E4_FLAGS
+    + _WHITEBOARD_FLAGS
+    + _CHAT_ANALYSIS_FLAGS
+)
 
 
 # ---------------------------------------------------------------------------

@@ -26,6 +26,8 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
+from ..boards.contracts import InvalidResearchWorkItemMetadataError
+from ..execution_workspace_contracts import InvalidExecutionWorkspaceKindError, parse_execution_workspace_kind
 from ..work_item_execution_service import (
     WorkItemExecutionService,
     WorkItemExecutionError,
@@ -34,12 +36,14 @@ from ..work_item_execution_service import (
     ExecutionAlreadyActiveError,
     ModelNotAvailableError,
     InternetAccessDeniedError,
+    ExecutionSurfaceRestrictedError,
 )
 from ..work_item_execution_contracts import (
+    AgentExecutionMode,
     ExecuteWorkItemRequest,
     ExecutionState,
 )
-from ..services.board_service import Actor
+from ..services.board_service import Actor, WorkItemNotFoundError
 
 
 logger = logging.getLogger(__name__)
@@ -79,6 +83,13 @@ class ExecuteRequest(BaseModel):
             "The URL will receive POST requests with HMAC-signed payloads."
         ),
     )
+    execution_workspace_kind: Optional[str] = Field(
+        None,
+        description=(
+            "Where the run executes: ``cloud_git`` (default) or ``local_connector`` "
+            "(requires a paired daemon and ``feature.local_execution_connector``)."
+        ),
+    )
 
 
 class ExecuteResponse(BaseModel):
@@ -95,14 +106,42 @@ class ExecutionStatusResponse(BaseModel):
     has_execution: bool
     run_id: Optional[str] = None
     task_cycle_id: Optional[str] = None
+    work_item_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    project_id: Optional[str] = None
+    org_id: Optional[str] = None
     state: Optional[str] = None
     phase: Optional[str] = None
     started_at: Optional[str] = None
+    completed_at: Optional[str] = None
     progress_pct: Optional[float] = None
     current_step: Optional[str] = None
     total_tokens: Optional[int] = None
     total_cost_usd: Optional[float] = None
+    tool_count: int = 0
+    step_count: int = 0
+    error: Optional[str] = None
+    last_error: Optional[str] = None
+    model_id: Optional[str] = None
+    surface: Optional[str] = None
+    source_type: Optional[str] = None
+    conversation_id: Optional[str] = None
+    message_id: Optional[str] = None
+    request_id: Optional[str] = None
+    execution_mode: Optional[str] = None
+    queue_job_id: Optional[str] = None
+    queue_metadata: Dict[str, Any] = Field(default_factory=dict)
+    phase_timings: Dict[str, Any] = Field(default_factory=dict)
+    trace_summary: Dict[str, Any] = Field(default_factory=dict)
     pending_clarifications: Optional[List[Dict[str, Any]]] = None
+    execution_workspace_kind: Optional[str] = Field(
+        None,
+        description="Resolved workspace backend for this execution (``cloud_git`` or ``local_connector``).",
+    )
+    connector_status: Optional[str] = Field(
+        None,
+        description="When ``local_connector``: connector hub state (e.g. ``pending_lease``).",
+    )
 
 
 class CancelRequest(BaseModel):
@@ -162,6 +201,24 @@ class ExecutionListItem(BaseModel):
     started_at: str
     completed_at: Optional[str] = None
     progress_pct: float
+    project_id: Optional[str] = None
+    org_id: Optional[str] = None
+    model_id: Optional[str] = None
+    surface: Optional[str] = None
+    source_type: Optional[str] = None
+    conversation_id: Optional[str] = None
+    message_id: Optional[str] = None
+    request_id: Optional[str] = None
+    execution_mode: Optional[str] = None
+    queue_job_id: Optional[str] = None
+    queue_metadata: Dict[str, Any] = Field(default_factory=dict)
+    phase_timings: Dict[str, Any] = Field(default_factory=dict)
+    trace_summary: Dict[str, Any] = Field(default_factory=dict)
+    total_tokens: Optional[int] = None
+    total_cost_usd: Optional[float] = None
+    tool_count: int = 0
+    step_count: int = 0
+    last_error: Optional[str] = None
 
 
 class ExecutionListResponse(BaseModel):
@@ -179,13 +236,20 @@ class ExecutionStepResponse(BaseModel):
     step_type: str
     started_at: str
     completed_at: Optional[str] = None
+    name: Optional[str] = None
+    status: Optional[str] = None
+    progress_pct: Optional[float] = None
+    duration_ms: Optional[int] = None
     input_tokens: int
     output_tokens: int
+    cost_usd: Optional[float] = None
     tool_calls: int
     content_preview: Optional[str] = None
     content_full: Optional[str] = None  # Full content for detailed view
     tool_names: Optional[List[str]] = None  # Names of tools called
     model_id: Optional[str] = None  # Model used for LLM calls
+    error: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ExecutionStepsResponse(BaseModel):
@@ -201,23 +265,74 @@ class ExecutionStepsResponse(BaseModel):
 
 def create_work_item_execution_routes(
     service: WorkItemExecutionService,
+    execution_gateway: Optional[Any] = None,
 ) -> APIRouter:
     """Create FastAPI router for work item execution.
 
     Args:
         service: The WorkItemExecutionService instance
+        execution_gateway: Optional ExecutionGateway for gateway-backed starts
 
     Returns:
         APIRouter with all execution endpoints
     """
 
     router = APIRouter(tags=["work-item-execution"])
+    execution_start_service: Any = service
+    if execution_gateway is not None:
+        from ..execution_gateway_adapter import GatewayWorkItemExecutionAdapter
+
+        execution_start_service = GatewayWorkItemExecutionAdapter(
+            gateway=execution_gateway,
+            legacy_service=service,
+        )
 
     def _get_actor(request: Request) -> Actor:
         """Extract actor from request context."""
         user_id = getattr(request.state, "user_id", None) or "api-user"
         role = getattr(request.state, "role", "user")
         return Actor(id=user_id, role=role, surface="api")
+
+    def _to_execution_status_response(
+        response: Any,
+        *,
+        has_execution: bool = True,
+    ) -> ExecutionStatusResponse:
+        return ExecutionStatusResponse(
+            has_execution=has_execution,
+            run_id=response.run_id,
+            task_cycle_id=response.cycle_id,
+            work_item_id=response.work_item_id,
+            agent_id=response.agent_id,
+            project_id=response.project_id,
+            org_id=response.org_id,
+            state=response.status.value if response.status else None,
+            phase=response.phase if response.phase else None,
+            started_at=response.started_at,
+            completed_at=response.completed_at,
+            progress_pct=response.progress_pct,
+            current_step=response.current_step,
+            total_tokens=response.total_tokens,
+            total_cost_usd=response.total_cost_usd,
+            tool_count=response.tool_count,
+            step_count=response.step_count,
+            error=response.error,
+            last_error=response.last_error,
+            model_id=response.model_id,
+            surface=response.surface,
+            source_type=response.source_type,
+            conversation_id=response.conversation_id,
+            message_id=response.message_id,
+            request_id=response.request_id,
+            execution_mode=response.execution_mode,
+            queue_job_id=response.queue_job_id,
+            queue_metadata=response.queue_metadata,
+            phase_timings=response.phase_timings,
+            trace_summary=response.trace_summary,
+            pending_clarifications=response.pending_clarifications,
+            execution_workspace_kind=getattr(response, "execution_workspace_kind", None),
+            connector_status=getattr(response, "connector_status", None),
+        )
 
     # ==========================================================================
     # Work Item Execution Endpoints
@@ -244,7 +359,6 @@ def create_work_item_execution_routes(
             # Resolve execution mode
             agent_exec_mode = None
             if body.execution_mode:
-                from ..work_item_execution_contracts import AgentExecutionMode
                 try:
                     agent_exec_mode = AgentExecutionMode(body.execution_mode)
                 except ValueError:
@@ -256,19 +370,34 @@ def create_work_item_execution_routes(
                         },
                     )
 
+            exec_metadata: Dict[str, Any] = {
+                "idempotency_key": body.idempotency_key,
+                "agent_id_override": body.agent_id,
+                "callback_url": body.callback_url,
+            }
+            if body.execution_workspace_kind is not None:
+                try:
+                    exec_metadata["execution_workspace_kind"] = parse_execution_workspace_kind(
+                        body.execution_workspace_kind
+                    ).value
+                except InvalidExecutionWorkspaceKindError as e:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={"error": "invalid_execution_workspace_kind", "message": str(e)},
+                    ) from e
+
             exec_request = ExecuteWorkItemRequest(
                 work_item_id=item_id,
                 user_id=actor.id,
                 org_id=org_id,
                 project_id=project_id,
+                actor_surface=actor.surface,
                 model_id=body.model_override,
                 agent_execution_mode=agent_exec_mode,
-                metadata={
-                    "callback_url": body.callback_url,
-                } if body.callback_url else {},
+                metadata=exec_metadata,
             )
 
-            response = await service.execute(exec_request)
+            response = await execution_start_service.execute(exec_request)
 
             return ExecuteResponse(
                 success=True,
@@ -277,6 +406,22 @@ def create_work_item_execution_routes(
                 status=response.status.value if response.status else None,
             )
 
+        except WorkItemNotFoundError as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": "work_item_not_found",
+                    "message": str(e),
+                },
+            )
+        except InvalidResearchWorkItemMetadataError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "invalid_research_metadata",
+                    "message": str(e),
+                },
+            )
         except WorkItemNotAssignedError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -317,6 +462,15 @@ def create_work_item_execution_routes(
                     "message": str(e),
                 },
             )
+        except ExecutionSurfaceRestrictedError as e:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "execution_surface_restricted",
+                    "message": str(e),
+                    "guidance": e.guidance,
+                },
+            )
         except WorkItemExecutionError as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -348,19 +502,7 @@ def create_work_item_execution_routes(
             if response is None:
                 return ExecutionStatusResponse(has_execution=False)
 
-            return ExecutionStatusResponse(
-                has_execution=True,
-                run_id=response.run_id,
-                task_cycle_id=response.cycle_id,
-                state=response.status.value if response.status else None,
-                phase=response.phase if response.phase else None,
-                started_at=response.started_at,
-                progress_pct=response.progress_pct,
-                current_step=response.current_step,
-                total_tokens=None,  # Not in current contract
-                total_cost_usd=None,  # Not in current contract
-                pending_clarifications=response.pending_clarifications,
-            )
+            return _to_execution_status_response(response)
 
         except Exception as e:
             logger.exception(f"Error getting execution status: {e}")
@@ -556,12 +698,30 @@ def create_work_item_execution_routes(
                     run_id=ex.run_id,
                     work_item_id=ex.work_item_id,
                     work_item_title=None,  # TODO: fetch from board service
-                    agent_id=ex.model_id or "",
+                    agent_id=ex.agent_id or ex.model_id or "",
                     state=ex.status.value if ex.status else "unknown",
                     phase=ex.phase,
                     started_at=ex.started_at or "",
                     completed_at=ex.completed_at,
                     progress_pct=ex.progress_pct or 0.0,
+                    project_id=ex.project_id,
+                    org_id=ex.org_id,
+                    model_id=ex.model_id,
+                    surface=ex.surface,
+                    source_type=ex.source_type,
+                    conversation_id=ex.conversation_id,
+                    message_id=ex.message_id,
+                    request_id=ex.request_id,
+                    execution_mode=ex.execution_mode,
+                    queue_job_id=ex.queue_job_id,
+                    queue_metadata=ex.queue_metadata,
+                    phase_timings=ex.phase_timings,
+                    trace_summary=ex.trace_summary,
+                    total_tokens=ex.total_tokens,
+                    total_cost_usd=ex.total_cost_usd,
+                    tool_count=ex.tool_count,
+                    step_count=ex.step_count,
+                    last_error=ex.last_error,
                 ))
 
             return ExecutionListResponse(
@@ -605,19 +765,7 @@ def create_work_item_execution_routes(
                     },
                 )
 
-            return ExecutionStatusResponse(
-                has_execution=True,
-                run_id=execution.run_id,
-                task_cycle_id=execution.cycle_id,
-                state=execution.status.value if execution.status else None,
-                phase=execution.phase,
-                started_at=execution.started_at,
-                progress_pct=execution.progress_pct,
-                current_step=execution.current_step,
-                total_tokens=None,  # TODO: calculate from steps
-                total_cost_usd=None,  # TODO: calculate from steps
-                pending_clarifications=None,
-            )
+            return _to_execution_status_response(execution)
         except HTTPException:
             raise
         except Exception as e:
@@ -657,13 +805,20 @@ def create_work_item_execution_routes(
                     step_type=step.get("step_type", "unknown"),
                     started_at=step.get("started_at", ""),
                     completed_at=step.get("completed_at"),
+                    name=step.get("name"),
+                    status=step.get("status"),
+                    progress_pct=step.get("progress_pct"),
+                    duration_ms=step.get("duration_ms"),
                     input_tokens=step.get("input_tokens", 0),
                     output_tokens=step.get("output_tokens", 0),
+                    cost_usd=step.get("cost_usd"),
                     tool_calls=step.get("tool_calls", 0),
                     content_preview=step.get("content_preview"),
                     content_full=step.get("content_full"),
                     tool_names=step.get("tool_names"),
                     model_id=step.get("model_id"),
+                    error=step.get("error"),
+                    metadata=step.get("metadata") if isinstance(step.get("metadata"), dict) else {},
                 ))
 
             return ExecutionStepsResponse(

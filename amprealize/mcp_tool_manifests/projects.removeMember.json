@@ -7,7 +7,7 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user performing the action (required for authorization)"
+        "description": "ID of the user performing the action (optional, uses session)"
       },
       "project_id": {
         "type": "string",
@@ -18,7 +18,7 @@
         "description": "ID of the user to remove"
       }
     },
-    "required": ["user_id", "project_id", "target_user_id"]
+    "required": ["project_id", "target_user_id"]
   },
   "outputSchema": {
     "type": "object",

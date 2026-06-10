@@ -13,6 +13,11 @@
         "type": "string",
         "description": "Optional parent message ID to list thread replies only"
       },
+      "include_thread_replies": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true and parent_id is omitted, include all messages (roots + replies), e.g. assistant replies in chat transcript"
+      },
       "user_id": {
         "type": "string",
         "description": "ID of the requesting user"
@@ -33,6 +38,11 @@
         "default": 0,
         "minimum": 0,
         "description": "Number of messages to skip for pagination"
+      },
+      "include_total": {
+        "type": "boolean",
+        "default": true,
+        "description": "When false, skips COUNT; `total` is -1 and `has_more` is derived from page fill"
       }
     },
     "required": ["conversation_id"]

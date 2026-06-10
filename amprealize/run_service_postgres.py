@@ -117,7 +117,7 @@ class PostgresRunService:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO runs (
+                    INSERT INTO execution.runs (
                         id, created_at, updated_at,
                         user_id, project_id, session_id, actor_surface,
                         status, workflow_id, workflow_name,
@@ -203,7 +203,7 @@ class PostgresRunService:
 
         params.append(limit)
         query = f"""
-            SELECT * FROM runs
+            SELECT * FROM execution.runs
             {where_clause}
             ORDER BY created_at DESC
             LIMIT %s
@@ -261,7 +261,7 @@ class PostgresRunService:
 
                 cur.execute(
                     """
-                    UPDATE runs
+                    UPDATE execution.runs
                     SET
                         status = %s,
                         started_at = %s,
@@ -340,7 +340,7 @@ class PostgresRunService:
 
                 cur.execute(
                     """
-                    UPDATE runs
+                    UPDATE execution.runs
                     SET
                         status = %s,
                         completed_at = %s,
@@ -382,6 +382,11 @@ class PostgresRunService:
             },
         )
         self._publish_run_events(updated_run, None)
+        from amprealize.local_execution_connector_hub import (
+            emit_local_connector_cancel_from_terminal_completion,
+        )
+
+        emit_local_connector_cancel_from_terminal_completion(run, completion)
         return updated_run
 
     def cancel_run(self, run_id: str, reason: Optional[str] = None) -> Run:
@@ -391,6 +396,19 @@ class PostgresRunService:
             message=reason or "Run cancelled",
         )
         return self.complete_run(run_id, completion)
+
+    def append_knowledge_receipt_spans(self, run_id: str, spans: List[Dict[str, Any]]) -> None:
+        """Append retrieval receipt spans to run context metadata (caps in merge helper)."""
+        if not spans:
+            return
+        from amprealize.knowledge_retrieval_receipt import RECEIPT_METADATA_KEY, merge_receipt_spans
+
+        run = self.get_run(run_id)
+        merged = merge_receipt_spans(run.metadata.get(RECEIPT_METADATA_KEY), spans)
+        self.update_run(
+            run_id,
+            RunProgressUpdate(metadata={RECEIPT_METADATA_KEY: merged}),
+        )
 
     def update_progress(
         self,
@@ -454,7 +472,7 @@ class PostgresRunService:
 
         def _execute(conn: Any) -> None:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM runs WHERE id = %s", (run_id,))
+                cur.execute("DELETE FROM execution.runs WHERE id = %s", (run_id,))
                 if cur.rowcount == 0:
                     raise RunNotFoundError(f"Run '{run_id}' not found")
 
@@ -474,7 +492,7 @@ class PostgresRunService:
         """Fetch a single run row as a dict."""
         with self._connection() as conn:
             with conn.cursor(cursor_factory=self._extras.RealDictCursor) as cur:
-                cur.execute("SELECT * FROM runs WHERE id = %s", (run_id,))
+                cur.execute("SELECT * FROM execution.runs WHERE id = %s", (run_id,))
                 row = cur.fetchone()
                 return dict(row) if row else None
 
@@ -594,7 +612,7 @@ class PostgresRunService:
 
         # Check if step exists (using step_id stored in input_data)
         cur.execute(
-            "SELECT id, input_data, completed_at FROM run_steps WHERE run_id = %s AND input_data->>'_step_id' = %s ORDER BY step_number DESC LIMIT 1",
+            "SELECT id, input_data, completed_at FROM execution.run_steps WHERE run_id = %s AND input_data->>'_step_id' = %s ORDER BY step_number DESC LIMIT 1",
             (run_id, step_id),
         )
         row = cur.fetchone()
@@ -602,7 +620,7 @@ class PostgresRunService:
         if not row:
             # Fallback: look up by name for backward compatibility
             cur.execute(
-                "SELECT id, input_data, completed_at FROM run_steps WHERE run_id = %s AND name = %s ORDER BY step_number DESC LIMIT 1",
+                "SELECT id, input_data, completed_at FROM execution.run_steps WHERE run_id = %s AND name = %s ORDER BY step_number DESC LIMIT 1",
                 (run_id, name),
             )
             row = cur.fetchone()
@@ -618,7 +636,7 @@ class PostgresRunService:
 
             cur.execute(
                 """
-                UPDATE run_steps
+                UPDATE execution.run_steps
                 SET name = %s,
                     status = %s,
                     input_data = %s,
@@ -636,14 +654,17 @@ class PostgresRunService:
         else:
             # Insert new step - get next step_number
             cur.execute(
-                "SELECT COALESCE(MAX(step_number), 0) + 1 FROM run_steps WHERE run_id = %s",
+                "SELECT COALESCE(MAX(step_number), 0) + 1 FROM execution.run_steps WHERE run_id = %s",
                 (run_id,),
             )
             next_step_number = cur.fetchone()[0]
 
+            insert_completed_at = (
+                now if status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED} else None
+            )
             cur.execute(
                 """
-                INSERT INTO run_steps (
+                INSERT INTO execution.run_steps (
                     run_id, step_number, name, status, started_at, completed_at, input_data
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s
@@ -655,7 +676,7 @@ class PostgresRunService:
                     name,
                     status,
                     now,
-                    None,
+                    insert_completed_at,
                     self._extras.Json(metadata_dict),
                 ),
             )

@@ -32,7 +32,7 @@
         "default": 0
       }
     },
-    "required": ["project_id"]
+    "required": []
   },
   "output": {
     "description": "Returns list of execution summaries",

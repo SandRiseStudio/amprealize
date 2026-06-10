@@ -134,6 +134,31 @@ class KafkaTelemetrySink:
         self._producer.close()
 
 
+class ObservabilityExportForwardingSink:
+    """Primary sink plus background export (OTLP / optional HTTP), off the write hot path.
+
+    Follows ``behavior_externalize_configuration`` (Student): opt-in via
+    ``AMPREALIZE_EXPORT_ENABLED``; inner sink behavior is unchanged.
+    """
+
+    def __init__(self, inner: TelemetrySink, runtime: Any) -> None:
+        self._inner = inner
+        self._runtime = runtime
+
+    def write(self, event: TelemetryEvent) -> None:
+        self._inner.write(event)
+        self._runtime.enqueue(event)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def close(self) -> None:
+        inner_close = getattr(self._inner, "close", None)
+        if callable(inner_close):
+            inner_close()
+        self._runtime.shutdown()
+
+
 def create_sink_from_env(*, default_path: Optional[Path] = None) -> TelemetrySink:
     """Create a telemetry sink using the standard environment configuration.
 
@@ -152,6 +177,13 @@ def create_sink_from_env(*, default_path: Optional[Path] = None) -> TelemetrySin
     ``AMPREALIZE_TELEMETRY_PATH``
         When Postgres is not configured, falls back to a JSONL file sink.  This
         variable overrides the default location used by :class:`FileTelemetrySink`.
+
+    Optional export (OTLP, Datadog, Langfuse) is configured via
+    :class:`amprealize.observability_export_config.ObservabilityExportConfig`
+    (``AMPREALIZE_EXPORT_ENABLED`` and related variables). When export is enabled,
+    the returned sink is a :class:`ObservabilityExportForwardingSink` that writes
+    through the primary sink and enqueues a copy for asynchronous export. See
+    ``docs/contracts/OTLP_EXPORT.md``.
     """
 
     if os.environ.get("AMPREALIZE_TELEMETRY_ENABLED", "true").lower() == "false":
@@ -160,6 +192,7 @@ def create_sink_from_env(*, default_path: Optional[Path] = None) -> TelemetrySin
     default_path = default_path or Path.home() / ".amprealize" / "telemetry" / "events.jsonl"
 
     dsn = os.environ.get("AMPREALIZE_TELEMETRY_PG_DSN")
+    base: TelemetrySink
     if dsn:
         timeout_raw = os.environ.get("AMPREALIZE_TELEMETRY_PG_TIMEOUT")
         kwargs: Dict[str, Any] = {}
@@ -172,17 +205,26 @@ def create_sink_from_env(*, default_path: Optional[Path] = None) -> TelemetrySin
         from amprealize.storage.postgres_telemetry import PostgresTelemetrySink
 
         try:
-            return PostgresTelemetrySink(dsn, **kwargs)
+            base = PostgresTelemetrySink(dsn, **kwargs)
         except RuntimeError as exc:
             raise RuntimeError(
                 "Failed to initialise Postgres telemetry sink. Install psycopg2 and "
                 "validate the connection string."
             ) from exc
+    else:
+        path_override = os.environ.get("AMPREALIZE_TELEMETRY_PATH")
+        sink_path = Path(path_override) if path_override else default_path
+        sink_path.parent.mkdir(parents=True, exist_ok=True)
+        base = FileTelemetrySink(sink_path)
 
-    path_override = os.environ.get("AMPREALIZE_TELEMETRY_PATH")
-    sink_path = Path(path_override) if path_override else default_path
-    sink_path.parent.mkdir(parents=True, exist_ok=True)
-    return FileTelemetrySink(sink_path)
+    from amprealize.observability_export_config import ObservabilityExportConfig
+    from amprealize.observability_export_runtime import get_or_create_export_runtime
+
+    export_cfg = ObservabilityExportConfig.from_env()
+    rt = get_or_create_export_runtime(export_cfg)
+    if rt is not None:
+        return ObservabilityExportForwardingSink(base, rt)
+    return base
 
 
 class TelemetryClient:
@@ -247,6 +289,28 @@ class TelemetryClient:
             )
         return event
 
+    def start_execution_span(self, **kwargs: Any) -> Any:
+        """Delegate to sink ``start_span`` when available (e.g. Postgres telemetry)."""
+
+        fn = getattr(self._sink, "start_span", None)
+        if callable(fn):
+            return fn(**kwargs)
+        return None
+
+    def end_execution_span(self, span: Any, **kwargs: Any) -> None:
+        """Delegate to sink ``end_span`` when available."""
+
+        fn = getattr(self._sink, "end_span", None)
+        if callable(fn) and span is not None:
+            fn(span, **kwargs)
+
+    def record_completed_execution_trace(self, **kwargs: Any) -> None:
+        """Append a completed row to ``execution_traces`` when the sink supports it."""
+
+        fn = getattr(self._sink, "record_completed_execution_trace", None)
+        if callable(fn):
+            fn(**kwargs)
+
 
 from amprealize.telemetry_events import TelemetryEventType  # noqa: E402 – late import to avoid circular deps
 
@@ -256,7 +320,7 @@ __all__ = [
     "NullTelemetrySink",
     "InMemoryTelemetrySink",
     "FileTelemetrySink",
-    "KafkaTelemetrySink",
+    "ObservabilityExportForwardingSink",
     "create_sink_from_env",
     "TelemetryClient",
     "TelemetryEventType",

@@ -1,0 +1,9 @@
+{
+  "name": "tools.guide",
+  "description": "Return the canonical Amprealize MCP startup protocol for agents. Call this before guessing tool names or searching raw manifests.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  }
+}

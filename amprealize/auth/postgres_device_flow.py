@@ -371,7 +371,10 @@ class PostgresDeviceFlowStore:
         access_expires = now + timedelta(seconds=access_token_ttl)
         refresh_expires = now + timedelta(seconds=refresh_token_ttl)
 
+        rows_affected = 0
+
         def _execute(conn) -> None:
+            nonlocal rows_affected
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -401,6 +404,7 @@ class PostgresDeviceFlowStore:
                         device_code,
                     ),
                 )
+                rows_affected = cur.rowcount or 0
 
         self._pool.run_transaction(
             operation="device_session.approve",
@@ -411,22 +415,26 @@ class PostgresDeviceFlowStore:
             telemetry=None,
         )
 
-        # Update session object
-        session.status = "APPROVED"
-        session.approver = approver
-        session.approver_surface = approver_surface
-        session.approved_at = now
-        session.access_token = access_token
-        session.refresh_token = refresh_token
-        session.access_token_expires_at = access_expires
-        session.refresh_token_expires_at = refresh_expires
-        if not session.oauth_email:
-            session.oauth_email = approver
-        if not session.oauth_user_id:
-            session.oauth_user_id = approver
+        if rows_affected == 0:
+            logger.warning(
+                "device_session.approve: no row updated (not PENDING or wrong device_code): %s",
+                device_code,
+            )
+            return None
 
-        logger.info(f"Approved device session: user_code={session.user_code}, approver={approver}")
-        return session
+        refreshed = self.get_by_device_code(device_code)
+        if refreshed is None:
+            logger.error("device_session.approve: session missing after update: %s", device_code)
+            return None
+        if not refreshed.access_token:
+            logger.error(
+                "device_session.approve: row updated but access_token still null: %s",
+                device_code,
+            )
+            return None
+
+        logger.info(f"Approved device session: user_code={refreshed.user_code}, approver={approver}")
+        return refreshed
 
     def approve_by_user_code(
         self,

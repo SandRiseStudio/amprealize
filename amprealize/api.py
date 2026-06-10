@@ -2,22 +2,39 @@
 
 from __future__ import annotations
 
+import os
+
 # Load environment variables from .env files before anything else
 from pathlib import Path as _Path
 from dotenv import load_dotenv as _load_dotenv
 
 _project_root = _Path(__file__).parent.parent
-for _env_file in [".env", ".env.github-oauth", ".env.google-oauth"]:
-    _env_path = _project_root / _env_file
-    if _env_path.exists():
-        _load_dotenv(_env_path)
+try:
+    from amprealize.runtime_env import load_dotenv_files
+
+    _dotenv_candidates = [
+        _project_root / name for name in (".env", ".env.github-oauth", ".env.google-oauth")
+    ]
+    _dotenv_candidates.append(_project_root.parent / ".env")
+    load_dotenv_files(_dotenv_candidates)
+except ImportError:
+    for _env_file in [".env", ".env.github-oauth", ".env.google-oauth"]:
+        _env_path = _project_root / _env_file
+        if _env_path.exists():
+            _load_dotenv(_env_path)
+    _workspace_env_path = _project_root.parent / ".env"
+    if _workspace_env_path.exists():
+        _load_dotenv(_workspace_env_path)
 
 # Apply active context DSN(s) to environment after loading .env.
 # This overrides hardcoded localhost DSNs in .env with the active context's
 # DSN (e.g., Neon cloud DB), ensuring API services connect to the right DB.
+# Skip when BreakerAmp test runner owns DSNs (``run_tests.sh --breakeramp``).
 try:
-    from amprealize.context import apply_context_to_environment as _apply_ctx
-    _apply_ctx(force=True)
+    if os.environ.get("AMPREALIZE_TEST_INFRA_MODE") != "breakeramp":
+        from amprealize.context import apply_context_to_environment as _apply_ctx
+
+        _apply_ctx(force=True)
 except Exception:
     pass  # Context bridge is best-effort; don't block API startup
 
@@ -27,14 +44,14 @@ from datetime import datetime, timezone
 import html
 import json
 import logging
-import os
 import secrets
 import textwrap
+import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, cast
+from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
-from fastapi import FastAPI, HTTPException, Query, Response, status, Request, Form, Body
+from fastapi import FastAPI, HTTPException, Query, Response, status, Request, Form, Body, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, ValidationError
@@ -43,6 +60,50 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _resolve_user_credential_target(
+    *,
+    requested_user_id: str,
+    current_user: Dict[str, Any],
+    actor_id: Optional[str] = None,
+) -> str:
+    """Resolve and authorize the user whose BYOK credentials are being managed."""
+    acting_user_id = current_user.get("user_id")
+    if not acting_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+
+    if actor_id and actor_id != acting_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="actor_id must match the authenticated user",
+        )
+
+    target_user_id = acting_user_id if requested_user_id in {"me", "self"} else requested_user_id
+    if target_user_id != acting_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User credentials can only be managed by the owning user",
+        )
+    return target_user_id
+
+
+def _normalize_credential_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Accept both flat and FastAPI-embedded BYOK request bodies."""
+    nested_payload = payload.get("payload")
+    if isinstance(nested_payload, dict):
+        return nested_payload
+    return payload
+
+
+def _build_llm_credential_store() -> Any:
+    """Build a credential store that can resolve DB-backed BYOK credentials."""
+    from amprealize.llm.credential_factory import build_credential_store
+
+    return build_credential_store()
 
 
 class _UnavailableFeatureAdapter:
@@ -143,6 +204,8 @@ from .device_flow import (
 )
 from .task_assignments import TaskAssignmentService
 from .telemetry import TelemetryClient, create_sink_from_env
+from .api_http_telemetry import api_http_route_key, api_http_telemetry_skip_path
+from .storage.postgres_telemetry import PostgresTelemetrySink
 from .workflow_service import WorkflowService, WorkflowStatus
 from .analytics.telemetry_kpi_projector import TelemetryKPIProjector, TelemetryProjection
 from .analytics.warehouse import AnalyticsWarehouse
@@ -157,13 +220,22 @@ from .collaboration_contracts import (
 )
 from .collaboration_service import CollaborationService, VersionConflictError
 from .collaboration_service_postgres import PostgresCollaborationService
+from .console_dashboard_api import create_console_dashboard_routes
 from .projects_api import create_project_routes
 from .run_service import RunService, RunNotFoundError
 from .run_service_postgres import PostgresRunService
+from .execution_gateway_bootstrap import is_execution_gateway_enabled
 from .utils.dsn import resolve_optional_postgres_dsn
 from .services.board_service import BoardService
 from .services.assignment_service import AssignmentService
 from .services.board_api_v2 import create_board_routes
+from .services.observability_analytics_api import create_observability_analytics_routes
+from .services.observability_trace_api import create_observability_trace_routes
+from .services.resource_analysis_api import create_resource_analysis_routes
+from .observability_chat import ObservabilityChatAnswerService
+from .observability_analytics import GovernedObservabilityQueryService
+from .observability_trace_query import GovernedTraceReadService
+from .resource_analysis import ResourceAnalysisService, ServiceBackedResourceInventoryProvider
 
 # Notification system
 try:
@@ -178,11 +250,12 @@ except ImportError:
 # Work Item Execution Service (optional - requires dependencies)
 try:
     from .work_item_execution_service import WorkItemExecutionService
-    from .execution_wiring import wire_execution_service
+    from .execution_wiring import wire_execution_gateway, wire_execution_service
     WORK_ITEM_EXECUTION_AVAILABLE = True
 except Exception as exc:
     WORK_ITEM_EXECUTION_AVAILABLE = False
     WorkItemExecutionService = None  # type: ignore[assignment, misc]
+    wire_execution_gateway = None  # type: ignore[assignment, misc]
     wire_execution_service = None  # type: ignore[assignment, misc]
     logger.warning("Work item execution imports unavailable: %s", exc)
 
@@ -217,6 +290,7 @@ except ImportError:
 
 # Lightweight OSS project service (fallback when enterprise not installed)
 from .projects.service import OSSProjectService
+from .project_settings_api import create_project_settings_routes
 
 # Billing service (optional - requires billing package)
 try:
@@ -306,18 +380,22 @@ class _ServiceContainer:
         execution_event_hub: Optional[ExecutionEventHub] = None,
     ) -> None:
         logger = logging.getLogger(__name__)
+        telemetry_sink = create_sink_from_env()
         telemetry = TelemetryClient(
-            sink=create_sink_from_env(),
+            sink=telemetry_sink,
             default_actor={
                 "id": "amprealize-api",
                 "role": "SYSTEM",
                 "surface": "api",
             },
         )
+        self.telemetry_sink = telemetry_sink
+        self.telemetry = telemetry
         self.project_service_available = False
         self.participants_available = False
         self.org_routes_available = False
         self.settings_routes_available = False
+        self.oss_project_settings_routes_available = False
         self.execution_service_available = False
         self.execution_enabled = False
 
@@ -554,22 +632,32 @@ class _ServiceContainer:
         # Board/Assignment services for agent suggestions
         self.board_service = BoardService(pool=None, telemetry=telemetry)
 
-        # Wire up agent validator to prevent orphaned agent assignments
-        # This validates that assigned agents actually exist in the registry
+        # Wire up agent validator to prevent orphaned agent assignments.
+        # Prefer execution.agents via the board pool first: project participants
+        # and assignments use that catalog. AgentRegistryService may use
+        # AMPREALIZE_AGENT_REGISTRY_PG_DSN and must not falsely reject valid agents.
         def _validate_agent_exists(agent_id: str, org_id: Optional[str]) -> bool:
-            """Check if an agent exists in the registry (execution.agents table)."""
+            if self.board_service.agent_exists_in_execution_catalog(agent_id):
+                return True
             if not self.agent_registry_service:
-                logger.warning("Agent validation skipped: AgentRegistryService not available")
-                return True  # Permissive fallback if service unavailable
+                logger.warning(
+                    "Agent validation skipped: AgentRegistryService not available "
+                    "and agent not found in execution.agents for %r",
+                    agent_id,
+                )
+                return True  # Permissive fallback if registry unavailable (legacy)
             try:
-                # Try to fetch the agent - if it exists, validation passes
                 self.agent_registry_service.get_agent(agent_id)
                 return True
             except AgentNotFoundError:
-                logger.warning(f"Agent validation failed: Agent '{agent_id}' not found in registry")
+                logger.warning(
+                    "Agent validation failed: Agent %r not in execution.agents (board DB) "
+                    "or agent registry",
+                    agent_id,
+                )
                 return False
             except Exception as e:
-                logger.warning(f"Agent validation error for {agent_id}: {e}")
+                logger.warning("Agent validation error for %s: %s", agent_id, e)
                 return False
 
         self.board_service.set_agent_validator(_validate_agent_exists)
@@ -624,6 +712,11 @@ class _ServiceContainer:
         self.settings_routes_available = bool(
             enterprise_org_routes_available
             and self.settings_service is not None
+        )
+        # Project JSON settings (local path, GitHub URL, etc.) — OSS + any stack
+        # without enterprise SettingsService.
+        self.oss_project_settings_routes_available = bool(
+            self.project_service_available and not self.settings_routes_available
         )
 
         # Billing service (uses Stripe if credentials provided, otherwise mock)
@@ -698,6 +791,7 @@ class _ServiceContainer:
         # Work Item Execution Service (optional - uses PostgreSQL)
         # Uses wire_execution_service to connect AgentExecutionLoop + AgentLLMClient
         self.work_item_execution_service: Optional[Any] = None
+        self.execution_gateway: Optional[Any] = None
         explicit_execution_dsn = os.getenv("AMPREALIZE_EXECUTION_PG_DSN")
         execution_dsn = resolve_optional_postgres_dsn(
             service="EXECUTION",
@@ -732,6 +826,40 @@ class _ServiceContainer:
                         gate_notifier=self.gate_notifier,
                     )
                     logger.info("WorkItemExecutionService initialized with AgentExecutionLoop wired")
+                    gateway_enabled = is_execution_gateway_enabled(
+                        os.getenv("AMPREALIZE_EXECUTION_GATEWAY_ENABLED")
+                    )
+                    if gateway_enabled and wire_execution_gateway is not None:
+                        credential_store = getattr(
+                            self.work_item_execution_service,
+                            "_credential_store",
+                            None,
+                        )
+                        queue_publisher = getattr(
+                            self.work_item_execution_service,
+                            "_queue_publisher",
+                            None,
+                        )
+                        self.execution_gateway = wire_execution_gateway(
+                            dsn=execution_dsn,
+                            board_service=self.board_service,
+                            run_service=self.run_service,
+                            telemetry=telemetry,
+                            agent_registry=self.agent_registry_service,
+                            settings_service=self.settings_service,
+                            credential_store=credential_store,
+                            queue_publisher=queue_publisher,
+                            dispatch_mode=os.getenv(
+                                "AMPREALIZE_EXECUTION_GATEWAY_DISPATCH",
+                                "background",
+                            ),
+                        )
+                        logger.info("ExecutionGateway initialized for work item execution starts")
+                    elif not gateway_enabled:
+                        logger.info(
+                            "ExecutionGateway disabled by AMPREALIZE_EXECUTION_GATEWAY_ENABLED; "
+                            "using legacy work item execution starts"
+                        )
                 except Exception as exc:
                     logger.warning(
                         "Work item execution service initialization failed: %s; disabling", exc
@@ -746,7 +874,10 @@ class _ServiceContainer:
                 projects=self.project_service_available,
                 participants=self.participants_available,
                 orgs=self.org_routes_available,
-                settings=self.settings_routes_available,
+                settings=(
+                    self.settings_routes_available
+                    or self.oss_project_settings_routes_available
+                ),
                 executions=self.execution_service_available,
             ),
             services=ServiceCapabilitiesResponse(
@@ -1058,6 +1189,32 @@ def _render_device_activation_page(
     return HTMLResponse(content=page)
 
 
+def _refresh_access_tokens_composite(container: Any, refresh_token: str) -> Tuple[str, str, List[str], DeviceTokens]:
+    """Prefer Postgres-backed device sessions so multi-worker uvicorn sees refreshed tokens."""
+    pg_store = getattr(container, "postgres_device_store", None)
+    if pg_store is not None:
+        pg_sess = pg_store.refresh_access_token(refresh_token)
+        if (
+            pg_sess is not None
+            and pg_sess.access_token
+            and pg_sess.refresh_token
+            and pg_sess.access_token_expires_at
+            and pg_sess.refresh_token_expires_at
+        ):
+            tok = DeviceTokens(
+                access_token=pg_sess.access_token,
+                refresh_token=pg_sess.refresh_token,
+                access_token_expires_at=pg_sess.access_token_expires_at,
+                refresh_token_expires_at=pg_sess.refresh_token_expires_at,
+            )
+            return (pg_sess.status, pg_sess.client_id, pg_sess.scopes, tok)
+
+    mem_sess = container.device_flow_manager.refresh_access_token(refresh_token)
+    assert mem_sess.tokens is not None
+    tokens = mem_sess.tokens
+    return (mem_sess.status.value, mem_sess.client_id, mem_sess.scopes, tokens)
+
+
 def create_app(
     *,
     behavior_db_path: Optional[Path] = None,
@@ -1186,11 +1343,19 @@ def create_app(
     cors_origins = _parse_cors_origins(os.getenv("AMPREALIZE_CORS_ORIGINS"))
     cors_origin_regex = os.getenv("AMPREALIZE_CORS_ORIGIN_REGEX")
     allow_localhost_regex = os.getenv("AMPREALIZE_CORS_ALLOW_LOCALHOST", "true").lower() in ("true", "1", "yes")
-    if allow_localhost_regex and not cors_origin_regex:
-        cors_origin_regex = r"^http://(localhost|127\.0\.0\.1)(:\d+)?$"
 
-    # Default allowed origins for CORS header injection on error responses
+    # Default allowed origins for CORS + error-handler injection.
+    # Always merge with AMPREALIZE_CORS_ORIGINS so production-only env does not
+    # block local Vite (http://localhost:5173) when a custom origin regex is set.
     default_cors_origins = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"]
+    merged_cors_origins = list(dict.fromkeys([*default_cors_origins, *cors_origins]))
+
+    _localhost_cors_origin_re = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+    if allow_localhost_regex:
+        if cors_origin_regex:
+            cors_origin_regex = f"(?:{cors_origin_regex})|(?:{_localhost_cors_origin_re})"
+        else:
+            cors_origin_regex = _localhost_cors_origin_re
 
     # ------------------------------------------------------------------
     # Edition & Caps Exception Handlers
@@ -1245,7 +1410,7 @@ def create_app(
         # Determine if origin is allowed
         allowed = False
         if origin:
-            if origin in default_cors_origins or origin in cors_origins:
+            if origin in merged_cors_origins:
                 allowed = True
             elif cors_origin_regex:
                 allowed = bool(re.match(cors_origin_regex, origin))
@@ -1286,6 +1451,53 @@ def create_app(
     app.state.container = container
     app.state.api_capabilities = container.api_capabilities
 
+    api_http_telemetry_rate = float(os.environ.get("AMPREALIZE_API_HTTP_TELEMETRY_SAMPLE_RATE", "0") or 0)
+
+    @app.middleware("http")
+    async def _sampled_api_http_telemetry(request: Request, call_next):
+        if api_http_telemetry_rate <= 0 or api_http_telemetry_skip_path(request.url.path):
+            return await call_next(request)
+
+        import random
+
+        if random.random() > api_http_telemetry_rate:
+            return await call_next(request)
+
+        start = time.perf_counter()
+        response = await call_next(request)
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        try:
+            from amprealize.execution_observability import (
+                ExecutionObservabilityContext,
+                sanitize_observability_payload,
+            )
+
+            eo = ExecutionObservabilityContext(
+                run_id=None,
+                cycle_id=None,
+                work_item_id="-",
+                project_id="-",
+                org_id=None,
+                surface="api",
+                request_id=request.headers.get("x-request-id"),
+            )
+            container.telemetry.emit_event(
+                event_type="api.http.completed",
+                payload=sanitize_observability_payload(
+                    {
+                        "route": api_http_route_key(request),
+                        "path": request.url.path,
+                        "method": request.method,
+                        "status_code": response.status_code,
+                        "elapsed_ms": elapsed_ms,
+                        **eo.to_metadata(),
+                    },
+                ),
+            )
+        except Exception as exc:
+            logger.debug("Sampled API HTTP telemetry emit failed: %s", exc, exc_info=True)
+        return response
+
     # ------------------------------------------------------------------
     # Auth Middleware & Permission Service
     # ------------------------------------------------------------------
@@ -1296,7 +1508,7 @@ def create_app(
 
     # Always add auth middleware when device_flow_manager is available (for ga_* token validation)
     # This ensures OAuth users get their user_id populated in request.state
-    from amprealize.auth.middleware import AuthMiddleware, AuthConfig
+    from amprealize.auth.middleware import AuthMiddleware, AuthConfig, get_current_user
 
     auth_config = AuthConfig(
         skip_paths={
@@ -1391,6 +1603,11 @@ def create_app(
         device_flow_manager=composite_device_store,
     )
 
+    # Correlate server perf logs / DB telemetry with browser dashboard sessions (X-Web-Perf-Session).
+    from amprealize.web_perf_context import WebPerfSessionMiddleware
+
+    app.add_middleware(WebPerfSessionMiddleware)
+
     @app.get("/api/v1/capabilities", response_model=ApiCapabilitiesResponse, tags=["platform"])
     def get_api_capabilities() -> ApiCapabilitiesResponse:
         return app.state.api_capabilities
@@ -1404,6 +1621,93 @@ def create_app(
         from amprealize.platform_runtime import build_platform_runtime_dict
 
         return PlatformRuntimeMetadataResponse(**build_platform_runtime_dict())
+
+    async def _resource_analysis_inventory_provider(**kwargs: Any) -> Dict[str, Any]:
+        provider = ServiceBackedResourceInventoryProvider(
+            project_service=container.org_service,
+            org_service=container.org_service,
+            board_service=container.board_service,
+            run_service=container.run_service,
+            behavior_service=container.behavior_service,
+            wiki_service=getattr(app.state, "wiki_service", None),
+            conversation_service=getattr(app.state, "conversation_service", None),
+        )
+        return await provider(**kwargs)
+
+    app.include_router(
+        create_resource_analysis_routes(
+            resource_analysis_service=ResourceAnalysisService(
+                inventory_provider=_resource_analysis_inventory_provider
+            ),
+            get_current_user=get_current_user,
+        ),
+        prefix="/api",
+    )
+
+    def _observability_event_provider() -> List[Dict[str, Any]]:
+        telemetry_sink = getattr(container, "telemetry_sink", None)
+        in_memory_events = getattr(telemetry_sink, "events", None)
+        if in_memory_events is not None:
+            return [event.to_dict() for event in in_memory_events]
+        telemetry_dsn = resolve_optional_postgres_dsn(
+            service="TELEMETRY",
+            explicit_dsn=None,
+            env_var="AMPREALIZE_TELEMETRY_PG_DSN",
+        )
+        if not telemetry_dsn:
+            return []
+        try:
+            return PostgresTelemetrySink(dsn=telemetry_dsn).query_events(limit=1000)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Governed observability event provider unavailable: %s",
+                exc,
+            )
+            return []
+
+    observability_query_service = GovernedObservabilityQueryService(
+        event_provider=_observability_event_provider
+    )
+
+    def _trace_sink_provider():
+        telemetry_sink = getattr(container, "telemetry_sink", None)
+        in_memory_events = getattr(telemetry_sink, "events", None)
+        if in_memory_events is not None:
+            # Unit tests / dev in-memory mode — no warehouse views; return empty trace lists.
+            return None
+        telemetry_dsn = resolve_optional_postgres_dsn(
+            service="TELEMETRY",
+            explicit_dsn=None,
+            env_var="AMPREALIZE_TELEMETRY_PG_DSN",
+        )
+        if not telemetry_dsn:
+            return None
+        try:
+            return PostgresTelemetrySink(dsn=telemetry_dsn)
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Trace read Postgres sink unavailable: %s",
+                exc,
+            )
+            return None
+
+    trace_read_service = GovernedTraceReadService(sink_provider=_trace_sink_provider)
+
+    app.include_router(
+        create_observability_trace_routes(
+            trace_read_service=trace_read_service,
+            get_current_user=get_current_user,
+        ),
+        prefix="/api",
+    )
+
+    app.include_router(
+        create_observability_analytics_routes(
+            observability_query_service=observability_query_service,
+            get_current_user=get_current_user,
+        ),
+        prefix="/api",
+    )
 
     from amprealize.services.feature_flags_platform_api import register_feature_flags_platform_routes
 
@@ -1729,7 +2033,10 @@ def create_app(
                 detail="Agent registry service not available",
             )
         try:
-            return container.agent_registry_adapter.search_agents(payload)
+            results = container.agent_registry_adapter.search_agents(payload)
+            if isinstance(results, list):
+                return {"results": results, "total": len(results)}
+            return results
         except AgentRegistryError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -2198,8 +2505,10 @@ def create_app(
     def get_project_model_availability(
         project_id: str,
         org_id: Optional[str] = Query(None, description="Organization ID (if project belongs to an org)"),
+        user_id: Optional[str] = Query(None, description="User ID for user-scoped BYOK credentials"),
+        prefer_user: bool = Query(False, description="Prefer user-scoped BYOK over project-scoped BYOK"),
         include_pricing: bool = Query(True, description="Include pricing information"),
-        provider_filter: Optional[str] = Query(None, description="Filter by provider (anthropic, openai, openrouter, local)"),
+        provider_filter: Optional[str] = Query(None, description="Filter by provider"),
     ) -> Dict[str, Any]:
         """Get available LLM models for a project.
 
@@ -2210,10 +2519,9 @@ def create_app(
 
         Works for both user-owned projects and org projects.
         """
-        from .work_item_execution_service import CredentialStore
         from .mcp.handlers.config_handlers import handle_get_model_availability
 
-        credential_store = CredentialStore()
+        credential_store = _build_llm_credential_store()
 
         try:
             return handle_get_model_availability(
@@ -2221,6 +2529,8 @@ def create_app(
                 {
                     "project_id": project_id,
                     "org_id": org_id,
+                    "user_id": user_id,
+                    "prefer_user": prefer_user,
                     "include_pricing": include_pricing,
                     "provider_filter": provider_filter,
                 },
@@ -2236,6 +2546,65 @@ def create_app(
                 detail=str(exc),
             ) from exc
 
+    @app.get("/api/v1/model-readiness")
+    def get_model_readiness(
+        request: Request,
+        conversation_id: Optional[str] = Query(
+            None, description="Conversation to derive project/org context from",
+        ),
+        project_id: Optional[str] = Query(None, description="Explicit project scope"),
+        org_id: Optional[str] = Query(None, description="Explicit organization scope"),
+        user_id: Optional[str] = Query(None, description="User scope (defaults to authenticated user)"),
+        prefer_user: bool = Query(False, description="Prefer user-scoped BYOK over project BYOK"),
+        selected_model_id: Optional[str] = Query(None, description="Model to validate for send"),
+        provider_filter: Optional[str] = Query(None, description="Filter catalog by provider"),
+        free_open_only: bool = Query(False, description="Only include free/open chat models"),
+    ) -> Dict[str, Any]:
+        """Return model readiness for chat and execution (BYOK + platform credentials)."""
+        from amprealize.llm.model_readiness import compute_model_readiness_payload
+
+        acting_user = getattr(request.state, "user_id", None) or user_id
+        if not acting_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required (or pass user_id for dev-only flows)",
+            )
+
+        eff_project = project_id
+        eff_org = org_id
+        if conversation_id:
+            conv_service = getattr(request.app.state, "conversation_service", None)
+            if conv_service is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Conversation service unavailable",
+                )
+            try:
+                conv = conv_service.get_conversation(
+                    conversation_id,
+                    org_id=org_id,
+                    user_id=acting_user,
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Conversation not found: {exc}",
+                ) from exc
+            eff_project = conv.project_id
+            eff_org = org_id or conv.org_id
+
+        store = _build_llm_credential_store()
+        return compute_model_readiness_payload(
+            store,
+            user_id=acting_user,
+            org_id=eff_org,
+            project_id=eff_project,
+            prefer_user=prefer_user,
+            provider_filter=provider_filter,
+            free_open_only=free_open_only,
+            selected_model_id=selected_model_id,
+        )
+
     @app.get("/api/v1/config/models")
     def list_all_available_models(
         include_pricing: bool = Query(True, description="Include pricing information"),
@@ -2246,18 +2615,52 @@ def create_app(
         Returns models that have platform-level credentials configured.
         Use /api/v1/projects/{project_id}/models for project-specific availability.
         """
-        from .work_item_execution_service import CredentialStore
         from .mcp.handlers.config_handlers import handle_get_model_availability
 
-        credential_store = CredentialStore()
+        credential_store = _build_llm_credential_store()
 
         try:
             return handle_get_model_availability(
                 credential_store,
                 {
-                    "project_id": "_platform",  # Special ID for platform-level query
+                    "project_id": None,
                     "include_pricing": include_pricing,
                     "provider_filter": provider_filter,
+                },
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+
+    @app.get("/api/v1/users/{user_id}/models")
+    def get_user_model_availability(
+        user_id: str,
+        org_id: Optional[str] = Query(None, description="Organization ID for org fallback"),
+        include_pricing: bool = Query(True, description="Include pricing information"),
+        provider_filter: Optional[str] = Query("nvidia", description="Filter by provider"),
+        free_open_only: bool = Query(True, description="Only include free open models"),
+    ) -> Dict[str, Any]:
+        """Get available LLM models for a user's personal chat context.
+
+        Personal/global chat defaults to the NVIDIA free/open model plan.
+        """
+        from .mcp.handlers.config_handlers import handle_get_model_availability
+
+        credential_store = _build_llm_credential_store()
+
+        try:
+            return handle_get_model_availability(
+                credential_store,
+                {
+                    "project_id": None,
+                    "org_id": org_id,
+                    "user_id": user_id,
+                    "prefer_user": True,
+                    "include_pricing": include_pricing,
+                    "provider_filter": provider_filter,
+                    "free_open_only": free_open_only,
                 },
             )
         except ValueError as exc:
@@ -2269,6 +2672,161 @@ def create_app(
     # ------------------------------------------------------------------
     # BYOK Credentials (Section 11.6 - Credential Management)
     # ------------------------------------------------------------------
+
+    @app.post("/api/v1/users/{user_id}/credentials", status_code=status.HTTP_201_CREATED)
+    def create_user_credential(
+        user_id: str,
+        payload: Dict[str, Any] = Body(...),
+        actor_id: Optional[str] = Query(None, description="Optional audit actor ID; must match authenticated user"),
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Add or replace a BYOK credential for a user."""
+        from .auth.llm_credential_repository import (
+            CreateCredentialRequest,
+            CredentialScopeType,
+            LLMCredentialRepository,
+        )
+        from .llm.types import ProviderType
+        from .storage.postgres_pool import PostgresPool
+
+        target_user_id = _resolve_user_credential_target(
+            requested_user_id=user_id,
+            current_user=current_user,
+            actor_id=actor_id,
+        )
+        acting_user_id = current_user["user_id"]
+        credential_payload = _normalize_credential_payload(payload)
+
+        provider = credential_payload.get("provider")
+        api_key = credential_payload.get("api_key")
+        name = credential_payload.get("name") or f"{provider} API Key"
+        if not provider:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="provider is required")
+        if provider not in ProviderType._value2member_map_:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported provider: {provider}")
+        if not api_key:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="api_key is required")
+
+        from amprealize.llm.byok_policy import assert_byok_persistence_allowed
+
+        try:
+            assert_byok_persistence_allowed()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            ) from exc
+
+        repo = LLMCredentialRepository(PostgresPool())
+        credential = repo.create(
+            CreateCredentialRequest(
+                scope_type=CredentialScopeType.USER,
+                scope_id=target_user_id,
+                provider=provider,
+                api_key=api_key,
+                name=name,
+                created_by=acting_user_id,
+            )
+        )
+        return credential.to_dict()
+
+    @app.get("/api/v1/users/{user_id}/credentials")
+    def list_user_credentials(
+        user_id: str,
+        actor_id: Optional[str] = Query(None, description="Optional audit actor ID; must match authenticated user"),
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ) -> List[Dict[str, Any]]:
+        """List BYOK credentials for a user without returning raw API keys."""
+        from .auth.llm_credential_repository import CredentialScopeType, LLMCredentialRepository
+        from .storage.postgres_pool import PostgresPool
+
+        target_user_id = _resolve_user_credential_target(
+            requested_user_id=user_id,
+            current_user=current_user,
+            actor_id=actor_id,
+        )
+
+        repo = LLMCredentialRepository(PostgresPool())
+        credentials = repo.get_for_scope(
+            scope_type=CredentialScopeType.USER,
+            scope_id=target_user_id,
+            decrypt=False,
+        )
+        return [cred.to_dict() for cred in credentials]
+
+    @app.delete("/api/v1/users/{user_id}/credentials/{credential_id}")
+    def delete_user_credential(
+        user_id: str,
+        credential_id: str,
+        actor_id: Optional[str] = Query(None, description="Optional audit actor ID; must match authenticated user"),
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Delete a user-scoped BYOK credential."""
+        from .auth.llm_credential_repository import CredentialScopeType, LLMCredentialRepository
+        from .storage.postgres_pool import PostgresPool
+
+        target_user_id = _resolve_user_credential_target(
+            requested_user_id=user_id,
+            current_user=current_user,
+            actor_id=actor_id,
+        )
+        acting_user_id = current_user["user_id"]
+
+        repo = LLMCredentialRepository(PostgresPool())
+        credential = repo.get_by_id(credential_id)
+        if not credential:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
+        if credential.scope_type != CredentialScopeType.USER or credential.scope_id != target_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Credential does not belong to this user",
+            )
+
+        if repo.delete(credential_id, actor_id=acting_user_id):
+            return {"deleted": True, "credential_id": credential_id}
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
+
+    @app.post("/api/v1/users/{user_id}/credentials/{credential_id}:re-enable")
+    def reenable_user_credential(
+        user_id: str,
+        credential_id: str,
+        payload: Dict[str, Any] = Body(...),
+        actor_id: Optional[str] = Query(None, description="Optional audit actor ID; must match authenticated user"),
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        """Re-enable a disabled user-scoped BYOK credential after providing a new key."""
+        from .auth.llm_credential_repository import CredentialScopeType, LLMCredentialRepository
+        from .storage.postgres_pool import PostgresPool
+
+        target_user_id = _resolve_user_credential_target(
+            requested_user_id=user_id,
+            current_user=current_user,
+            actor_id=actor_id,
+        )
+        acting_user_id = current_user["user_id"]
+
+        repo = LLMCredentialRepository(PostgresPool())
+        credential = repo.get_by_id(credential_id)
+        if not credential:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
+        if credential.scope_type != CredentialScopeType.USER or credential.scope_id != target_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Credential does not belong to this user",
+            )
+
+        credential_payload = _normalize_credential_payload(payload)
+        new_api_key = credential_payload.get("api_key")
+        if not new_api_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="api_key is required to re-enable a credential",
+            )
+
+        updated = repo.re_enable(credential_id, new_api_key, actor_id=acting_user_id)
+        if updated:
+            return updated.to_dict()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
 
     @app.post("/api/v1/projects/{project_id}/credentials", status_code=status.HTTP_201_CREATED)
     def create_project_credential(
@@ -4497,61 +5055,12 @@ def create_app(
             run_id = _validated_uuid(run_id, "Run")
 
             try:
-                run = container.run_service.get_run(run_id)
-                steps = []
-                for step in run.steps:
-                    step_dict = step.to_dict()
-                    metadata = step_dict.get("metadata", {})
-                    input_data = metadata.get("input_data", {})
-                    if isinstance(input_data, dict):
-                        input_tokens = input_data.get("input_tokens", 0)
-                        output_tokens = input_data.get("output_tokens", 0)
-                        step_type = input_data.get("step_type", step_dict.get("name", "step"))
-                        phase = input_data.get("phase", "unknown")
-                        content_preview = input_data.get("content_preview")
-                    else:
-                        input_tokens = metadata.get("input_tokens", 0)
-                        output_tokens = metadata.get("output_tokens", 0)
-                        step_type = metadata.get("step_type", step_dict.get("name", "step"))
-                        phase = metadata.get("phase", "unknown")
-                        content_preview = metadata.get("content_preview")
-
-                    tool_calls_data = (
-                        input_data.get("tool_calls")
-                        if isinstance(input_data, dict)
-                        else metadata.get("tool_calls")
-                    )
-                    if isinstance(tool_calls_data, list):
-                        tool_call_count = len(tool_calls_data)
-                        tool_names = [
-                            tc.get("tool_name")
-                            for tc in tool_calls_data
-                            if isinstance(tc, dict) and tc.get("tool_name")
-                        ]
-                    elif isinstance(tool_calls_data, int):
-                        tool_call_count = tool_calls_data
-                        tool_names = metadata.get("tool_names") or []
-                    else:
-                        tool_call_count = 0
-                        tool_names = metadata.get("tool_names") or []
-
-                    steps.append(
-                        {
-                            "step_id": step_dict.get("id") or step_dict.get("step_id", ""),
-                            "phase": phase,
-                            "step_type": step_type,
-                            "started_at": step_dict.get("started_at") or step_dict.get("created_at", ""),
-                            "completed_at": step_dict.get("completed_at"),
-                            "input_tokens": input_tokens,
-                            "output_tokens": output_tokens,
-                            "tool_calls": tool_call_count,
-                            "content_preview": content_preview,
-                            "content_full": metadata.get("content_full"),
-                            "tool_names": tool_names if tool_names else None,
-                            "model_id": metadata.get("model_id"),
-                        }
-                    )
-
+                steps = container.work_item_execution_service.get_execution_steps(
+                    run_id,
+                    org_id,
+                    limit=200,
+                    offset=0,
+                )
                 steps.sort(key=lambda s: s.get("started_at") or "")
                 return {"steps": steps, "total": len(steps)}
             except RunNotFoundError:
@@ -4792,6 +5301,15 @@ def create_app(
         run_id = _validated_uuid(run_id, "Run")
         try:
             return container.run_adapter.get_run(run_id)
+        except RunNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    @app.get("/api/v1/runs/{run_id}/reliability")
+    def get_run_reliability(run_id: str) -> Dict[str, Any]:
+        """GEP checkpoint summary, outbound policy fragment, and circuit state (read-only)."""
+        run_id = _validated_uuid(run_id, "Run")
+        try:
+            return container.run_adapter.get_run_reliability(run_id)
         except RunNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -5543,8 +6061,37 @@ def create_app(
                         detail=f"No authorization request found for device code",
                     )
 
-                # Per RFC 8628, pending authorization should return 400 with authorization_pending error
-                if session.status == "pending":
+                # Postgres stores status uppercase (PENDING, APPROVED, …); compare case-insensitively.
+                st = (session.status or "").strip().upper()
+                now_utc = datetime.now(timezone.utc)
+
+                if st == "DENIED":
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "access_denied",
+                            "error_description": session.denied_reason or "The user denied the authorization request.",
+                        },
+                    )
+
+                if st == "EXPIRED":
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "expired_token",
+                            "error_description": "The device code has expired.",
+                        },
+                    )
+
+                if st == "PENDING":
+                    if session.expires_at and session.expires_at < now_utc:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail={
+                                "error": "expired_token",
+                                "error_description": "The device code has expired.",
+                            },
+                        )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail={
@@ -5554,29 +6101,26 @@ def create_app(
                         },
                     )
 
-                if session.status == "denied":
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail={
-                            "error": "access_denied",
-                            "error_description": session.denied_reason or "The user denied the authorization request.",
-                        },
-                    )
-
-                if session.status == "expired" or (session.expires_at and session.expires_at < datetime.now(timezone.utc)):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail={
-                            "error": "expired_token",
-                            "error_description": "The device code has expired.",
-                        },
-                    )
-
-                # Only APPROVED status gets here
-                if session.access_token is None:
+                if st != "APPROVED":
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Session approved but tokens not generated",
+                        detail=f"Unexpected device session status: {session.status!r}",
+                    )
+
+                # Status APPROVED but token not yet visible (brief race or pool/replica lag).
+                # RFC 8628: respond as authorization_pending so clients retry instead of failing hard.
+                if session.access_token is None:
+                    logger.warning(
+                        "device token poll: APPROVED but access_token still null for device_code=%s — asking client to retry",
+                        device_code[:16] + "...",
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "authorization_pending",
+                            "error_description": "Approval finalized; retry shortly for tokens.",
+                            "interval": session.poll_interval or 5,
+                        },
                     )
 
                 # Calculate expires_in from token expiry
@@ -5653,7 +6197,7 @@ def create_app(
                 detail="refresh_token is required",
             )
         try:
-            session = container.device_flow_manager.refresh_access_token(refresh_token)
+            status, client_id, scopes, tokens = _refresh_access_tokens_composite(container, refresh_token)
         except RefreshTokenNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
         except (RefreshTokenExpiredError, DeviceCodeExpiredError) as exc:
@@ -5661,13 +6205,10 @@ def create_app(
         except DeviceFlowError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
-        tokens = session.tokens
-        assert tokens is not None, "refreshed session must include tokens"
-
         return {
-            "status": session.status.value,
-            "client_id": session.client_id,
-            "scopes": session.scopes,
+            "status": status,
+            "client_id": client_id,
+            "scopes": scopes,
             "access_token": tokens.access_token,
             "refresh_token": tokens.refresh_token,
             "token_type": tokens.token_type,
@@ -5694,16 +6235,13 @@ def create_app(
             )
 
         try:
-            session = container.device_flow_manager.refresh_access_token(refresh_token)
+            status, client_id, scopes, tokens = _refresh_access_tokens_composite(container, refresh_token)
         except RefreshTokenNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
         except (RefreshTokenExpiredError, DeviceCodeExpiredError) as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         except DeviceFlowError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-
-        tokens = session.tokens
-        assert tokens is not None, "refreshed session must include tokens"
 
         return {
             "access_token": tokens.access_token,
@@ -6839,27 +7377,44 @@ def create_app(
         except Exception as e:
             logger.error(f"Failed to ensure user exists in auth.users: {e}")
 
-        # Create an Amprealize session from OAuth credentials
-        # This bridges OAuth tokens to device flow tokens, enabling standard refresh
-        amprealize_tokens = container.device_flow_manager.create_session_from_oauth(
-            provider=provider,
-            user_id=internal_user_id,  # Use internal user ID if linked
-            email=user_info.email,
-            name=user_info.display_name or user_info.username,
-            picture=getattr(user_info, "picture", None),
-            provider_access_token=token_response.access_token,
-            provider_refresh_token=token_response.refresh_token,
-            scopes=token_response.scope.split() if token_response.scope else None,
-        )
-
-        # Mirror the approved session to auth.device_sessions so it survives
-        # api-worker recreates and is visible across workers. The in-memory
-        # store remains source-of-truth for issuance; this write is best-effort
-        # durability — failures are logged but do not fail the login.
-        try:
-            pg_store = getattr(container, "postgres_device_store", None)
-            if pg_store is not None:
-                pg_store.create_session_from_oauth(
+        # Create an Amprealize session from OAuth credentials.
+        # Prefer Postgres when AMPREALIZE_AUTH_PG_DSN is configured so multi-worker
+        # uvicorn validates ga_* tokens without relying on per-process memory.
+        pg_store = getattr(container, "postgres_device_store", None)
+        amprealize_tokens: DeviceTokens
+        if pg_store is not None:
+            try:
+                pg_sess = pg_store.create_session_from_oauth(
+                    provider=provider,
+                    user_id=internal_user_id,
+                    email=user_info.email or "",
+                    name=user_info.display_name or user_info.username,
+                    picture=getattr(user_info, "picture", None),
+                    provider_access_token=token_response.access_token,
+                    provider_refresh_token=token_response.refresh_token,
+                    scopes=token_response.scope.split() if token_response.scope else None,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Postgres OAuth session create failed, falling back to in-memory device flow: %s",
+                    e,
+                )
+                pg_sess = None
+            if (
+                pg_sess is not None
+                and pg_sess.access_token
+                and pg_sess.refresh_token
+                and pg_sess.access_token_expires_at
+                and pg_sess.refresh_token_expires_at
+            ):
+                amprealize_tokens = DeviceTokens(
+                    access_token=pg_sess.access_token,
+                    refresh_token=pg_sess.refresh_token,
+                    access_token_expires_at=pg_sess.access_token_expires_at,
+                    refresh_token_expires_at=pg_sess.refresh_token_expires_at,
+                )
+            else:
+                amprealize_tokens = container.device_flow_manager.create_session_from_oauth(
                     provider=provider,
                     user_id=internal_user_id,
                     email=user_info.email,
@@ -6868,17 +7423,39 @@ def create_app(
                     provider_access_token=token_response.access_token,
                     provider_refresh_token=token_response.refresh_token,
                     scopes=token_response.scope.split() if token_response.scope else None,
-                    # Use the tokens the in-memory store issued so both
-                    # layers map the SAME access_token → session.
-                    access_token=amprealize_tokens.access_token,
-                    refresh_token=amprealize_tokens.refresh_token,
-                    access_token_expires_at=amprealize_tokens.access_token_expires_at,
-                    refresh_token_expires_at=amprealize_tokens.refresh_token_expires_at,
                 )
-        except Exception as e:
-            logger.warning(
-                f"Failed to mirror OAuth session to postgres_device_store "
-                f"(email={user_info.email}): {e}"
+                try:
+                    pg_store.create_session_from_oauth(
+                        provider=provider,
+                        user_id=internal_user_id,
+                        email=user_info.email,
+                        name=user_info.display_name or user_info.username,
+                        picture=getattr(user_info, "picture", None),
+                        provider_access_token=token_response.access_token,
+                        provider_refresh_token=token_response.refresh_token,
+                        scopes=token_response.scope.split() if token_response.scope else None,
+                        access_token=amprealize_tokens.access_token,
+                        refresh_token=amprealize_tokens.refresh_token,
+                        access_token_expires_at=amprealize_tokens.access_token_expires_at,
+                        refresh_token_expires_at=amprealize_tokens.refresh_token_expires_at,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to mirror OAuth session to postgres_device_store "
+                        "(email=%s): %s",
+                        user_info.email,
+                        e,
+                    )
+        else:
+            amprealize_tokens = container.device_flow_manager.create_session_from_oauth(
+                provider=provider,
+                user_id=internal_user_id,
+                email=user_info.email,
+                name=user_info.display_name or user_info.username,
+                picture=getattr(user_info, "picture", None),
+                provider_access_token=token_response.access_token,
+                provider_refresh_token=token_response.refresh_token,
+                scopes=token_response.scope.split() if token_response.scope else None,
             )
 
         # Return Amprealize tokens (not raw provider tokens) so they work with
@@ -7517,7 +8094,8 @@ def create_app(
                     detail="User service not available",
                 )
 
-            devices = container.user_auth_service.get_user_mfa_devices(user_id, verified_only=True)
+            get_devices = getattr(container.user_auth_service, "get_user_mfa_devices", None)
+            devices = get_devices(user_id, verified_only=True) if get_devices else []
 
             return {
                 "user_id": user_id,
@@ -7606,8 +8184,11 @@ def create_app(
                     detail="User service not available",
                 )
 
-            has_mfa = container.user_auth_service.user_has_verified_mfa(user_id)
-            devices = container.user_auth_service.get_user_mfa_devices(user_id, verified_only=True)
+            get_devices = getattr(container.user_auth_service, "get_user_mfa_devices", None)
+            devices = get_devices(user_id, verified_only=True) if get_devices else []
+
+            has_verified_mfa = getattr(container.user_auth_service, "user_has_verified_mfa", None)
+            has_mfa = has_verified_mfa(user_id) if has_verified_mfa else len(devices) > 0
 
             return {
                 "user_id": user_id,
@@ -8256,6 +8837,19 @@ def create_app(
             tags=["settings"],
         )
         app.include_router(settings_routes, prefix="/api")
+    elif getattr(container, "oss_project_settings_routes_available", False) is True:
+        # OSS: project settings JSON (no org routes, no enterprise SettingsService)
+        app.include_router(
+            create_project_settings_routes(
+                org_service=container.org_service,
+                get_user_id=_require_user_id,
+                tags=["settings"],
+            ),
+            prefix="/api",
+        )
+        logger.info(
+            "OSS project settings routes registered at /api/v1/projects/{project_id}/settings/*"
+        )
 
     # ------------------------------------------------------------------
     # Projects (always available when a project service exists)
@@ -8266,6 +8860,15 @@ def create_app(
                 org_service=container.org_service,
                 get_user_id=_require_user_id,
                 tags=["projects"],
+            ),
+            prefix="/api",
+        )
+        app.include_router(
+            create_console_dashboard_routes(
+                org_service=container.org_service,
+                board_service=container.board_service,
+                get_user_id=_require_user_id,
+                tags=["console"],
             ),
             prefix="/api",
         )
@@ -8282,6 +8885,19 @@ def create_app(
     )
     app.include_router(board_routes, prefix="/api")
 
+    from .services.local_execution_connector_api import (
+        create_local_execution_connector_routes,
+        register_execution_connector_websocket,
+    )
+
+    _lec_routes = create_local_execution_connector_routes(tags=["execution-connector"])
+    app.include_router(_lec_routes, prefix="/api")
+    register_execution_connector_websocket(app)
+    logger.info(
+        "Local execution connector routes registered at /api/v1/execution-connector/* "
+        "(REST + WebSocket; gated by feature.local_execution_connector)"
+    )
+
     # ------------------------------------------------------------------
     # Work Item Execution (Agent execution of work items)
     # ------------------------------------------------------------------
@@ -8291,6 +8907,7 @@ def create_app(
 
         execution_routes = create_work_item_execution_routes(
             service=container.work_item_execution_service,
+            execution_gateway=container.execution_gateway,
         )
         app.include_router(execution_routes, prefix="/api")
         logger.info("Work item execution routes registered at /api/v1/work-items/*")
@@ -8440,22 +9057,136 @@ def create_app(
             from amprealize.storage.postgres_pool import PostgresPool as _MsgPool
             from amprealize.services.conversation_service import ConversationService
             from amprealize.services.conversation_api import create_conversation_routes
+            from amprealize.services.conversation_reply_service import ConversationReplyService
             from amprealize.conversation_event_hub import ConversationEventHub
+            from amprealize.conversation_realtime_redis import RedisConversationRealtimeBackend
+            from amprealize.global_chat_context import build_chat_context_composer
+            from amprealize.llm.client import LLMClient
+            from amprealize.llm.types import MODEL_CATALOG
+            from amprealize.platform_management_actions import (
+                BoardPlatformManagementAdapter,
+                PlatformManagementActionService,
+                PlatformResourceType,
+            )
             from amprealize.services.conversation_events_api import (
                 create_conversation_ws_routes,
                 register_conversation_ws,
             )
 
             msg_pool = _MsgPool(conversation_dsn, "messaging")
-            conversation_event_hub = ConversationEventHub()
+            realtime_backend = None
+            realtime_mode = os.environ.get("AMPREALIZE_CHAT_REALTIME_BACKEND", "auto").strip().lower()
+            redis_url = os.environ.get("AMPREALIZE_REDIS_URL") or os.environ.get("REDIS_URL")
+            if realtime_mode in {"auto", "redis"} and redis_url:
+                realtime_backend = RedisConversationRealtimeBackend(
+                    redis_url=redis_url,
+                    replay_ttl_seconds=int(os.environ.get("AMPREALIZE_CHAT_REPLAY_TTL_SECONDS", "900")),
+                    stream_maxlen=int(os.environ.get("AMPREALIZE_CHAT_STREAM_MAXLEN", "1000")),
+                )
+                logger.info(
+                    "Conversation realtime backend enabled mode=%s backend=redis",
+                    realtime_mode,
+                )
+            elif realtime_mode == "redis":
+                logger.warning(
+                    "Conversation realtime backend requested redis but no AMPREALIZE_REDIS_URL/REDIS_URL is set; using memory"
+                )
+            else:
+                logger.info("Conversation realtime backend enabled mode=%s backend=memory", realtime_mode)
+
+            _max_remote_raw = os.environ.get("AMPREALIZE_CHAT_REALTIME_MAX_REMOTE_CONVERSATIONS", "")
+            _max_remote: Optional[int] = None
+            if _max_remote_raw.strip():
+                try:
+                    _max_remote = int(_max_remote_raw.strip())
+                except ValueError:
+                    logger.warning(
+                        "Invalid AMPREALIZE_CHAT_REALTIME_MAX_REMOTE_CONVERSATIONS=%r; ignoring cap",
+                        _max_remote_raw,
+                    )
+
+            conversation_event_hub = ConversationEventHub(
+                realtime_backend=realtime_backend,
+                max_remote_subscriptions=_max_remote,
+            )
             conversation_service = ConversationService(
                 dsn=conversation_dsn,
                 pool=msg_pool,
                 event_hub=conversation_event_hub,
             )
+            llm_credential_store = _build_llm_credential_store()
+
+            from amprealize.chat_execution_bridge import ChatExecutionBridge
+            from amprealize.chat_resource_actions import ChatResourceActionRegistry
+            from amprealize.execution_gateway_adapter import GatewayWorkItemExecutionAdapter
+
+            platform_management_service = PlatformManagementActionService(
+                services={
+                    PlatformResourceType.BOARD: BoardPlatformManagementAdapter(container.board_service),
+                    PlatformResourceType.WORK_ITEM: BoardPlatformManagementAdapter(container.board_service),
+                }
+            )
+
+            chat_execution_bridge = None
+            wies = getattr(container, "work_item_execution_service", None)
+            if wies is not None and getattr(container, "execution_enabled", False):
+                start_adapter: Any = wies
+                if getattr(container, "execution_gateway", None) is not None:
+                    start_adapter = GatewayWorkItemExecutionAdapter(
+                        gateway=container.execution_gateway,
+                        legacy_service=wies,
+                    )
+                chat_execution_bridge = ChatExecutionBridge(execution_start_service=start_adapter)
+
+            chat_resource_registry = ChatResourceActionRegistry(
+                platform_service=platform_management_service,
+                execution_bridge=chat_execution_bridge,
+            )
+
+            def _conversation_llm_credential_resolver(
+                provider_name: str,
+                project_id: Optional[str] = None,
+                org_id: Optional[str] = None,
+                user_id: Optional[str] = None,
+                prefer_user_credential: bool = False,
+            ) -> Optional[str]:
+                for model in MODEL_CATALOG.values():
+                    if model.provider.value != provider_name:
+                        continue
+                    credential = llm_credential_store.get_credential_for_model(
+                        model.model_id,
+                        project_id=project_id,
+                        org_id=org_id,
+                        user_id=user_id,
+                        prefer_user=prefer_user_credential,
+                    )
+                    if credential:
+                        return credential[0]
+                return None
+
+            conversation_reply_service = ConversationReplyService(
+                context_composer=build_chat_context_composer(
+                    project_service=getattr(container, "org_service", None),
+                    board_service=getattr(container, "board_service", None),
+                    run_service=getattr(container, "run_service", None),
+                    behavior_service=getattr(container, "behavior_service", None),
+                ),
+                conversation_service=conversation_service,
+                llm_client=LLMClient(credential_resolver=_conversation_llm_credential_resolver),
+                event_hub=conversation_event_hub,
+                telemetry=container.telemetry,
+                platform_management_service=platform_management_service,
+                resource_action_registry=chat_resource_registry,
+                observability_answer_service=ObservabilityChatAnswerService(
+                    observability_query_service
+                ),
+                board_service=getattr(container, "board_service", None),
+                reply_project_service=getattr(container, "org_service", None),
+            )
             conversation_routes = create_conversation_routes(
                 conversation_service=conversation_service,
                 tags=["conversations"],
+                conversation_reply_service=conversation_reply_service,
             )
             app.include_router(conversation_routes, prefix="/api")
 
@@ -8467,10 +9198,16 @@ def create_app(
             app.include_router(conversation_ws_routes, prefix="/api")
 
             # WebSocket endpoint (must be registered on app directly)
-            register_conversation_ws(app, conversation_event_hub, conversation_service)
+            register_conversation_ws(
+                app,
+                conversation_event_hub,
+                conversation_service,
+                conversation_reply_service=conversation_reply_service,
+            )
 
             app.state.conversation_event_hub = conversation_event_hub
             app.state.conversation_service = conversation_service
+            app.state.conversation_reply_service = conversation_reply_service
             logger.info("Conversation routes + WS/SSE registered at /api/v1/conversations/*")
         except Exception as exc:
             logger.warning("Conversation routes unavailable: %s", exc)
@@ -8573,62 +9310,82 @@ def create_app(
             logger.warning("Retention worker unavailable: %s", exc)
 
     # ------------------------------------------------------------------
+    # Neon compute keepalive
+    # ------------------------------------------------------------------
+    # Neon suspends the Postgres compute after ~5 min idle.  The first query
+    # after suspension pays a ~10s cold-start (observed: 10s context phase vs
+    # 416ms warm).  The pooler endpoint keeps pgBouncer warm but NOT the
+    # underlying compute.  Free-tier Neon forbids changing suspend_timeout via
+    # the API, so we keep the compute warm with a tiny periodic SELECT 1.
+    _keepalive_enabled = os.getenv(
+        "AMPREALIZE_NEON_KEEPALIVE", "true"
+    ).lower() not in ("0", "false", "no", "off")
+    _run_service_for_keepalive = getattr(container, "run_service", None)
+    _keepalive_pool = getattr(_run_service_for_keepalive, "_pool", None)
+    _keepalive_dsn = getattr(_run_service_for_keepalive, "_dsn", "") or ""
+    if (
+        _keepalive_enabled
+        and _keepalive_pool is not None
+        and any(
+            h in _keepalive_dsn
+            for h in ("neon.tech", "supabase.co", "cockroachlabs.cloud")
+        )
+    ):
+        try:
+            _keepalive_interval = int(
+                os.getenv("AMPREALIZE_NEON_KEEPALIVE_INTERVAL_SECONDS", "180")
+            )
+        except (TypeError, ValueError):
+            _keepalive_interval = 180
+
+        async def _neon_keepalive_loop() -> None:
+            def _ping() -> None:
+                with _keepalive_pool.connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+                        cur.fetchone()
+
+            # Eager startup ping — warms Neon compute before the first request arrives.
+            try:
+                await asyncio.to_thread(_ping)
+                logger.info("Neon keepalive startup ping ok")
+            except Exception as exc:
+                logger.warning("Neon keepalive startup ping failed: %s", exc)
+
+            while True:
+                try:
+                    await asyncio.sleep(_keepalive_interval)
+                    await asyncio.to_thread(_ping)
+                    logger.debug("Neon keepalive ping ok")
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # never let the loop die
+                    logger.warning("Neon keepalive ping failed: %s", exc)
+
+        @app.on_event("startup")
+        async def _start_neon_keepalive() -> None:
+            app.state.neon_keepalive_task = asyncio.create_task(
+                _neon_keepalive_loop()
+            )
+            logger.info(
+                "Neon compute keepalive started (interval=%ds)",
+                _keepalive_interval,
+            )
+
+        @app.on_event("shutdown")
+        async def _stop_neon_keepalive() -> None:
+            task = getattr(app.state, "neon_keepalive_task", None)
+            if task is not None:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                logger.info("Neon compute keepalive stopped")
+
+    # ------------------------------------------------------------------
     # Dashboard Stats
     # ------------------------------------------------------------------
-    @app.get("/api/v1/dashboard/stats")
-    async def dashboard_stats() -> Dict[str, Any]:
-        """
-        Get aggregated dashboard statistics.
-
-        Returns counts and summaries for display on the main dashboard.
-        """
-        from datetime import datetime, timezone
-        from amprealize.perf_log import perf_span
-
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-        total_behaviors = 0
-        total_runs = 0
-        running_runs = 0
-        completed_today = 0
-        failed_today = 0
-
-        with perf_span("dashboard.stats") as span:
-            try:
-                behaviors = container.behavior_service.list_behaviors()
-                total_behaviors = len(behaviors)
-            except Exception:
-                pass
-
-            try:
-                runs = container.run_service.list_runs(limit=1000)
-                total_runs = len(runs)
-                for run in runs:
-                    if run.get("status") == "RUNNING":
-                        running_runs += 1
-                    started_at = run.get("started_at", "")
-                    if started_at and started_at.startswith(today):
-                        if run.get("status") == "COMPLETED":
-                            completed_today += 1
-                        elif run.get("status") == "FAILED":
-                            failed_today += 1
-            except Exception:
-                pass
-            span["behaviors"] = total_behaviors
-            span["runs"] = total_runs
-
-        return {
-            "total_projects": 0,  # Projects not implemented yet
-            "total_agents": 0,  # Agents not implemented yet
-            "active_agents": 0,
-            "busy_agents": 0,
-            "total_runs": total_runs,
-            "running_runs": running_runs,
-            "completed_runs_today": completed_today,
-            "failed_runs_today": failed_today,
-            "total_behaviors": total_behaviors,
-        }
-
     # ------------------------------------------------------------------
     # Operations & Monitoring
     # ------------------------------------------------------------------
@@ -8754,7 +9511,17 @@ def create_app(
 
             metrics_data = postgres_metrics.get_metrics()
 
-        return Response(content=metrics_data, media_type="text/plain; version=0.0.4")
+            return Response(content=metrics_data, media_type="text/plain; version=0.0.4")
+
+    # Optional Server-Timing header for gateway/infra latency validation (guideai-1144).
+    # Register before GZip/CORS so timing reflects app work; enable via AMPREALIZE_SERVER_TIMING=1.
+    try:
+        from amprealize.server_timing_middleware import ServerTimingMiddleware, server_timing_enabled
+
+        if server_timing_enabled():
+            app.add_middleware(ServerTimingMiddleware)
+    except Exception:
+        logger.warning("ServerTimingMiddleware not registered", exc_info=True)
 
     # GZip must be registered BEFORE CORSMiddleware. Starlette stacks middleware
     # in reverse-registration order (last registered = outermost). GZip inner,
@@ -8764,16 +9531,24 @@ def create_app(
     # Add CORS middleware last so it wraps everything (outermost layer)
     # This ensures CORS headers are present even on 500 errors from inner layers
     #
-    # Origins are resolved from AMPREALIZE_CORS_ORIGINS (comma-separated), with
-    # an opt-in localhost regex (default on) for dev convenience.
-    _cors_allow_origins = cors_origins if cors_origins else default_cors_origins
+    # Origins: dev defaults merged with AMPREALIZE_CORS_ORIGINS; localhost regex
+    # is OR-ed when a custom AMPREALIZE_CORS_ORIGIN_REGEX is present (see above).
+    # Explicit allow list (with credentials=True) so custom console headers
+    # like X-Web-Perf-Session always pass preflight; mirrors edge worker list.
+    _cors_allow_headers = (
+        "Authorization",
+        "Content-Type",
+        "X-Requested-With",
+        "X-Tenant-Id",
+        "X-Web-Perf-Session",
+    )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=_cors_allow_origins,
+        allow_origins=merged_cors_origins,
         allow_origin_regex=cors_origin_regex,
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*"],
+        allow_headers=list(_cors_allow_headers),
     )
 
     return app

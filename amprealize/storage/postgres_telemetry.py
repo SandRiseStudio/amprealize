@@ -17,20 +17,117 @@ installations that do not require PostgreSQL support.
 
 from __future__ import annotations
 
+import json
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, Iterator, List, MutableSequence, Optional, Sequence
+from typing import Any, Dict, Iterable, Iterator, List, MutableSequence, Optional, Sequence, Tuple
+
+_RUN_SUMMARY_COLUMNS = (
+    "run_id",
+    "started_at",
+    "last_event_at",
+    "record_count",
+    "failed_record_count",
+    "generation_count",
+    "tool_call_count",
+    "span_count",
+    "primary_trace_id",
+    "project_id",
+    "work_item_id",
+    "surface",
+)
+_CONVERSATION_SUMMARY_COLUMNS = (
+    "conversation_id",
+    "started_at",
+    "last_event_at",
+    "record_count",
+    "trace_count",
+    "generation_count",
+    "tool_call_count",
+    "project_id",
+    "surface",
+)
+_SPAN_TREE_COLUMNS = (
+    "record_id",
+    "record_timestamp",
+    "trace_id",
+    "span_id",
+    "parent_span_id",
+    "name",
+    "status",
+    "kind",
+    "depth",
+)
 
 from amprealize.telemetry import TelemetryEvent, TelemetrySink
+from amprealize.execution_observability import sanitize_observability_payload
 from amprealize.surfaces import normalize_actor_surface
 
 __all__ = [
     "PostgresTelemetrySink",
     "PostgresTelemetryWarehouse",
     "ExecutionSpan",
+    "telemetry_event_from_telemetry_events_row",
 ]
+
+
+def telemetry_event_from_telemetry_events_row(
+    row: Sequence[Any],
+) -> Tuple[TelemetryEvent, datetime, Dict[str, str]]:
+    """Build a :class:`TelemetryEvent` + projection inputs from a ``telemetry_events`` row.
+
+    Expects column order:
+    ``event_id, event_timestamp, event_type, actor_id, actor_role, actor_surface,
+    run_id, action_id, session_id, payload``.
+    """
+
+    (
+        event_id,
+        event_timestamp,
+        event_type,
+        actor_id,
+        actor_role,
+        actor_surface,
+        run_id,
+        action_id,
+        session_id,
+        payload,
+    ) = row
+
+    if isinstance(payload, str):
+        payload_dict: Dict[str, Any] = json.loads(payload)
+    elif isinstance(payload, dict):
+        payload_dict = dict(payload)
+    elif payload is None:
+        payload_dict = {}
+    else:
+        payload_dict = dict(payload)
+
+    ts = event_timestamp
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
+    actor: Dict[str, str] = {
+        "id": str(actor_id) if actor_id is not None else "",
+        "role": str(actor_role) if actor_role is not None else "",
+        "surface": normalize_actor_surface(str(actor_surface) if actor_surface else None)
+        or "api",
+    }
+
+    ts_iso = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+    event = TelemetryEvent(
+        event_id=str(event_id),
+        timestamp=ts_iso,
+        event_type=str(event_type),
+        actor=actor,
+        run_id=str(run_id) if run_id is not None else None,
+        action_id=str(action_id) if action_id is not None else None,
+        session_id=str(session_id) if session_id is not None else None,
+        payload=payload_dict,
+    )
+    return event, ts, actor
 
 
 @dataclass
@@ -153,6 +250,92 @@ class PostgresTelemetryWarehouse:
 
         for event in events:
             self.write_event(event)
+
+    def replay_stored_event_projection(
+        self,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+    ) -> None:
+        """Re-run :meth:`_project_event` without writing to ``telemetry_events``.
+
+        Use after schema upgrades or to repair missing ``observability_records``
+        projections. Idempotent where inserts use ``ON CONFLICT DO NOTHING`` /
+        upserts.
+        """
+
+        with self._pool.connection(autocommit=True) as conn:
+            self._project_event(conn, event, ts, actor)
+
+    def replay_event_projections_from_telemetry_table(
+        self,
+        *,
+        since: Optional[datetime] = None,
+        until: Optional[datetime] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+        dry_run: bool = False,
+    ) -> Dict[str, int]:
+        """Replay warehouse projection for rows already in ``telemetry_events``.
+
+        Parameters
+        ----------
+        since, until:
+            Optional bounds on ``event_timestamp`` (inclusive).
+        limit, offset:
+            Pagination for large stores.
+        dry_run:
+            If True, only count how many rows would be replayed in this page; do not write.
+
+        Returns
+        -------
+        dict
+            ``matched`` (rows in this page), ``processed``, ``dry_run`` (0 or 1).
+        """
+
+        conditions: List[str] = []
+        params: List[Any] = []
+        if since is not None:
+            conditions.append("event_timestamp >= %s")
+            params.append(since)
+        if until is not None:
+            conditions.append("event_timestamp <= %s")
+            params.append(until)
+        where_sql = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        lim = int(limit) if limit is not None else 2**31 - 1
+        off = max(0, int(offset))
+        page_params = list(params) + [lim, off]
+
+        inner = (
+            "SELECT event_id, event_timestamp, event_type, actor_id, actor_role, "
+            "actor_surface, run_id, action_id, session_id, payload "
+            f"FROM telemetry_events {where_sql} "
+            "ORDER BY event_timestamp ASC, event_id ASC "
+            "LIMIT %s OFFSET %s"
+        )
+
+        if dry_run:
+            count_sql = f"SELECT COUNT(*) FROM ({inner}) AS replay_page"
+            with self._pool.connection(autocommit=True) as conn:
+                with self._cursor(conn) as cur:
+                    cur.execute(count_sql, page_params)
+                    row = cur.fetchone()
+                    matched = int(row[0]) if row else 0
+            return {"matched": matched, "processed": 0, "dry_run": 1}
+
+        processed = 0
+        with self._pool.connection(autocommit=True) as conn:
+            with self._cursor(conn) as cur:
+                cur.execute(inner, page_params)
+                rows = cur.fetchall()
+            matched = len(rows)
+            for row in rows:
+                ev, ts, actor = telemetry_event_from_telemetry_events_row(row)
+                self._project_event(conn, ev, ts, actor)
+                processed += 1
+
+        return {"matched": matched, "processed": processed, "dry_run": 0}
 
     def start_span(
         self,
@@ -415,6 +598,167 @@ class PostgresTelemetryWarehouse:
                         "session_id": row[8],
                         "payload": row[9] if isinstance(row[9], dict) else {},
                     })
+        return rows
+
+    def query_run_summaries(
+        self,
+        *,
+        project_id: str,
+        run_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Query ``observability_run_summary`` for a single project (warehouse views)."""
+
+        limit = min(max(limit, 1), 500)
+        offset = max(offset, 0)
+        conditions: List[str] = ["project_id = %s"]
+        params: List[Any] = [project_id]
+        if run_id:
+            conditions.append("run_id = %s")
+            params.append(run_id)
+        if since:
+            conditions.append("last_event_at >= %s")
+            params.append(self._parse_relative_or_iso(since))
+        if until:
+            conditions.append("started_at <= %s")
+            params.append(self._parse_relative_or_iso(until))
+        where_clause = " AND ".join(conditions)
+        sql = f"""
+            SELECT
+                run_id,
+                started_at,
+                last_event_at,
+                record_count,
+                failed_record_count,
+                generation_count,
+                tool_call_count,
+                span_count,
+                primary_trace_id,
+                project_id,
+                work_item_id,
+                surface
+            FROM observability_run_summary
+            WHERE {where_clause}
+            ORDER BY last_event_at DESC NULLS LAST
+            LIMIT %s OFFSET %s
+        """
+        params.extend([limit, offset])
+        return self._fetch_observability_rows(sql, params, _RUN_SUMMARY_COLUMNS)
+
+    def query_conversation_summaries(
+        self,
+        *,
+        project_id: str,
+        conversation_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Query ``observability_conversation_summary`` for a single project."""
+
+        limit = min(max(limit, 1), 500)
+        offset = max(offset, 0)
+        conditions: List[str] = ["project_id = %s"]
+        params: List[Any] = [project_id]
+        if conversation_id:
+            conditions.append("conversation_id = %s")
+            params.append(conversation_id)
+        if since:
+            conditions.append("last_event_at >= %s")
+            params.append(self._parse_relative_or_iso(since))
+        if until:
+            conditions.append("started_at <= %s")
+            params.append(self._parse_relative_or_iso(until))
+        where_clause = " AND ".join(conditions)
+        sql = f"""
+            SELECT
+                conversation_id,
+                started_at,
+                last_event_at,
+                record_count,
+                trace_count,
+                generation_count,
+                tool_call_count,
+                project_id,
+                surface
+            FROM observability_conversation_summary
+            WHERE {where_clause}
+            ORDER BY last_event_at DESC NULLS LAST
+            LIMIT %s OFFSET %s
+        """
+        params.extend([limit, offset])
+        return self._fetch_observability_rows(sql, params, _CONVERSATION_SUMMARY_COLUMNS)
+
+    def query_span_tree(
+        self,
+        *,
+        project_id: str,
+        trace_id: str,
+        limit: int = 500,
+    ) -> List[Dict[str, Any]]:
+        """Return ordered span rows for a trace, scoped to ``project_id``."""
+
+        limit = min(max(limit, 1), 2000)
+        sql = """
+            SELECT
+                w.record_id,
+                w.record_timestamp,
+                w.trace_id,
+                w.span_id,
+                w.parent_span_id,
+                w.name,
+                w.status,
+                w.kind,
+                w.depth
+            FROM observability_span_tree w
+            WHERE w.trace_id = %s
+              AND EXISTS (
+                  SELECT 1
+                  FROM observability_records o
+                  WHERE o.trace_id = w.trace_id
+                    AND o.project_id = %s
+                  LIMIT 1
+              )
+            ORDER BY w.depth, w.record_timestamp
+            LIMIT %s
+        """
+        return self._fetch_observability_rows(
+            sql,
+            [trace_id, project_id, limit],
+            _SPAN_TREE_COLUMNS,
+        )
+
+    def _fetch_observability_rows(
+        self,
+        sql: str,
+        params: Sequence[Any],
+        columns: Sequence[str],
+    ) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        try:
+            with self._pool.connection(autocommit=True) as conn:
+                with self._cursor(conn) as cur:
+                    cur.execute(sql, list(params))
+                    for raw in cur.fetchall():
+                        row: Dict[str, Any] = {}
+                        for idx, key in enumerate(columns):
+                            value = raw[idx]
+                            if value is None:
+                                row[key] = None
+                            elif hasattr(value, "isoformat"):
+                                row[key] = value.isoformat()
+                            elif isinstance(value, uuid.UUID):
+                                row[key] = str(value)
+                            else:
+                                row[key] = value
+                        rows.append(row)
+        except Exception:
+            # Missing views/tables (migrations not applied) or connection errors — treat as empty.
+            return []
         return rows
 
     @staticmethod
@@ -704,6 +1048,1250 @@ class PostgresTelemetryWarehouse:
                     ),
                 )
 
+        elif event_type in {
+            "reflection.candidate_extracted",
+            "reflection.candidate_approved",
+            "reflection.candidate_rejected",
+        }:
+            self._project_behavior_candidate_record(
+                conn=conn,
+                event=event,
+                ts=ts,
+                actor=actor,
+                payload=payload,
+                run_id=run_id,
+            )
+
+        elif event_type.startswith("execution.gateway."):
+            self._project_execution_gateway_record(
+                conn=conn,
+                event=event,
+                ts=ts,
+                actor=actor,
+                payload=payload,
+                run_id=run_id,
+            )
+
+        elif event_type == "execution.llm.completed":
+            self._project_execution_llm_generation_record(
+                conn=conn,
+                event=event,
+                ts=ts,
+                actor=actor,
+                payload=payload,
+                run_id=run_id,
+            )
+
+        elif event_type.startswith("execution.worker."):
+            self._project_worker_observability(
+                conn, event, ts, actor, payload, run_id,
+            )
+
+        elif event_type.startswith("execution.phase."):
+            self._project_phase_observability(
+                conn, event, ts, actor, payload, run_id,
+            )
+
+        elif event_type.startswith("execution.tool."):
+            self._project_execution_tool_observability(
+                conn, event, ts, actor, payload, run_id,
+            )
+
+        elif event_type.startswith("behaviors."):
+            self._project_behaviors_observability(
+                conn, event, ts, actor, payload, run_id,
+            )
+
+        elif event_type.startswith("llm.generation."):
+            self._project_llm_generation_observability(
+                conn, event, ts, actor, payload, run_id,
+            )
+
+        elif event_type.startswith("chat.") or event_type == "conversation_reply.generated":
+            self._project_chat_observability(
+                conn, event, ts, actor, payload, run_id,
+            )
+
+    def _trace_span_ids_for_execution(
+        self,
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+        event: TelemetryEvent,
+        *,
+        suffix: str,
+    ) -> tuple[str, str]:
+        """Resolve stable trace_id and span_id strings for execution telemetry."""
+        eo = self._execution_observability(payload)
+        trace_id = (
+            self._string_value(eo.get("trace_id"))
+            or (self._string_value(run_id) and f"run:{run_id}")
+            or str(event.event_id)
+        )
+        span_id = (
+            self._string_value(eo.get("span_id"))
+            or f"{suffix}:{event.event_id}"
+        )
+        return trace_id, span_id
+
+    def _resolve_trace_span_parent(
+        self,
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+        event: TelemetryEvent,
+        *,
+        suffix: str,
+    ) -> tuple[str, str, Optional[str]]:
+        """Prefer explicit chat/execution trace IDs; fall back to EO + run-based IDs."""
+
+        trace_id = self._string_value(payload.get("trace_id"))
+        span_id = self._string_value(payload.get("span_id"))
+        parent_span_id = self._string_value(payload.get("parent_span_id"))
+        chat_trace = payload.get("chat_trace")
+        if isinstance(chat_trace, dict):
+            trace_id = trace_id or self._string_value(chat_trace.get("trace_id"))
+            span_id = span_id or self._string_value(chat_trace.get("span_id"))
+            parent_span_id = parent_span_id or self._string_value(chat_trace.get("parent_span_id"))
+        if trace_id and span_id:
+            return trace_id, span_id, parent_span_id
+        trace_id2, span_id2 = self._trace_span_ids_for_execution(
+            payload, run_id, event, suffix=suffix,
+        )
+        return trace_id2, span_id2, parent_span_id
+
+    @staticmethod
+    def _eo_or_payload_str(
+        eo: Dict[str, Any], payload: Dict[str, Any], key: str,
+    ) -> Optional[str]:
+        return PostgresTelemetryWarehouse._string_value(
+            eo.get(key),
+        ) or PostgresTelemetryWarehouse._string_value(payload.get(key))
+
+    @staticmethod
+    def _infer_observability_status(event_type: str) -> str:
+        if event_type.endswith(".started"):
+            return "started"
+        if event_type.endswith(".failed"):
+            return "failed"
+        if event_type.endswith(".denied"):
+            return "denied"
+        return "completed"
+
+    def _append_observability_record(
+        self,
+        conn: Any,
+        *,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+        eo: Dict[str, Any],
+        trace_id: str,
+        span_id: str,
+        parent_span_id: Optional[str],
+        kind: str,
+        name: str,
+        status: str,
+        sensitivity: str,
+        data_class: str,
+        phase: Optional[str],
+        model_id: Optional[str],
+        tool_call_id: Optional[str],
+        behavior_id: Optional[str],
+        attributes: Dict[str, Any],
+        retention_days: int = 1095,
+    ) -> None:
+        """Insert one row into observability_records (canonical envelope storage)."""
+
+        surface = (
+            self._string_value(eo.get("surface"))
+            or actor.get("surface")
+            or self._string_value(payload.get("surface"))
+            or "api"
+        )
+        project_id = self._eo_or_payload_str(eo, payload, "project_id")
+        org_id = self._eo_or_payload_str(eo, payload, "org_id")
+        work_item_id = self._eo_or_payload_str(eo, payload, "work_item_id")
+        cycle_id = self._eo_or_payload_str(eo, payload, "cycle_id")
+        message_id = (
+            self._eo_or_payload_str(eo, payload, "message_id")
+            or self._string_value(payload.get("user_message_id"))
+        )
+        conversation_id = (
+            self._eo_or_payload_str(eo, payload, "conversation_id")
+            or event.session_id
+        )
+        payload_json = sanitize_observability_payload(payload)
+        retention_until = ts + timedelta(days=retention_days)
+        correlation = {
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "parent_span_id": parent_span_id,
+            "run_id": self._string_value(run_id),
+            "cycle_id": cycle_id,
+            "work_item_id": work_item_id,
+            "project_id": project_id,
+            "org_id": org_id,
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "surface": surface,
+            "phase": phase,
+            "queue_job_id": self._string_value(eo.get("queue_job_id")),
+        }
+
+        with self._cursor(conn) as cur:
+            cur.execute(
+                """
+                INSERT INTO observability_records (
+                    record_id,
+                    record_timestamp,
+                    kind,
+                    name,
+                    status,
+                    sensitivity,
+                    trace_id,
+                    span_id,
+                    parent_span_id,
+                    org_id,
+                    project_id,
+                    conversation_id,
+                    message_id,
+                    run_id,
+                    cycle_id,
+                    work_item_id,
+                    action_id,
+                    tool_call_id,
+                    llm_call_id,
+                    behavior_id,
+                    actor_id,
+                    actor_role,
+                    surface,
+                    permission_action,
+                    model_id,
+                    queue_job_id,
+                    phase,
+                    correlation,
+                    attributes,
+                    payload,
+                    data_class,
+                    retention_until,
+                    archived_after,
+                    created_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (record_id, record_timestamp) DO NOTHING
+                """,
+                (
+                    event.event_id,
+                    ts,
+                    kind,
+                    name,
+                    status,
+                    sensitivity,
+                    trace_id,
+                    span_id,
+                    parent_span_id,
+                    org_id,
+                    project_id,
+                    conversation_id,
+                    message_id,
+                    self._string_value(run_id),
+                    cycle_id,
+                    work_item_id,
+                    event.action_id,
+                    tool_call_id,
+                    None,
+                    behavior_id,
+                    actor.get("id"),
+                    actor.get("role"),
+                    surface,
+                    None,
+                    model_id,
+                    self._string_value(eo.get("queue_job_id")),
+                    phase,
+                    self._json_wrapper(correlation),
+                    self._json_wrapper(sanitize_observability_payload(attributes)),
+                    self._json_wrapper(payload_json),
+                    data_class,
+                    retention_until,
+                    None,
+                ),
+            )
+
+    def _project_execution_gateway_record(
+        self,
+        *,
+        conn: Any,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+    ) -> None:
+        """Project execution gateway events into observability_records (event kind)."""
+        eo = self._execution_observability(payload)
+        trace_id, span_id, _parent = self._resolve_trace_span_parent(
+            payload, run_id, event, suffix=f"gateway:{event.event_type}",
+        )
+        status_map = {
+            "execution.gateway.started": "started",
+            "execution.gateway.enqueued": "completed",
+            "execution.gateway.completed": "completed",
+            "execution.gateway.failed": "failed",
+        }
+        status = status_map.get(event.event_type, "completed")
+        self._append_observability_record(
+            conn,
+            event=event,
+            ts=ts,
+            actor=actor,
+            payload=payload,
+            run_id=run_id,
+            eo=eo,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=None,
+            kind="event",
+            name=event.event_type,
+            status=status,
+            sensitivity="metadata",
+            data_class="metadata_trace",
+            phase=None,
+            model_id=self._string_value(payload.get("model_id")),
+            tool_call_id=None,
+            behavior_id=None,
+            attributes={"gateway_event": event.event_type},
+        )
+
+    def _project_worker_observability(
+        self,
+        conn: Any,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+    ) -> None:
+        eo = self._execution_observability(payload)
+        trace_id, span_id, parent = self._resolve_trace_span_parent(
+            payload, run_id, event, suffix=event.event_type,
+        )
+        status = self._infer_observability_status(event.event_type)
+        self._append_observability_record(
+            conn,
+            event=event,
+            ts=ts,
+            actor=actor,
+            payload=payload,
+            run_id=run_id,
+            eo=eo,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent,
+            kind="event",
+            name=event.event_type,
+            status=status,
+            sensitivity="metadata",
+            data_class="metadata_trace",
+            phase=None,
+            model_id=None,
+            tool_call_id=None,
+            behavior_id=None,
+            attributes={"job_id": payload.get("job_id")},
+        )
+
+    def _project_phase_observability(
+        self,
+        conn: Any,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+    ) -> None:
+        eo = self._execution_observability(payload)
+        trace_id, span_id, parent = self._resolve_trace_span_parent(
+            payload, run_id, event, suffix=event.event_type,
+        )
+        status = self._string_value(payload.get("status")) or self._infer_observability_status(
+            event.event_type,
+        )
+        phase = self._string_value(payload.get("phase"))
+        self._append_observability_record(
+            conn,
+            event=event,
+            ts=ts,
+            actor=actor,
+            payload=payload,
+            run_id=run_id,
+            eo=eo,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent,
+            kind="event",
+            name=event.event_type,
+            status=status,
+            sensitivity="metadata",
+            data_class="metadata_trace",
+            phase=phase,
+            model_id=None,
+            tool_call_id=None,
+            behavior_id=None,
+            attributes={
+                "phase": phase,
+                "tool_call_count": payload.get("tool_call_count"),
+            },
+        )
+
+    def _project_execution_tool_business_outcome_observability(
+        self,
+        conn: Any,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+    ) -> None:
+        eo = self._execution_observability(payload)
+        trace_id, span_id, parent = self._resolve_trace_span_parent(
+            payload, run_id, event, suffix=event.event_type,
+        )
+        call_id = self._string_value(payload.get("call_id"))
+        self._append_observability_record(
+            conn,
+            event=event,
+            ts=ts,
+            actor=actor,
+            payload=payload,
+            run_id=run_id,
+            eo=eo,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent,
+            kind="outcome",
+            name=event.event_type,
+            status="completed",
+            sensitivity="summary",
+            data_class="metadata_trace",
+            phase=self._string_value(payload.get("phase")),
+            model_id=None,
+            tool_call_id=call_id,
+            behavior_id=None,
+            attributes={
+                "outcome_type": payload.get("outcome_type"),
+                "resource_type": payload.get("resource_type"),
+                "resource_id": payload.get("resource_id"),
+                "outcome_ref": payload.get("outcome_ref"),
+            },
+        )
+        self._maybe_insert_observability_outcome_typed(
+            conn,
+            record_id=event.event_id,
+            ts=ts,
+            trace_id=trace_id,
+            span_id=span_id,
+            run_id=self._string_value(run_id),
+            work_item_id=self._eo_or_payload_str(eo, payload, "work_item_id"),
+            outcome_type=self._string_value(payload.get("outcome_type")),
+            outcome_ref=self._string_value(payload.get("outcome_ref")),
+            resource_type=self._string_value(payload.get("resource_type")),
+            resource_id=self._string_value(payload.get("resource_id")),
+            status="completed",
+        )
+
+    def _project_execution_tool_observability(
+        self,
+        conn: Any,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+    ) -> None:
+        if event.event_type == "execution.tool.business_outcome":
+            self._project_execution_tool_business_outcome_observability(
+                conn, event, ts, actor, payload, run_id,
+            )
+            return
+
+        eo = self._execution_observability(payload)
+        trace_id, span_id, parent = self._resolve_trace_span_parent(
+            payload, run_id, event, suffix=event.event_type,
+        )
+        tool_name = self._string_value(payload.get("tool_name"))
+        call_id = self._string_value(payload.get("call_id"))
+        phase = self._string_value(payload.get("phase"))
+        if event.event_type == "execution.tool.performance":
+            row_status = self._string_value(payload.get("status")) or "completed"
+            sensitivity = "metadata"
+            data_class = "metadata_trace"
+        elif event.event_type in ("execution.tool.failed", "execution.tool.denied"):
+            row_status = self._infer_observability_status(event.event_type)
+            sensitivity = "restricted"
+            data_class = "metadata_trace"
+        else:
+            row_status = self._infer_observability_status(event.event_type)
+            sensitivity = "summary"
+            data_class = "summary"
+
+        self._append_observability_record(
+            conn,
+            event=event,
+            ts=ts,
+            actor=actor,
+            payload=payload,
+            run_id=run_id,
+            eo=eo,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent,
+            kind="tool_call",
+            name=event.event_type,
+            status=row_status,
+            sensitivity=sensitivity,
+            data_class=data_class,
+            phase=phase,
+            model_id=None,
+            tool_call_id=call_id,
+            behavior_id=None,
+            attributes={"tool_name": tool_name},
+        )
+
+        if event.event_type in {
+            "execution.tool.completed",
+            "execution.tool.performance",
+            "execution.tool.failed",
+            "execution.tool.denied",
+        }:
+            elapsed = self._coerce_int(payload.get("elapsed_ms"))
+            self._maybe_insert_observability_tool_typed(
+                conn,
+                record_id=event.event_id,
+                ts=ts,
+                trace_id=trace_id,
+                span_id=span_id,
+                run_id=self._string_value(run_id),
+                work_item_id=self._eo_or_payload_str(eo, payload, "work_item_id"),
+                tool_name=tool_name,
+                call_id=call_id,
+                elapsed_ms=float(elapsed) if elapsed is not None else None,
+                status=row_status,
+                input_summary=payload.get("inputs") if isinstance(payload.get("inputs"), dict) else {},
+                output_summary=(
+                    {"preview": payload.get("output_preview")}
+                    if payload.get("output_preview") is not None
+                    else {}
+                ),
+            )
+
+    def _project_llm_generation_observability(
+        self,
+        conn: Any,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+    ) -> None:
+        eo = self._execution_observability(payload)
+        trace_id, span_id, parent = self._resolve_trace_span_parent(
+            payload, run_id, event, suffix=event.event_type,
+        )
+        model_id = self._string_value(payload.get("model_id") or eo.get("model_id"))
+        status = "failed" if event.event_type.endswith(".failed") else "completed"
+        latency_ms = self._coerce_int(payload.get("latency_ms"))
+        input_tokens = self._coerce_int(payload.get("input_tokens"))
+        output_tokens = self._coerce_int(payload.get("output_tokens"))
+        cost_usd = self._coerce_float(payload.get("cost_usd"))
+        error_class = self._string_value(payload.get("error_class")) if status == "failed" else None
+        self._append_observability_record(
+            conn,
+            event=event,
+            ts=ts,
+            actor=actor,
+            payload=payload,
+            run_id=run_id,
+            eo=eo,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent,
+            kind="generation",
+            name=event.event_type,
+            status=status,
+            sensitivity="summary",
+            data_class="summary",
+            phase=None,
+            model_id=model_id,
+            tool_call_id=None,
+            behavior_id=None,
+            attributes={
+                "provider": payload.get("provider"),
+                "operation": payload.get("operation"),
+            },
+        )
+        self._maybe_insert_observability_generation_typed(
+            conn,
+            record_id=event.event_id,
+            ts=ts,
+            trace_id=trace_id,
+            span_id=span_id,
+            run_id=self._string_value(run_id),
+            work_item_id=self._eo_or_payload_str(eo, payload, "work_item_id"),
+            model_id=model_id,
+            provider=self._string_value(payload.get("provider")),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
+            latency_ms=latency_ms,
+            status=status,
+            error_class=error_class,
+        )
+
+    def _project_behaviors_observability(
+        self,
+        conn: Any,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+    ) -> None:
+        """Project behaviors.* product telemetry into observability_records."""
+
+        session = event.session_id
+        trace_id = self._string_value(payload.get("trace_id"))
+        span_id = self._string_value(payload.get("span_id"))
+        if not trace_id:
+            trace_id = f"behaviors:{session}" if session else f"behaviors:{event.event_id}"
+        if not span_id:
+            span_id = event.event_type
+        eo: Dict[str, Any] = {}
+        status = (
+            "failed"
+            if event.event_type.endswith(".failed")
+            else self._infer_observability_status(event.event_type)
+        )
+        self._append_observability_record(
+            conn,
+            event=event,
+            ts=ts,
+            actor=actor,
+            payload=payload,
+            run_id=run_id,
+            eo=eo,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=None,
+            kind="event",
+            name=event.event_type,
+            status=status,
+            sensitivity="metadata",
+            data_class="metadata_trace",
+            phase="behaviors",
+            model_id=None,
+            tool_call_id=None,
+            behavior_id=None,
+            attributes={
+                "results": payload.get("results"),
+                "behaviors_found": payload.get("behaviors_found"),
+                "recommended_count": payload.get("recommended_count"),
+            },
+        )
+
+    def _project_chat_observability(
+        self,
+        conn: Any,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+    ) -> None:
+        eo = self._execution_observability(payload)
+        trace_id, span_id, parent = self._resolve_trace_span_parent(
+            payload, run_id, event, suffix=event.event_type,
+        )
+        et = event.event_type
+        if et.startswith("chat.trace."):
+            kind = "trace"
+        elif et.startswith("chat.span."):
+            kind = "span"
+        else:
+            kind = "event"
+        status = self._string_value(payload.get("status")) or self._infer_observability_status(et)
+        if et == "conversation_reply.generated":
+            status = "completed"
+        self._append_observability_record(
+            conn,
+            event=event,
+            ts=ts,
+            actor=actor,
+            payload=payload,
+            run_id=run_id,
+            eo=eo,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent,
+            kind=kind,
+            name=et,
+            status=status,
+            sensitivity="metadata",
+            data_class="metadata_trace",
+            phase=self._string_value(payload.get("phase")),
+            model_id=self._string_value(payload.get("planner_model_id")),
+            tool_call_id=None,
+            behavior_id=None,
+            attributes={"span_name": payload.get("span_name")},
+        )
+
+    def _project_execution_llm_generation_record(
+        self,
+        *,
+        conn: Any,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+    ) -> None:
+        """Project execution.llm.completed into observability_records and observability_generations."""
+        eo = self._execution_observability(payload)
+        trace_id, span_id = self._trace_span_ids_for_execution(
+            payload, run_id, event, suffix="execution.llm",
+        )
+        model_id = self._string_value(payload.get("model_id") or eo.get("model_id"))
+        surface = (
+            self._string_value(eo.get("surface"))
+            or actor.get("surface")
+            or "api"
+        )
+        input_tokens = self._coerce_int(payload.get("input_tokens"))
+        output_tokens = self._coerce_int(payload.get("output_tokens"))
+        cost_usd = self._coerce_float(payload.get("cost_usd"))
+        duration_ms = self._coerce_int(payload.get("duration_ms"))
+        phase = self._string_value(payload.get("phase"))
+        payload_json = sanitize_observability_payload(payload)
+        retention_until = ts + timedelta(days=1095)
+        correlation = {
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "run_id": self._string_value(run_id),
+            "cycle_id": self._string_value(eo.get("cycle_id")),
+            "work_item_id": self._string_value(eo.get("work_item_id")),
+            "project_id": self._string_value(eo.get("project_id")),
+            "org_id": self._string_value(eo.get("org_id")),
+            "conversation_id": self._string_value(eo.get("conversation_id")),
+            "message_id": self._string_value(eo.get("message_id")),
+            "surface": surface,
+            "phase": phase,
+            "queue_job_id": self._string_value(eo.get("queue_job_id")),
+        }
+        conversation_id = self._string_value(eo.get("conversation_id")) or event.session_id
+        attributes = {
+            "phase": phase,
+            "response_model_id": payload.get("response_model_id"),
+            "tool_call_count": payload.get("tool_call_count"),
+        }
+
+        with self._cursor(conn) as cur:
+            cur.execute(
+                """
+                INSERT INTO observability_records (
+                    record_id,
+                    record_timestamp,
+                    kind,
+                    name,
+                    status,
+                    sensitivity,
+                    trace_id,
+                    span_id,
+                    parent_span_id,
+                    org_id,
+                    project_id,
+                    conversation_id,
+                    message_id,
+                    run_id,
+                    cycle_id,
+                    work_item_id,
+                    action_id,
+                    tool_call_id,
+                    llm_call_id,
+                    behavior_id,
+                    actor_id,
+                    actor_role,
+                    surface,
+                    permission_action,
+                    model_id,
+                    queue_job_id,
+                    phase,
+                    correlation,
+                    attributes,
+                    payload,
+                    data_class,
+                    retention_until,
+                    archived_after,
+                    created_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (record_id, record_timestamp) DO NOTHING
+                """,
+                (
+                    event.event_id,
+                    ts,
+                    "generation",
+                    "execution.llm.completed",
+                    "completed",
+                    "summary",
+                    trace_id,
+                    span_id,
+                    None,
+                    self._string_value(eo.get("org_id")),
+                    self._string_value(eo.get("project_id")),
+                    conversation_id,
+                    self._string_value(eo.get("message_id")),
+                    self._string_value(run_id),
+                    self._string_value(eo.get("cycle_id")),
+                    self._string_value(eo.get("work_item_id")),
+                    event.action_id,
+                    None,
+                    None,
+                    None,
+                    actor.get("id"),
+                    actor.get("role"),
+                    surface,
+                    None,
+                    model_id,
+                    self._string_value(eo.get("queue_job_id")),
+                    phase,
+                    self._json_wrapper(correlation),
+                    self._json_wrapper(sanitize_observability_payload(attributes)),
+                    self._json_wrapper(payload_json),
+                    "summary",
+                    retention_until,
+                    None,
+                ),
+            )
+
+        self._maybe_insert_observability_generation_typed(
+            conn,
+            record_id=event.event_id,
+            ts=ts,
+            trace_id=trace_id,
+            span_id=span_id,
+            run_id=self._string_value(run_id),
+            work_item_id=self._string_value(eo.get("work_item_id")),
+            model_id=model_id,
+            provider=None,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
+            latency_ms=duration_ms,
+            status="completed",
+            error_class=None,
+        )
+
+    def _maybe_insert_observability_generation_typed(
+        self,
+        conn: Any,
+        *,
+        record_id: str,
+        ts: datetime,
+        trace_id: str,
+        span_id: str,
+        run_id: Optional[str],
+        work_item_id: Optional[str],
+        model_id: Optional[str],
+        provider: Optional[str],
+        input_tokens: Optional[int],
+        output_tokens: Optional[int],
+        cost_usd: Optional[float],
+        latency_ms: Optional[int],
+        status: str,
+        error_class: Optional[str] = None,
+    ) -> None:
+        """Insert into observability_generations when the typed table exists (telemetry migration)."""
+        try:
+            with self._cursor(conn) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO observability_generations (
+                        record_id,
+                        record_timestamp,
+                        trace_id,
+                        span_id,
+                        run_id,
+                        work_item_id,
+                        provider,
+                        model_id,
+                        input_tokens,
+                        output_tokens,
+                        cost_usd,
+                        latency_ms,
+                        first_token_latency_ms,
+                        credential_scope,
+                        status,
+                        error_class,
+                        attributes
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (record_id, record_timestamp) DO NOTHING
+                    """,
+                    (
+                        record_id,
+                        ts,
+                        trace_id,
+                        span_id,
+                        run_id,
+                        work_item_id,
+                        provider,
+                        model_id,
+                        input_tokens,
+                        output_tokens,
+                        cost_usd,
+                        float(latency_ms) if latency_ms is not None else None,
+                        None,
+                        None,
+                        status,
+                        error_class,
+                        self._json_wrapper({}),
+                    ),
+                )
+        except Exception:
+            # Typed projection table may be absent on older telemetry DBs; canonical rows remain.
+            pass
+
+    def _maybe_insert_observability_tool_typed(
+        self,
+        conn: Any,
+        *,
+        record_id: str,
+        ts: datetime,
+        trace_id: str,
+        span_id: str,
+        run_id: Optional[str],
+        work_item_id: Optional[str],
+        tool_name: Optional[str],
+        call_id: Optional[str],
+        elapsed_ms: Optional[float],
+        status: str,
+        input_summary: Dict[str, Any],
+        output_summary: Dict[str, Any],
+    ) -> None:
+        try:
+            with self._cursor(conn) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO observability_tool_calls (
+                        record_id,
+                        record_timestamp,
+                        trace_id,
+                        span_id,
+                        run_id,
+                        work_item_id,
+                        tool_name,
+                        call_id,
+                        elapsed_ms,
+                        status,
+                        target_resource_type,
+                        target_resource_id,
+                        input_summary,
+                        output_summary,
+                        attributes
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (record_id, record_timestamp) DO NOTHING
+                    """,
+                    (
+                        record_id,
+                        ts,
+                        trace_id,
+                        span_id,
+                        run_id,
+                        work_item_id,
+                        tool_name,
+                        call_id,
+                        elapsed_ms,
+                        status,
+                        None,
+                        None,
+                        self._json_wrapper(input_summary or {}),
+                        self._json_wrapper(output_summary or {}),
+                        self._json_wrapper({}),
+                    ),
+                )
+        except Exception:
+            pass
+
+    def _maybe_insert_observability_outcome_typed(
+        self,
+        conn: Any,
+        *,
+        record_id: str,
+        ts: datetime,
+        trace_id: str,
+        span_id: str,
+        run_id: Optional[str],
+        work_item_id: Optional[str],
+        outcome_type: Optional[str],
+        outcome_ref: Optional[str],
+        resource_type: Optional[str],
+        resource_id: Optional[str],
+        status: str,
+    ) -> None:
+        try:
+            with self._cursor(conn) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO observability_outcomes (
+                        record_id,
+                        record_timestamp,
+                        trace_id,
+                        span_id,
+                        run_id,
+                        work_item_id,
+                        outcome_type,
+                        outcome_ref,
+                        resource_type,
+                        resource_id,
+                        status,
+                        attributes
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (record_id, record_timestamp) DO NOTHING
+                    """,
+                    (
+                        record_id,
+                        ts,
+                        trace_id,
+                        span_id,
+                        run_id,
+                        work_item_id,
+                        outcome_type,
+                        outcome_ref,
+                        resource_type,
+                        resource_id,
+                        status,
+                        self._json_wrapper({}),
+                    ),
+                )
+        except Exception:
+            pass
+
+    def record_completed_execution_trace(
+        self,
+        *,
+        trace_id: str,
+        span_id: str,
+        run_id: Optional[str],
+        operation_name: str,
+        duration_ms: int,
+        service_name: str = "amprealize",
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        status: str = "OK",
+        status_message: Optional[str] = None,
+        attributes: Optional[Dict[str, Any]] = None,
+        action_id: Optional[str] = None,
+    ) -> None:
+        """Insert a completed execution_traces row in one shot (for LLM phase metrics)."""
+        tid = self._coerce_uuid(trace_id)
+        sid = self._coerce_uuid(span_id)
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(milliseconds=max(int(duration_ms or 0), 0))
+        trace_ts = end
+
+        with self._pool.connection(autocommit=True) as conn:
+            with self._cursor(conn) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO execution_traces (
+                        trace_id,
+                        span_id,
+                        trace_timestamp,
+                        parent_span_id,
+                        run_id,
+                        action_id,
+                        operation_name,
+                        service_name,
+                        start_time,
+                        end_time,
+                        status,
+                        status_message,
+                        attributes,
+                        input_tokens,
+                        output_tokens
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (span_id, trace_timestamp) DO NOTHING
+                    """,
+                    (
+                        str(tid),
+                        str(sid),
+                        trace_ts,
+                        None,
+                        run_id,
+                        action_id,
+                        operation_name,
+                        service_name,
+                        start,
+                        end,
+                        status,
+                        status_message,
+                        self._json_wrapper(attributes or {}),
+                        input_tokens or 0,
+                        output_tokens or 0,
+                    ),
+                )
+
+    def _project_behavior_candidate_record(
+        self,
+        *,
+        conn: Any,
+        event: TelemetryEvent,
+        ts: datetime,
+        actor: Dict[str, Any],
+        payload: Dict[str, Any],
+        run_id: Optional[str],
+    ) -> None:
+        """Project reflection candidate telemetry into canonical observability records."""
+        execution_observability = self._execution_observability(payload)
+        source_trace_ids = self._normalize_string_list(payload.get("source_trace_ids"))
+        candidate_id = payload.get("candidate_id") or payload.get("candidate_slug") or event.event_id
+        trace_id = (
+            source_trace_ids[0]
+            if source_trace_ids
+            else self._string_value(execution_observability.get("trace_id"))
+            or self._string_value(run_id)
+            or f"candidate:{candidate_id}"
+        )
+        span_id = f"candidate:{candidate_id}:{event.event_id}"
+        surface = (
+            self._string_value(execution_observability.get("surface"))
+            or actor.get("surface")
+            or "api"
+        )
+        status = "denied" if event.event_type == "reflection.candidate_rejected" else "completed"
+        payload_json = sanitize_observability_payload(payload)
+        retention_until = ts + timedelta(days=1095)
+        correlation = {
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "run_id": run_id,
+            "cycle_id": self._string_value(execution_observability.get("cycle_id")),
+            "work_item_id": self._string_value(execution_observability.get("work_item_id")),
+            "project_id": self._string_value(execution_observability.get("project_id")),
+            "org_id": self._string_value(execution_observability.get("org_id")),
+            "conversation_id": self._string_value(execution_observability.get("conversation_id")),
+            "message_id": self._string_value(execution_observability.get("message_id")),
+            "surface": surface,
+            "phase": self._string_value(execution_observability.get("phase")),
+            "queue_job_id": self._string_value(execution_observability.get("queue_job_id")),
+        }
+        attributes = {
+            "candidate_id": self._string_value(candidate_id),
+            "source_trace_ids": source_trace_ids,
+            "reviewer_role": payload.get("reviewer_role"),
+            "rejection_reason": payload.get("rejection_reason"),
+            "pattern_id": payload.get("pattern_id"),
+            "behavior_id": payload.get("behavior_id"),
+            "auto_approved": payload.get("auto_approved"),
+            "confidence": payload.get("confidence"),
+            "quality_scores": payload.get("quality_scores"),
+            "extraction_job_id": payload.get("extraction_job_id"),
+        }
+
+        with self._cursor(conn) as cur:
+            cur.execute(
+                """
+                INSERT INTO observability_records (
+                    record_id,
+                    record_timestamp,
+                    kind,
+                    name,
+                    status,
+                    sensitivity,
+                    trace_id,
+                    span_id,
+                    parent_span_id,
+                    org_id,
+                    project_id,
+                    conversation_id,
+                    message_id,
+                    run_id,
+                    cycle_id,
+                    work_item_id,
+                    action_id,
+                    tool_call_id,
+                    llm_call_id,
+                    behavior_id,
+                    actor_id,
+                    actor_role,
+                    surface,
+                    permission_action,
+                    model_id,
+                    queue_job_id,
+                    phase,
+                    correlation,
+                    attributes,
+                    payload,
+                    data_class,
+                    retention_until,
+                    archived_after,
+                    created_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (record_id, record_timestamp) DO NOTHING
+                """,
+                (
+                    event.event_id,
+                    ts,
+                    "behavior_candidate",
+                    event.event_type,
+                    status,
+                    "summary",
+                    trace_id,
+                    span_id,
+                    None,
+                    self._string_value(execution_observability.get("org_id")),
+                    self._string_value(execution_observability.get("project_id")),
+                    self._string_value(execution_observability.get("conversation_id")),
+                    self._string_value(execution_observability.get("message_id")),
+                    self._string_value(run_id),
+                    self._string_value(execution_observability.get("cycle_id")),
+                    self._string_value(execution_observability.get("work_item_id")),
+                    event.action_id,
+                    None,
+                    None,
+                    self._string_value(payload.get("behavior_id")),
+                    actor.get("id"),
+                    actor.get("role"),
+                    surface,
+                    None,
+                    None,
+                    self._string_value(execution_observability.get("queue_job_id")),
+                    self._string_value(execution_observability.get("phase")),
+                    self._json_wrapper(correlation),
+                    self._json_wrapper(sanitize_observability_payload(attributes)),
+                    self._json_wrapper(payload_json),
+                    "behavior_mining_feature",
+                    retention_until,
+                    None,
+                ),
+            )
+
+    @staticmethod
+    def _execution_observability(payload: Dict[str, Any]) -> Dict[str, Any]:
+        value = payload.get("execution_observability")
+        return dict(value) if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _string_value(value: Optional[object]) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value or None
+        return str(value)
+
 
 class PostgresTelemetrySink(TelemetrySink):
     """A :class:`TelemetrySink` implementation that writes to PostgreSQL.
@@ -770,6 +2358,26 @@ class PostgresTelemetrySink(TelemetrySink):
     def query_events(self, **kwargs: Any) -> List[Dict[str, Any]]:
         """Query telemetry events. Delegates to warehouse."""
         return self._warehouse.query_events(**kwargs)
+
+    def query_run_summaries(self, **kwargs: Any) -> List[Dict[str, Any]]:
+        """Query ``observability_run_summary``. Delegates to warehouse."""
+
+        return self._warehouse.query_run_summaries(**kwargs)
+
+    def query_conversation_summaries(self, **kwargs: Any) -> List[Dict[str, Any]]:
+        """Query ``observability_conversation_summary``. Delegates to warehouse."""
+
+        return self._warehouse.query_conversation_summaries(**kwargs)
+
+    def query_span_tree(self, **kwargs: Any) -> List[Dict[str, Any]]:
+        """Query ``observability_span_tree`` for a trace. Delegates to warehouse."""
+
+        return self._warehouse.query_span_tree(**kwargs)
+
+    def record_completed_execution_trace(self, **kwargs: Any) -> None:
+        """Insert a completed execution_traces row via the warehouse."""
+
+        self._warehouse.record_completed_execution_trace(**kwargs)
 
     def close(self) -> None:
         self._warehouse.close()

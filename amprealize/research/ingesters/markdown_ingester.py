@@ -16,7 +16,10 @@ from amprealize.research.ingesters.base import (
 class MarkdownIngester(BaseIngester):
     """Ingests markdown files or strings."""
 
-    async def ingest(self, source: str, **kwargs: Any) -> IngestResult:
+    def can_handle(self, source: str) -> bool:
+        return not source.startswith(("http://", "https://"))
+
+    def ingest(self, source: str, **kwargs: Any) -> IngestResult:
         metadata = extract_metadata_from_markdown(source)
         sections = parse_markdown_sections(source)
         return IngestResult(

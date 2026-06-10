@@ -46,6 +46,10 @@ class Action:
     metadata: Dict[str, Any] = field(default_factory=dict)
     related_run_id: Optional[str] = None
     audit_log_event_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    span_id: Optional[str] = None
+    parent_span_id: Optional[str] = None
+    outcome_ref: Optional[str] = None
     checksum: str = ""
     replay_status: str = "NOT_STARTED"
 
@@ -77,6 +81,10 @@ class Action:
             metadata=deepcopy(payload.get("metadata") or {}),
             related_run_id=payload.get("related_run_id"),
             audit_log_event_id=payload.get("audit_log_event_id"),
+            trace_id=payload.get("trace_id"),
+            span_id=payload.get("span_id"),
+            parent_span_id=payload.get("parent_span_id"),
+            outcome_ref=payload.get("outcome_ref"),
             checksum=payload.get("checksum", ""),
             replay_status=payload.get("replay_status", "NOT_STARTED"),
         )
@@ -93,6 +101,10 @@ class ActionCreateRequest:
     related_run_id: Optional[str] = None
     checksum: Optional[str] = None
     audit_log_event_id: Optional[str] = None
+    trace_id: Optional[str] = None
+    span_id: Optional[str] = None
+    parent_span_id: Optional[str] = None
+    outcome_ref: Optional[str] = None
 
 
 @dataclass
@@ -129,6 +141,10 @@ class ReplayStatus:
     actor_id: Optional[str] = None
     actor_role: Optional[str] = None
     actor_surface: Optional[str] = None
+    trace_id: Optional[str] = None
+    span_id: Optional[str] = None
+    parent_span_id: Optional[str] = None
+    outcome_ref: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

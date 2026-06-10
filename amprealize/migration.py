@@ -624,6 +624,17 @@ class _SQLiteAdapter:
                     columns.append("parent_id")
                     values.append(request.parent_id)
 
+                # New items stack at the top of the column: shift existing positions down.
+                if request.board_id and request.column_id:
+                    cur.execute(
+                        """
+                        UPDATE work_items
+                        SET position = position + 1
+                        WHERE board_id = ? AND column_id = ?
+                        """,
+                        (request.board_id, request.column_id),
+                    )
+
                 placeholders = ", ".join("?" * len(columns))
                 col_str = ", ".join(columns)
                 cur.execute(

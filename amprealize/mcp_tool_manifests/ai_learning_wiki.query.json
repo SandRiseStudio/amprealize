@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "ai_learning_wiki.query",
+  "description": "Search the AI/ML Learning Wiki for concepts, technologies, patterns, glossary entries, and learning paths.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Search text"
+      },
+      "page_type": {
+        "type": "string",
+        "enum": ["concept", "technology", "pattern", "glossary", "in-practice", "learning-path"],
+        "description": "Filter by page type"
+      },
+      "max_results": {
+        "type": "integer",
+        "description": "Maximum results (default 10)",
+        "default": 10
+      }
+    },
+    "required": ["query"]
+  }
+}

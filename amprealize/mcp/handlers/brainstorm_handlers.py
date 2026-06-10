@@ -14,6 +14,25 @@ from .whiteboard_handlers import _get_session_field, _get_user_id
 logger = logging.getLogger(__name__)
 
 
+class BrainstormToolValidationError(ValueError):
+    """Raised when a brainstorm MCP tool is missing required runtime arguments."""
+
+
+def _get_room_id(arguments: Dict[str, Any]) -> str:
+    room_id = arguments.get("room_id") or _get_session_field(arguments, "room_id")
+    if not room_id:
+        raise BrainstormToolValidationError("Missing required parameter: room_id")
+    return str(room_id)
+
+
+def _require(arguments: Dict[str, Any], *fields: str) -> None:
+    missing = [field for field in fields if not arguments.get(field)]
+    if not missing:
+        return
+    label = "parameter" if len(missing) == 1 else "parameters"
+    raise BrainstormToolValidationError(f"Missing required {label}: {', '.join(missing)}")
+
+
 def handle_open_whiteboard(
     service: Any,
     arguments: Dict[str, Any],
@@ -48,13 +67,11 @@ def handle_add_idea(
     arguments: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Add a brainstorm idea or theme to the board."""
-    room_id = arguments.get("room_id")
-    if not room_id:
-        return {"success": False, "error": "room_id is required"}
+    room_id = _get_room_id(arguments)
 
     idea = arguments.get("idea") or arguments.get("text")
     if not idea:
-        return {"success": False, "error": "idea is required"}
+        raise BrainstormToolValidationError("Missing required parameter: idea")
 
     created_by = _get_user_id(arguments)
     category = arguments.get("category")
@@ -100,9 +117,7 @@ def handle_summarize_board(
     arguments: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Summarize brainstorm content from the board."""
-    room_id = arguments.get("room_id")
-    if not room_id:
-        return {"success": False, "error": "room_id is required"}
+    room_id = _get_room_id(arguments)
 
     try:
         payload = service.summarize_board(room_id)
@@ -121,9 +136,7 @@ def handle_close_session(
     arguments: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Export and close the brainstorm whiteboard room."""
-    room_id = arguments.get("room_id")
-    if not room_id:
-        return {"success": False, "error": "room_id is required"}
+    room_id = _get_room_id(arguments)
 
     export_format = arguments.get("format", "json")
 

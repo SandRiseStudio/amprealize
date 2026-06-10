@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 
 from amprealize.storage import postgres_metrics
+from amprealize.web_perf_context import get_web_perf_session_id
 
 # Import settings for multi-environment configuration
 try:
@@ -130,9 +131,11 @@ def _get_engine(dsn: str) -> Engine:
                 future=True,
             )
 
-            # Set search_path once when a physical connection is first created
-            # (not on every checkout).  This eliminates a ~75ms neon round-trip
-            # that was previously paid on every connection() call.
+            # Set search_path once when a physical connection is first created.
+            # For direct (non-pooled) connections this is sufficient.
+            # For pgBouncer transaction-mode connections (e.g. Neon pooler),
+            # search_path must also be set at checkout inside a transaction —
+            # see _set_search_path_on_checkout in connection() below.
             @event.listens_for(engine, "connect")
             def _set_search_path(dbapi_conn, connection_record):
                 cursor = dbapi_conn.cursor()
@@ -195,7 +198,14 @@ class PostgresPool:
 
         self._dsn = resolved_dsn
         self._search_path = _dsn_search_path(resolved_dsn) or _APP_SEARCH_PATH
-        self._set_search_path_on_checkout = _bool_env("AMPREALIZE_PG_SET_SEARCH_PATH_ON_CHECKOUT", True)
+        # Re-setting search_path on every checkout adds a round-trip that, under
+        # the concurrent inventory-fetch burst against a shared pooled engine,
+        # saturates the pool and forces Neon's pgBouncer to establish a cold
+        # backend (~10s).  Schema-qualified table names are the pgBouncer-safe
+        # fix instead.  Opt in via AMPREALIZE_PG_SET_SEARCH_PATH_ON_CHECKOUT.
+        self._set_search_path_on_checkout = _bool_env(
+            "AMPREALIZE_PG_SET_SEARCH_PATH_ON_CHECKOUT", False
+        )
         self._engine = _get_engine(resolved_dsn)
         self._service_name = service_name or "postgres"
         self._schema = schema  # Reserved for future multi-schema support
@@ -269,6 +279,9 @@ class PostgresPool:
             Exception: The last exception encountered if all retries exhausted
         """
         payload_base: Dict[str, Any] = dict(metadata or {})
+        wp = get_web_perf_session_id()
+        if wp:
+            payload_base.setdefault("web_perf_session_id", wp)
         last_exception: Optional[Exception] = None
 
         # Record transaction attempt for Prometheus
@@ -441,6 +454,9 @@ class PostgresPool:
             The result from the executor callable
         """
         payload_base: Dict[str, Any] = dict(metadata or {})
+        wp = get_web_perf_session_id()
+        if wp:
+            payload_base.setdefault("web_perf_session_id", wp)
 
         postgres_metrics.record_transaction_start(self._service_name, operation)
         start_time = time.time()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from copy import deepcopy
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .action_contracts import (
     Action,
@@ -16,6 +16,7 @@ from .action_contracts import (
     utc_now_iso,
 )
 from .action_replay_executor import ActionReplayExecutor, ExecutionStatus
+from .execution_observability import sanitize_observability_payload
 from .telemetry import TelemetryClient
 
 
@@ -53,8 +54,13 @@ class ActionService:
         """Create a new action record and return the stored entity."""
 
         checksum = request.checksum or self._calculate_checksum(request)
+        action_id = str(uuid.uuid4())
+        trace_id = self._trace_value(request, "trace_id") or request.related_run_id
+        span_id = self._trace_value(request, "span_id") or f"action:{action_id}"
+        parent_span_id = self._trace_value(request, "parent_span_id")
+        outcome_ref = self._trace_value(request, "outcome_ref")
         action = Action(
-            action_id=str(uuid.uuid4()),
+            action_id=action_id,
             timestamp=utc_now_iso(),
             actor=actor,
             artifact_path=request.artifact_path,
@@ -63,6 +69,10 @@ class ActionService:
             metadata=deepcopy(request.metadata),
             related_run_id=request.related_run_id,
             audit_log_event_id=request.audit_log_event_id,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            outcome_ref=outcome_ref,
             checksum=checksum,
             replay_status="NOT_STARTED",
         )
@@ -73,13 +83,22 @@ class ActionService:
                 "artifact_path": action.artifact_path,
                 "summary": action.summary,
                 "behaviors_cited": list(action.behaviors_cited),
-                "metadata": deepcopy(action.metadata),
+                "metadata": sanitize_observability_payload(deepcopy(action.metadata)),
                 "related_run_id": action.related_run_id,
                 "audit_log_event_id": action.audit_log_event_id,
+                "trace_id": action.trace_id,
+                "span_id": action.span_id,
+                "parent_span_id": action.parent_span_id,
+                "outcome_ref": action.outcome_ref,
             },
             actor=self._actor_payload(actor),
             action_id=action.action_id,
             run_id=action.related_run_id,
+        )
+        self._emit_action_outcome(
+            action,
+            outcome_type="action_recorded",
+            outcome_ref=action.outcome_ref or f"action:{action.action_id}",
         )
         return deepcopy(action)
 
@@ -108,12 +127,21 @@ class ActionService:
         replay_id = str(uuid.uuid4())
         created_at = utc_now_iso()
         audit_log_event_id = f"urn:amprealize:audit:replay:{replay_id}"
+        actions = [self._actions[action_id] for action_id in request.action_ids]
+        trace_id = self._common_trace_id(actions) or f"replay:{replay_id}"
+        span_id = f"replay:{replay_id}"
+        parent_span_id = actions[0].span_id if len(actions) == 1 else None
+        outcome_ref = audit_log_event_id
 
         self._telemetry.emit_event(
             event_type="action_replay_start",
             payload={
                 "action_ids": list(request.action_ids),
                 "strategy": request.strategy,
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_span_id": parent_span_id,
+                "outcome_ref": outcome_ref,
                 "options": {
                     "skip_existing": request.options.skip_existing,
                     "dry_run": request.options.dry_run,
@@ -122,9 +150,6 @@ class ActionService:
             actor=self._actor_payload(actor),
             action_id=replay_id,
         )
-
-        # Get actions to replay
-        actions = [self._actions[action_id] for action_id in request.action_ids]
 
         # Execute using real executor
         if request.strategy == "PARALLEL":
@@ -181,6 +206,10 @@ class ActionService:
             actor_id=actor.id,
             actor_role=actor.role,
             actor_surface=actor.surface.lower(),
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            outcome_ref=outcome_ref,
         )
         self._replays[replay_id] = replay_status
         self._telemetry.emit_event(
@@ -197,6 +226,43 @@ class ActionService:
                 "started_at": started_at,
                 "completed_at": completed_at,
                 "strategy": request.strategy,
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_span_id": parent_span_id,
+                "outcome_ref": outcome_ref,
+            },
+            actor=self._actor_payload(actor),
+            action_id=replay_id,
+        )
+        self._telemetry.emit_event(
+            event_type="action.replay.performance",
+            payload={
+                "action_ids": list(request.action_ids),
+                "status": status,
+                "succeeded_count": len(succeeded),
+                "failed_count": len(failed),
+                "progress": progress,
+                "strategy": request.strategy,
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_span_id": parent_span_id,
+            },
+            actor=self._actor_payload(actor),
+            action_id=replay_id,
+        )
+        self._telemetry.emit_event(
+            event_type="action.business_outcome",
+            payload={
+                "outcome_type": "action_replay",
+                "outcome_ref": outcome_ref,
+                "replay_id": replay_id,
+                "action_ids": list(request.action_ids),
+                "completed_action_ids": succeeded,
+                "failed_action_ids": failed,
+                "status": status,
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_span_id": parent_span_id,
             },
             actor=self._actor_payload(actor),
             action_id=replay_id,
@@ -232,3 +298,55 @@ class ActionService:
             "role": actor.role,
             "surface": actor.surface.lower(),
         }
+
+    @staticmethod
+    def _trace_value(request: ActionCreateRequest, key: str) -> Optional[str]:
+        direct_value = getattr(request, key, None)
+        if direct_value:
+            return str(direct_value)
+        metadata = request.metadata or {}
+        if key in metadata and metadata[key]:
+            return str(metadata[key])
+        action_trace = metadata.get("action_trace")
+        if isinstance(action_trace, dict) and action_trace.get(key):
+            return str(action_trace[key])
+        execution_observability = metadata.get("execution_observability")
+        if isinstance(execution_observability, dict):
+            if key == "trace_id" and execution_observability.get("run_id"):
+                return str(execution_observability["run_id"])
+            if key == "parent_span_id" and execution_observability.get("cycle_id"):
+                return str(execution_observability["cycle_id"])
+        return None
+
+    @staticmethod
+    def _common_trace_id(actions: List[Action]) -> Optional[str]:
+        trace_ids = {action.trace_id for action in actions if action.trace_id}
+        if len(trace_ids) == 1:
+            return next(iter(trace_ids))
+        return None
+
+    def _emit_action_outcome(
+        self,
+        action: Action,
+        *,
+        outcome_type: str,
+        outcome_ref: str,
+    ) -> None:
+        self._telemetry.emit_event(
+            event_type="action.business_outcome",
+            payload={
+                "outcome_type": outcome_type,
+                "outcome_ref": outcome_ref,
+                "action_id": action.action_id,
+                "artifact_path": action.artifact_path,
+                "summary": action.summary,
+                "trace_id": action.trace_id,
+                "span_id": action.span_id,
+                "parent_span_id": action.parent_span_id,
+                "related_run_id": action.related_run_id,
+                "audit_log_event_id": action.audit_log_event_id,
+            },
+            actor=self._actor_payload(action.actor),
+            action_id=action.action_id,
+            run_id=action.related_run_id,
+        )

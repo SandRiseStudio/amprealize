@@ -251,6 +251,32 @@ class BoardBootstrapResponse(BaseModel):
     rollups: List[WorkItemProgressRollup] = Field(default_factory=list)
 
 
+class WorkItemsBatchPagesRequest(BaseModel):
+    """Request several board work-item pages in one HTTP round-trip."""
+
+    board_id: str
+    page_size: int = Field(100, ge=1, le=250)
+    offsets: List[int] = Field(..., min_length=1, max_length=8)
+    include_total: bool = Field(
+        False,
+        description=(
+            "When true, the first page in this batch (smallest offset after dedupe) uses "
+            "COUNT(*) OVER() so total and per-chunk has_more are exact for the whole batch."
+        ),
+    )
+
+
+class WorkItemsBatchPageChunk(BaseModel):
+    offset: int
+    items: List[WorkItem]
+    has_more: bool
+
+
+class WorkItemsBatchPagesResponse(BaseModel):
+    pages: List[WorkItemsBatchPageChunk]
+    total: Optional[int] = None
+
+
 class CompleteWithDescendantsResponse(BaseModel):
     """Response for completing a work item with all descendants."""
     updated_count: int
@@ -439,31 +465,53 @@ def create_board_routes(
             t_board_ms = round((time.perf_counter() - _t_board) * 1000, 1)
 
             _t_items = time.perf_counter()
-            maybe_items = await run_in_threadpool(
-                board_service.list_work_items,
-                board_id=board_id,
-                org_id=org_id,
-                limit=limit,
-                offset=offset,
-                include_total=True,
-            )
-            if isinstance(maybe_items, tuple):
-                items, total = maybe_items
-            else:
-                items = maybe_items
-                total = len(items)
-            t_items_ms = round((time.perf_counter() - _t_items) * 1000, 1)
-
             rollups: List[WorkItemProgressRollup] = []
             t_rollups_ms = 0.0
+
             if include_rollups:
+                # One DB list for the whole board (cap 10k, same as rollup helper),
+                # then slice the requested window and compute rollups in-memory.
+                # Avoids a second full list_work_items inside list_board_progress_rollups.
+                maybe_all = await run_in_threadpool(
+                    board_service.list_work_items,
+                    board_id=board_id,
+                    org_id=org_id,
+                    limit=10000,
+                    offset=0,
+                    include_total=True,
+                )
+                if isinstance(maybe_all, tuple):
+                    all_items, total = maybe_all
+                else:
+                    all_items = maybe_all
+                    total = len(all_items)
+                end = offset + limit
+                items = all_items[offset:end]
+                t_items_ms = round((time.perf_counter() - _t_items) * 1000, 1)
+
                 _t_rollups = time.perf_counter()
                 rollups = await run_in_threadpool(
                     board_service.list_board_progress_rollups,
                     board_id,
                     org_id=org_id,
+                    preloaded_items=all_items,
                 )
                 t_rollups_ms = round((time.perf_counter() - _t_rollups) * 1000, 1)
+            else:
+                maybe_items = await run_in_threadpool(
+                    board_service.list_work_items,
+                    board_id=board_id,
+                    org_id=org_id,
+                    limit=limit,
+                    offset=offset,
+                    include_total=True,
+                )
+                if isinstance(maybe_items, tuple):
+                    items, total = maybe_items
+                else:
+                    items = maybe_items
+                    total = len(items)
+                t_items_ms = round((time.perf_counter() - _t_items) * 1000, 1)
 
             has_more = offset + len(items) < total
             perf_log(
@@ -478,6 +526,8 @@ def create_board_routes(
                 limit=limit,
                 offset=offset,
                 has_more=has_more,
+                include_rollups=include_rollups,
+                items_include_total=True,
             )
 
             return BoardBootstrapResponse(
@@ -633,7 +683,7 @@ def create_board_routes(
         response_model=WorkItemResponse,
         status_code=status.HTTP_201_CREATED,
         summary="Create work item",
-        description="Create a work item (goal, feature, task, or bug). Use item_type to specify.",
+        description="Create a work item (goal, feature, task, bug, or research). Use item_type to specify. Research items require research_url or metadata.research_url.",
     )
     async def create_work_item(
         request: Request,
@@ -663,7 +713,7 @@ def create_board_routes(
         request: Request,
         project_id: Optional[str] = Query(None, description="Filter by project"),
         board_id: Optional[str] = Query(None, description="Filter by board"),
-        item_type: Optional[List[WorkItemType]] = Query(None, description="Filter by type (goal/feature/task/bug). Repeat the query param for multiple values."),
+        item_type: Optional[List[WorkItemType]] = Query(None, description="Filter by type (goal/feature/task/bug/research). Repeat the query param for multiple values."),
         parent_id: Optional[str] = Query(None, description="Filter by parent item"),
         status_filter: Optional[WorkItemStatus] = Query(None, alias="status", description="Filter by status"),
         priority: Optional[List[WorkItemPriority]] = Query(None, description="Filter by priority. Repeat the query param for multiple values."),
@@ -674,7 +724,15 @@ def create_board_routes(
         title_search: Optional[str] = Query(None, description="Case-insensitive substring search on title"),
         due_before: Optional[str] = Query(None, description="Items due on or before this ISO date"),
         due_after: Optional[str] = Query(None, description="Items due on or after this ISO date"),
-        sort_by: Optional[str] = Query(None, description="Sort field: position, priority, created_at, updated_at, due_date, title, points"),
+        sort_by: Optional[str] = Query(
+            None,
+            description=(
+                "Sort field: position, priority, created_at, updated_at, due_date, title, points. "
+                "Omitted: order by position ASC, created_at ASC, id ASC. "
+                "Explicit non-position sorts append position ASC, updated_at DESC, id ASC; "
+                "explicit position sort appends created_at ASC, id ASC."
+            ),
+        ),
         order: Optional[str] = Query(None, description="Sort order: asc or desc (default asc)"),
         include_total: bool = Query(
             True,
@@ -775,6 +833,53 @@ def create_board_routes(
         )
 
         return response
+
+    @router.post(
+        "/v1/work-items/batch-pages",
+        response_model=WorkItemsBatchPagesResponse,
+        summary="Batch list work item pages",
+        description=(
+            "Fetch multiple board pages (by offset) in one HTTP request. "
+            "Runs the first offset query (optionally with COUNT(*) OVER() when include_total is true), "
+            "then additional offsets in parallel via a thread pool (up to eight workers) so the client "
+            "need not fan out many parallel GETs."
+        ),
+    )
+    async def batch_list_work_item_pages(
+        request: Request,
+        body: WorkItemsBatchPagesRequest,
+    ) -> WorkItemsBatchPagesResponse:
+        org_id = _get_org_id(request)
+        t0 = time.perf_counter()
+        offset_count = len(body.offsets)
+        pages_data, total = await run_in_threadpool(
+            board_service.list_work_items_board_pages,
+            body.board_id,
+            body.page_size,
+            body.offsets,
+            org_id=org_id,
+            include_total_from_first_zero=body.include_total,
+        )
+        elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
+        item_count = sum(len(chunk[1]) for chunk in pages_data)
+        _tags: Dict[str, Any] = {
+            "board_id": body.board_id,
+            "page_size": body.page_size,
+            "offset_count": offset_count,
+            "chunk_count": len(pages_data),
+            "item_count": item_count,
+            "include_total": body.include_total,
+        }
+        if total is not None:
+            _tags["total"] = total
+        perf_log("work_items.batch_pages", elapsed_ms, **_tags)
+        return WorkItemsBatchPagesResponse(
+            pages=[
+                WorkItemsBatchPageChunk(offset=off, items=items, has_more=hm)
+                for off, items, hm in pages_data
+            ],
+            total=total,
+        )
 
     @router.post(
         "/v1/work-items/batch",

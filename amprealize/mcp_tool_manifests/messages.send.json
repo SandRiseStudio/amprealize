@@ -39,6 +39,21 @@
         "type": "string",
         "description": "Optional work item ID to link the message to a work item"
       },
+      "resource_links": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "resource_type": { "type": "string" },
+            "resource_id": { "type": "string" },
+            "project_id": { "type": "string" },
+            "label": { "type": "string" },
+            "metadata": { "type": "object" }
+          },
+          "required": ["resource_type", "resource_id"]
+        },
+        "description": "Optional live resource links referenced by the message"
+      },
       "metadata": {
         "type": "object",
         "description": "Optional metadata JSON"

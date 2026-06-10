@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "platform_wiki.query",
+  "description": "Search the Platform Wiki for documentation on how to use Amprealize — context system, surfaces, editions, MCP tools, architecture, and getting started guides.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Search text"
+      },
+      "page_type": {
+        "type": "string",
+        "enum": ["reference", "howto", "architecture"],
+        "description": "Filter by page type"
+      },
+      "max_results": {
+        "type": "integer",
+        "description": "Maximum results (default 10)",
+        "default": 10
+      }
+    },
+    "required": ["query"]
+  }
+}

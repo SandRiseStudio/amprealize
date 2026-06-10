@@ -217,11 +217,17 @@ class ActionReplayExecutor:
         started_at = self._utc_now()
 
         try:
+            trace_payload = self._action_trace_payload(action)
             self._telemetry.emit_event(
                 event_type="action_execution_start",
-                payload={"action_id": action.action_id, "artifact_path": action.artifact_path},
+                payload={
+                    "action_id": action.action_id,
+                    "artifact_path": action.artifact_path,
+                    **trace_payload,
+                },
                 actor={"id": action.actor.id, "role": action.actor.role, "surface": action.actor.surface},
                 action_id=action.action_id,
+                run_id=action.related_run_id,
             )
 
             # Determine action type from metadata or artifact path
@@ -250,9 +256,25 @@ class ActionReplayExecutor:
                     "action_id": action.action_id,
                     "status": status.value,
                     "output_length": len(output),
+                    **trace_payload,
                 },
                 actor={"id": action.actor.id, "role": action.actor.role, "surface": action.actor.surface},
                 action_id=action.action_id,
+                run_id=action.related_run_id,
+            )
+            self._telemetry.emit_event(
+                event_type="action.execution.performance",
+                payload={
+                    "action_id": action.action_id,
+                    "status": status.value,
+                    "action_type": action_type,
+                    "output_length": len(output),
+                    "error_class": "ActionExecutionError" if error else None,
+                    **trace_payload,
+                },
+                actor={"id": action.actor.id, "role": action.actor.role, "surface": action.actor.surface},
+                action_id=action.action_id,
+                run_id=action.related_run_id,
             )
 
             return ExecutionResult(
@@ -262,15 +284,32 @@ class ActionReplayExecutor:
                 completed_at=completed_at,
                 output=output,
                 error=error,
-                metadata={"action_type": action_type},
+                metadata={"action_type": action_type, **trace_payload},
             )
 
         except Exception as exc:
             self._telemetry.emit_event(
                 event_type="action_execution_error",
-                payload={"action_id": action.action_id, "error": str(exc)},
+                payload={
+                    "action_id": action.action_id,
+                    "error": str(exc),
+                    **self._action_trace_payload(action),
+                },
                 actor={"id": action.actor.id, "role": action.actor.role, "surface": action.actor.surface},
                 action_id=action.action_id,
+                run_id=action.related_run_id,
+            )
+            self._telemetry.emit_event(
+                event_type="action.execution.performance",
+                payload={
+                    "action_id": action.action_id,
+                    "status": ExecutionStatus.FAILED.value,
+                    "error_class": type(exc).__name__,
+                    **self._action_trace_payload(action),
+                },
+                actor={"id": action.actor.id, "role": action.actor.role, "surface": action.actor.surface},
+                action_id=action.action_id,
+                run_id=action.related_run_id,
             )
 
             return ExecutionResult(
@@ -279,6 +318,7 @@ class ActionReplayExecutor:
                 started_at=started_at,
                 completed_at=self._utc_now(),
                 error=str(exc),
+                metadata=self._action_trace_payload(action),
             )
 
     def _dry_run_action(self, action: Action) -> ExecutionResult:
@@ -343,6 +383,17 @@ class ActionReplayExecutor:
                 return "file_edit"
         else:
             return "generic"
+
+    @staticmethod
+    def _action_trace_payload(action: Action) -> Dict[str, Any]:
+        return {
+            "trace_id": action.trace_id,
+            "span_id": action.span_id,
+            "parent_span_id": action.parent_span_id,
+            "outcome_ref": action.outcome_ref,
+            "related_run_id": action.related_run_id,
+            "audit_log_event_id": action.audit_log_event_id,
+        }
 
     def _execute_command(self, action: Action) -> Tuple[str, Optional[str]]:
         """Execute a shell command."""

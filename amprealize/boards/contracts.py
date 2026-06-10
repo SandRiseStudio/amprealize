@@ -18,6 +18,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -32,6 +33,7 @@ class WorkItemType(str, Enum):
     FEATURE = "feature"    # Features under goals (formerly 'story')
     TASK = "task"          # Subtasks under features
     BUG = "bug"            # Defects / issues to fix
+    RESEARCH = "research"  # Research source to evaluate via the AI Research agent
 
     # Backward-compat aliases (1 release cycle)
     EPIC = "goal"          # Deprecated: use GOAL
@@ -52,6 +54,88 @@ def normalize_item_type(value: str) -> str:
     Passes through 'goal', 'feature', 'task', 'bug' unchanged.
     """
     return _ITEM_TYPE_ALIASES.get(value, value)
+
+
+RESEARCH_URL_METADATA_KEY = "research_url"
+RESEARCH_BODY_MARKDOWN_METADATA_KEY = "research_body_markdown"
+_RESEARCH_URL_ALIASES = (
+    RESEARCH_URL_METADATA_KEY,
+    "researchUrl",
+    "Research URL",
+    "Research Url",
+    "research URL",
+)
+
+
+def is_valid_research_url(value: str) -> bool:
+    """Return True when value is an absolute HTTP(S) URL."""
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def normalize_research_metadata(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize Research URL aliases into metadata['research_url']."""
+    normalized = dict(data)
+    has_metadata = "metadata" in normalized
+    metadata = dict(normalized.get("metadata") or {}) if has_metadata else {}
+    research_url = None
+
+    for key in _RESEARCH_URL_ALIASES:
+        if key in normalized and normalized[key]:
+            research_url = normalized.pop(key)
+            break
+
+    for key in _RESEARCH_URL_ALIASES:
+        if key in metadata and metadata[key]:
+            research_url = metadata.pop(key)
+            break
+
+    if research_url is not None:
+        metadata[RESEARCH_URL_METADATA_KEY] = str(research_url).strip()
+        has_metadata = True
+    if has_metadata:
+        normalized["metadata"] = metadata
+    return normalized
+
+
+class InvalidResearchWorkItemMetadataError(ValueError):
+    """Raised when a research work item lacks a valid ``research_url`` in metadata."""
+
+    pass
+
+
+def get_research_url(metadata: dict[str, Any] | None) -> str | None:
+    """Extract a canonical research URL from work item metadata."""
+    if not metadata:
+        return None
+    value = metadata.get(RESEARCH_URL_METADATA_KEY)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def get_research_body_markdown(metadata: dict[str, Any] | None) -> str | None:
+    """Optional pasted article body (markdown or plain text) for research ingest.
+
+    When non-empty, the evaluation pipeline ingests this text instead of fetching
+    ``research_url`` HTML (the URL is still required for attribution and validation).
+    """
+    if not metadata:
+        return None
+    value = metadata.get(RESEARCH_BODY_MARKDOWN_METADATA_KEY)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def validate_research_url(metadata: dict[str, Any] | None) -> str:
+    """Return the Research URL or raise a validation error."""
+    research_url = get_research_url(metadata)
+    if not research_url:
+        raise InvalidResearchWorkItemMetadataError("Research work items require metadata.research_url")
+    if not is_valid_research_url(research_url):
+        raise InvalidResearchWorkItemMetadataError("Research URL must be an absolute http(s) URL")
+    return research_url
 
 
 class AssigneeType(str, Enum):
@@ -254,7 +338,7 @@ class BoardWithColumns(Board):
 
 class WorkItem(BaseModel):
     """
-    Unified work item - can be goal, feature, task, or bug.
+    Unified work item - can be goal, feature, task, bug, or research.
 
     Hierarchy via parent_id:
       - Goal: parent_id=None
@@ -264,7 +348,7 @@ class WorkItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     # Accept both old short-id format and UUIDs from database
-    item_id: str = Field(..., pattern=r"^((goal|feature|epic|story|task|bug)-[a-f0-9]{12}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$")
+    item_id: str = Field(..., pattern=r"^((goal|feature|epic|story|task|bug|research)-[a-f0-9]{12}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$")
     item_type: WorkItemType
     project_id: str | None = None  # Nullable in database schema
     board_id: str | None = None
@@ -423,7 +507,7 @@ class UpdateColumnRequest(BaseModel):
 
 class CreateWorkItemRequest(BaseModel):
     """
-    Unified request to create any work item (goal/feature/task/bug).
+    Unified request to create any work item (goal/feature/task/bug/research).
 
     The item_type determines the ID prefix and valid parent relationships.
     Accepts legacy values 'epic' and 'story' which are normalized automatically.
@@ -451,6 +535,7 @@ class CreateWorkItemRequest(BaseModel):
     acceptance_criteria: list[str] = Field(default_factory=list)  # Converted to AcceptanceCriterion
     checklist: list[str] = Field(default_factory=list)  # Converted to ChecklistItem
     behavior_id: str | None = None
+    research_url: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
@@ -458,6 +543,7 @@ class CreateWorkItemRequest(BaseModel):
     def _normalize_legacy_fields(cls, data: Any) -> Any:
         """Accept legacy item_type values ('epic'/'story') and 'story_points' field."""
         if isinstance(data, dict):
+            data = normalize_research_metadata(data)
             if "item_type" in data and isinstance(data["item_type"], str):
                 data["item_type"] = normalize_item_type(data["item_type"])
         return data
@@ -467,6 +553,8 @@ class CreateWorkItemRequest(BaseModel):
         """Validate parent relationship based on item type."""
         if self.item_type == WorkItemType.GOAL and self.parent_id:
             raise ValueError("Goals cannot have a parent_id")
+        if self.item_type == WorkItemType.RESEARCH:
+            validate_research_url(self.metadata)
         return self
 
 
@@ -500,7 +588,18 @@ class UpdateWorkItemRequest(BaseModel):
 
     behavior_id: str | None = None
     run_id: str | None = None
+    research_url: str | None = None
     metadata: dict[str, Any] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_research_fields(cls, data: Any) -> Any:
+        """Accept Research URL aliases on update payloads."""
+        if isinstance(data, dict):
+            data = normalize_research_metadata(data)
+            if "item_type" in data and isinstance(data["item_type"], str):
+                data["item_type"] = normalize_item_type(data["item_type"])
+        return data
 
 
 # =============================================================================

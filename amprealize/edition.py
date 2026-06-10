@@ -158,6 +158,15 @@ def edition_at_least(minimum: Edition, *, current: Edition | None = None) -> boo
     return edition_rank(current) >= edition_rank(minimum)
 
 
+def minimum_edition_for_capability(cap_name: str) -> Edition:
+    """Return the lowest static tier where *cap_name* is enabled."""
+    for edition in (Edition.OSS, Edition.ENTERPRISE_STARTER, Edition.ENTERPRISE_PREMIUM):
+        caps = get_caps(edition)
+        if getattr(caps, cap_name, False):
+            return edition
+    return Edition.ENTERPRISE_PREMIUM
+
+
 # ---------------------------------------------------------------------------
 # Edition gating exceptions & decorators
 # ---------------------------------------------------------------------------
@@ -203,9 +212,8 @@ def requires_capability(cap_name: str) -> Callable[[F], F]:
             caps = get_caps()
             if not getattr(caps, cap_name, False):
                 current = detect_edition()
-                raise EditionGateError(
-                    Edition.ENTERPRISE_STARTER, current, cap_name
-                )
+                required = minimum_edition_for_capability(cap_name)
+                raise EditionGateError(required, current, cap_name)
             return func(*args, **kwargs)
 
         return wrapper  # type: ignore[return-value]

@@ -7,7 +7,7 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user performing the action (required for authorization)"
+        "description": "ID of the user performing the action (optional, uses session)"
       },
       "project_id": {
         "type": "string",
@@ -15,7 +15,7 @@
       },
       "role": {
         "type": "string",
-        "enum": ["owner", "admin", "maintainer", "developer", "viewer"],
+        "enum": ["owner", "maintainer", "contributor", "viewer"],
         "description": "Filter by role"
       },
       "limit": {
@@ -32,7 +32,7 @@
         "description": "Number of members to skip for pagination"
       }
     },
-    "required": ["user_id", "project_id"]
+    "required": ["project_id"]
   },
   "outputSchema": {
     "type": "object",

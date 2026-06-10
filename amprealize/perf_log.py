@@ -16,6 +16,8 @@ import time
 from contextlib import contextmanager
 from typing import Any, Iterator
 
+from amprealize.web_perf_context import get_web_perf_session_id
+
 _PERF_LOG_ENABLED = os.environ.get("AMPREALIZE_PERF_LOG", "1") not in (
     "0",
     "",
@@ -51,6 +53,9 @@ def perf_log(endpoint: str, t_total_ms: float, **tags: Any) -> None:
     if not _PERF_LOG_ENABLED:
         return
     payload = {"endpoint": endpoint, "t_total_ms": round(t_total_ms, 1), **tags}
+    wid = get_web_perf_session_id()
+    if wid:
+        payload.setdefault("web_perf_session_id", wid)
     perf_logger.info("perf %s", _format_tags(payload))
 
 

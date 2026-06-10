@@ -113,6 +113,12 @@ class PostgresStorageConfig(BaseModel):
         """Get the telemetry DSN with env vars unexpanded."""
         return self._raw_telemetry_dsn if self._raw_telemetry_dsn else self.telemetry_dsn
 
+    def get_explicit_telemetry_dsn(self) -> str | None:
+        """Return telemetry DSN only when explicitly configured by the user/context."""
+        if self._raw_telemetry_dsn:
+            return self.telemetry_dsn
+        return None
+
     def has_env_vars(self) -> bool:
         """Check if DSN contains environment variable references."""
         raw = self._raw_dsn if self._raw_dsn else self.dsn

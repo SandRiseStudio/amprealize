@@ -423,6 +423,7 @@ TOOL_TIMEOUTS: Dict[str, float] = {
     "workItems.get": 30.0,
     "runs.list": 30.0,
     "runs.get": 30.0,
+    "runs.getReliability": 30.0,
 
     # Long tools (5 minutes)
     "analytics.": 300.0,

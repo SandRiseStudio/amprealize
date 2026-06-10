@@ -3,7 +3,7 @@
   "$id": "https://schema.amprealize.dev/telemetry/v1/reflection_events.json",
   "title": "Reflection Telemetry Event Schemas",
   "type": "object",
-  "description": "JSON schema definitions for reflection pipeline telemetry events: candidate extraction and approval.",
+  "description": "JSON schema definitions for reflection pipeline telemetry events: candidate extraction, approval, and rejection.",
   "definitions": {
     "ReflectionCandidateExtractedPayload": {
       "type": "object",
@@ -14,6 +14,17 @@
         "candidate_slug": { "type": ["string", "null"], "description": "Proposed behavior slug (e.g. behavior_xyz)." },
         "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Extraction confidence score." },
         "pattern_type": { "type": ["string", "null"], "description": "Type of pattern detected (procedural, diagnostic, etc.)." },
+        "pattern_id": { "type": ["string", "null"], "description": "Optional persisted TraceAnalysisService pattern identifier linked to this candidate." },
+        "source_trace_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Canonical trace identifiers used to join this candidate back to observability records."
+        },
+        "extraction_job_id": { "type": ["string", "null"], "description": "Optional trace-analysis extraction job responsible for this candidate." },
+        "execution_observability": {
+          "type": ["object", "null"],
+          "description": "Optional execution correlation metadata used to project this telemetry into canonical observability records."
+        },
         "quality_scores": {
           "type": ["object", "null"],
           "properties": {
@@ -35,7 +46,35 @@
         "behavior_id": { "type": ["string", "null"], "description": "Newly created behavior ID (if auto-promoted)." },
         "behavior_version": { "type": ["string", "null"], "description": "Version of the new behavior." },
         "reviewer_role": { "type": ["string", "null"], "enum": ["Teacher", "Strategist", "system", null], "description": "Role of the reviewer." },
+        "source_trace_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Canonical source traces attached from candidate provenance."
+        },
+        "execution_observability": {
+          "type": ["object", "null"],
+          "description": "Optional execution correlation metadata inherited from candidate provenance."
+        },
         "auto_approved": { "type": "boolean", "default": false, "description": "Whether auto-approval triggered (confidence >= 0.8)." }
+      },
+      "additionalProperties": false
+    },
+    "ReflectionCandidateRejectedPayload": {
+      "type": "object",
+      "required": ["candidate_id"],
+      "properties": {
+        "candidate_id": { "type": "string", "description": "Reflection candidate that was rejected." },
+        "reviewer_role": { "type": ["string", "null"], "enum": ["Teacher", "Strategist", "system", null], "description": "Role of the reviewer." },
+        "rejection_reason": { "type": ["string", "null"], "description": "Reason supplied when the candidate was rejected." },
+        "source_trace_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Canonical source traces attached from candidate provenance."
+        },
+        "execution_observability": {
+          "type": ["object", "null"],
+          "description": "Optional execution correlation metadata inherited from candidate provenance."
+        }
       },
       "additionalProperties": false
     }

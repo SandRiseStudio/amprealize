@@ -124,7 +124,7 @@
         "required": ["id", "role", "surface"]
       }
     },
-    "required": ["name", "description", "instruction", "role_focus", "confidence_score", "actor"]
+    "required": ["name", "description", "instruction", "role_focus", "confidence_score"]
   },
   "outputSchema": {
     "type": "object",

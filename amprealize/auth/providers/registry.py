@@ -127,12 +127,12 @@ class ProviderRegistry:
         provider_class = cls.get(name)
         provider_name = name or cls._default_provider or "oauth"
 
-        # Auto-detect credentials from environment if not provided
+        # Prefer generic OAUTH_* (shared across providers) over provider-specific vars
         if client_id is None:
-            client_id = os.getenv(f"{provider_name.upper()}_CLIENT_ID") or os.getenv("OAUTH_CLIENT_ID")
+            client_id = os.getenv("OAUTH_CLIENT_ID") or os.getenv(f"{provider_name.upper()}_CLIENT_ID")
 
         if client_secret is None:
-            client_secret = os.getenv(f"{provider_name.upper()}_CLIENT_SECRET") or os.getenv("OAUTH_CLIENT_SECRET")
+            client_secret = os.getenv("OAUTH_CLIENT_SECRET") or os.getenv(f"{provider_name.upper()}_CLIENT_SECRET")
 
         if not client_id or not client_secret:
             raise ValueError(

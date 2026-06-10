@@ -301,6 +301,11 @@ class RunService:
             },
         )
         self._publish_run_events(updated_run, None)
+        from amprealize.local_execution_connector_hub import (
+            emit_local_connector_cancel_from_terminal_completion,
+        )
+
+        emit_local_connector_cancel_from_terminal_completion(run, completion)
         return updated_run
 
     def cancel_run(self, run_id: str, reason: Optional[str] = None) -> Run:
@@ -311,6 +316,19 @@ class RunService:
             message=reason or "Run cancelled",
         )
         return self.complete_run(run_id, completion)
+
+    def append_knowledge_receipt_spans(self, run_id: str, spans: List[Dict[str, Any]]) -> None:
+        """Append retrieval receipt spans to run metadata (caps in merge helper)."""
+        if not spans:
+            return
+        from amprealize.knowledge_retrieval_receipt import RECEIPT_METADATA_KEY, merge_receipt_spans
+
+        run = self.get_run(run_id)
+        merged = merge_receipt_spans(run.metadata.get(RECEIPT_METADATA_KEY), spans)
+        self.update_run(
+            run_id,
+            RunProgressUpdate(metadata={RECEIPT_METADATA_KEY: merged}),
+        )
 
     def update_progress(
         self,
@@ -611,6 +629,9 @@ class RunService:
                 },
             )
         else:
+            insert_completed_at = (
+                now if status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED} else None
+            )
             conn.execute(
                 """
                 INSERT INTO run_steps (
@@ -625,7 +646,7 @@ class RunService:
                     "name": name,
                     "status": status,
                     "started_at": now,
-                    "completed_at": None,
+                    "completed_at": insert_completed_at,
                     "progress_pct": progress_pct,
                     "metadata": json.dumps(metadata_dict),
                 },

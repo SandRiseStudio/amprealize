@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
@@ -35,21 +36,17 @@ if TYPE_CHECKING:
 
 from amprealize.research_contracts import (
     AdoptionStrategy,
-    AffectedComponent,
-    ClaimedResult,
     CompetitiveLandscapeItem,
     Complexity,
     ComprehensionResult,
-    ConflictItem,
     EvaluatePaperRequest,
     EvaluatePaperResponse,
     EvaluationResult,
     ImplementationRoadmap,
-    ImplementationStep,
     IngestedPaper,
     IngestPaperRequest,
     IngestPaperResponse,
-    PaperSummary,
+    PaperMetadata,
     Priority,
     StructuredCon,
     ValueProposition,
@@ -79,8 +76,62 @@ from amprealize.research.ingesters import (
     URLIngester,
     PDFIngester,
 )
+from amprealize.research.ingesters.base import (
+    IngestResult,
+    extract_figure_captions,
+    extract_table_captions,
+)
+from amprealize.research.evaluation_parse import (
+    ensure_str_list,
+    parse_affected_components,
+    parse_claimed_results,
+    coerce_estimated_effort,
+    parse_complexity,
+    parse_competitive_landscape,
+    parse_conflict_items,
+    parse_implementation_steps,
+    parse_parsed_sections,
+    parse_structured_cons,
+    paper_summaries_from_postgres_search,
+    paper_summaries_from_sqlite_rows,
+    parse_recommendation_priority,
+)
 
 logger = logging.getLogger(__name__)
+
+# LLMs sometimes return camelCase; map into ComprehensionResult snake_case fields.
+_COMPREHENSION_CAMEL_TO_SNAKE: Dict[str, str] = {
+    "coreIdea": "core_idea",
+    "problemAddressed": "problem_addressed",
+    "proposedSolution": "proposed_solution",
+    "keyContributions": "key_contributions",
+    "technicalApproach": "technical_approach",
+    "algorithmsMethods": "algorithms_methods",
+    "claimedResults": "claimed_results",
+    "benchmarksUsed": "benchmarks_used",
+    "limitationsAcknowledged": "limitations_acknowledged",
+    "noveltyScore": "novelty_score",
+    "noveltyRationale": "novelty_rationale",
+    "relatedWorkSummary": "related_work_summary",
+    "comprehensionConfidence": "comprehension_confidence",
+    "keyTerms": "key_terms",
+}
+
+
+def _normalize_comprehension_dict(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge camelCase aliases into snake_case keys for comprehension JSON."""
+    if not isinstance(data, dict):
+        return {}
+    out = dict(data)
+    for camel, snake in _COMPREHENSION_CAMEL_TO_SNAKE.items():
+        if camel not in out:
+            continue
+        cur = out.get(snake)
+        empty = cur is None or cur == [] or (isinstance(cur, str) and not cur.strip())
+        if empty:
+            out[snake] = out[camel]
+        out.pop(camel, None)
+    return out
 
 
 # Type for progress callback
@@ -331,6 +382,12 @@ class ResearchService:
 
     def _get_ingester(self, source: str, source_type: Optional[SourceType] = None) -> BaseIngester:
         """Get appropriate ingester for the source."""
+        if source_type == SourceType.URL:
+            return next((ingester for ingester in self._ingesters if isinstance(ingester, URLIngester)), self._ingesters[0])
+        if source_type == SourceType.PDF:
+            return next((ingester for ingester in self._ingesters if isinstance(ingester, PDFIngester)), self._ingesters[0])
+        if source_type == SourceType.MARKDOWN:
+            return next((ingester for ingester in self._ingesters if isinstance(ingester, MarkdownIngester)), self._ingesters[0])
         for ingester in self._ingesters:
             if ingester.can_handle(source):
                 return ingester
@@ -362,8 +419,15 @@ class ResearchService:
         # Get appropriate ingester
         ingester = self._get_ingester(request.source, source_type)
 
-        # Ingest the paper
-        paper = ingester.ingest(request.source, request.title_override)
+        # Ingest and adapt into the canonical paper contract
+        result = ingester.ingest(request.source, title_override=request.title_override)
+        paper = self._to_ingested_paper(
+            request.source,
+            source_type,
+            result,
+            title_override=request.title_override,
+            extra_metadata=request.metadata,
+        )
 
         logger.info(
             f"Ingested paper: {paper.metadata.title} "
@@ -371,6 +435,41 @@ class ResearchService:
         )
 
         return paper
+
+    def _to_ingested_paper(
+        self,
+        source: str,
+        source_type: SourceType,
+        result: IngestResult,
+        *,
+        title_override: Optional[str] = None,
+        extra_metadata: Optional[Dict[str, Any]] = None,
+    ) -> IngestedPaper:
+        metadata = {**result.metadata, **(extra_metadata or {})}
+        title = title_override or str(metadata.get("title") or source)
+        raw_sections = result.sections or [{"title": title, "content": result.content}]
+        sections = parse_parsed_sections(list(raw_sections))
+        if not sections:
+            sections = parse_parsed_sections(
+                [{"title": title, "content": result.content, "level": 1}]
+            )
+        return IngestedPaper(
+            id=IngestedPaper.generate_id(),
+            source=source,
+            source_type=source_type,
+            raw_text=result.content,
+            metadata=PaperMetadata(
+                title=title,
+                source_url=str(metadata.get("source_url") or source) if source_type == SourceType.URL else metadata.get("source_url"),
+                abstract=metadata.get("abstract"),
+                keywords=list(metadata.get("keywords", [])) if isinstance(metadata.get("keywords"), list) else [],
+            ),
+            sections=sections,
+            figure_captions=extract_figure_captions(result.content),
+            table_captions=extract_table_captions(result.content),
+            word_count=result.word_count,
+            warnings=list(metadata.get("warnings", [])) if isinstance(metadata.get("warnings"), list) else [],
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Phase 2: Comprehend
@@ -401,10 +500,11 @@ class ResearchService:
         else:
             agent_playbook_section = ""
 
-        # Inject playbook into system prompt
-        system_prompt = COMPREHENSION_SYSTEM_PROMPT.format(agent_playbook=agent_playbook_section)
+        system_prompt = COMPREHENSION_SYSTEM_PROMPT.replace(
+            "__AGENT_PLAYBOOK__",
+            agent_playbook_section.strip() or "(No agent playbook loaded.)",
+        )
 
-        # Format prompt
         user_prompt = format_comprehension_prompt(paper.raw_text)
 
         # Call LLM
@@ -423,15 +523,14 @@ class ResearchService:
             # Try to extract JSON from response
             data = self._extract_json(response.content)
 
-        # Build ComprehensionResult
-        claimed_results = [
-            ClaimedResult(
-                metric=r.get("metric", ""),
-                improvement=r.get("improvement", ""),
-                conditions=r.get("conditions", ""),
+        data = _normalize_comprehension_dict(data if isinstance(data, dict) else {})
+        if not (data.get("core_idea") or "").strip():
+            logger.warning(
+                "Comprehension JSON missing usable core_idea (keys present: %s)",
+                list(data.keys())[:50],
             )
-            for r in data.get("claimed_results", [])
-        ]
+
+        claimed_results = parse_claimed_results(data.get("claimed_results"))
 
         result = ComprehensionResult(
             core_idea=data.get("core_idea", ""),
@@ -495,10 +594,14 @@ class ResearchService:
         else:
             agent_playbook_section = ""
 
-        # Inject playbook and codebase context into system prompt
-        system_prompt = EVALUATION_SYSTEM_PROMPT.format(
-            agent_playbook=agent_playbook_section,
-            codebase_context=codebase_context,
+        system_prompt = (
+            EVALUATION_SYSTEM_PROMPT.replace(
+                "__AGENT_PLAYBOOK__",
+                agent_playbook_section.strip() or "(No agent playbook loaded.)",
+            ).replace(
+                "__CODEBASE_CONTEXT__",
+                (codebase_context or "").strip() or "(No codebase snapshot.)",
+            )
         )
 
         # Brutal honesty directive appended to every evaluation
@@ -512,6 +615,8 @@ class ResearchService:
             "If this is academic vaporware that won't survive production, say that. "
             "Include an 'honest_assessment' field in your JSON: 2-3 sentences of plain-language, "
             "no-hedging gut check -- what you'd tell a colleague over coffee. "
+            "It must reflect the **comprehension summary** (the external work), not a boilerplate "
+            "critique of our repository unless the summary explicitly ties to those systems. "
             "The team prefers an honest REJECT now over discovering problems after weeks of work."
         )
 
@@ -537,41 +642,11 @@ class ResearchService:
         except json.JSONDecodeError:
             data = self._extract_json(response.content)
 
-        # Build conflicts
-        conflicts = [
-            ConflictItem(
-                behavior_name=c.get("behavior_name", ""),
-                description=c.get("description", ""),
-                severity=c.get("severity", "medium"),
-            )
-            for c in data.get("conflicts_with_existing", [])
-        ]
-
-        # Build competitive landscape
-        competitive_landscape = [
-            CompetitiveLandscapeItem(
-                name=item.get("name", ""),
-                category=item.get("category", "tool"),
-                url=item.get("url"),
-                description=item.get("description", ""),
-                maturity=item.get("maturity", "unknown"),
-                overlap_description=item.get("overlap_description", ""),
-                differentiators=item.get("differentiators", []),
-            )
-            for item in data.get("competitive_landscape", [])
-        ]
-
-        # Build structured cons
-        structured_cons = [
-            StructuredCon(
-                description=con.get("description", ""),
-                severity=con.get("severity", "medium"),
-                likelihood=con.get("likelihood", "medium"),
-                mitigation=con.get("mitigation", ""),
-                category=con.get("category", ""),
-            )
-            for con in data.get("structured_cons", [])
-        ]
+        conflicts = parse_conflict_items(data.get("conflicts_with_existing"))
+        competitive_landscape = parse_competitive_landscape(
+            data.get("competitive_landscape")
+        )
+        structured_cons = parse_structured_cons(data.get("structured_cons"))
 
         # Build value proposition
         vp_data = data.get("value_proposition")
@@ -598,16 +673,16 @@ class ResearchService:
             safety_rationale=data.get("safety_rationale", ""),
             honest_assessment=data.get("honest_assessment", ""),
             conflicts_with_existing=conflicts,
-            implementation_complexity=Complexity(
+            implementation_complexity=parse_complexity(
                 data.get("implementation_complexity", "MEDIUM")
             ),
-            maintenance_burden=Complexity(
+            maintenance_burden=parse_complexity(
                 data.get("maintenance_burden", "MEDIUM")
             ),
-            expertise_gap=Complexity(
+            expertise_gap=parse_complexity(
                 data.get("expertise_gap", "MEDIUM")
             ),
-            estimated_effort=data.get("estimated_effort", "M - Moderate effort"),
+            estimated_effort=coerce_estimated_effort(data.get("estimated_effort")),
             concerns=data.get("concerns", []),
             risks=data.get("risks", []),
             structured_cons=structured_cons,
@@ -662,10 +737,14 @@ class ResearchService:
         else:
             agent_playbook_section = ""
 
-        # Inject playbook and codebase context into system prompt
-        system_prompt = RECOMMENDATION_SYSTEM_PROMPT.format(
-            agent_playbook=agent_playbook_section,
-            codebase_context=codebase_context,
+        system_prompt = (
+            RECOMMENDATION_SYSTEM_PROMPT.replace(
+                "__AGENT_PLAYBOOK__",
+                agent_playbook_section.strip() or "(No agent playbook loaded.)",
+            ).replace(
+                "__CODEBASE_CONTEXT__",
+                (codebase_context or "").strip() or "(No codebase snapshot.)",
+            )
         )
 
         # Brutal honesty directive appended to every recommendation
@@ -677,12 +756,6 @@ class ResearchService:
             "If the honest recommendation is REJECT, say so without hedging. "
             "Include an unvarnished executive_summary that tells the truth plainly."
         )
-
-        # Format conflicts for prompt
-        conflicts_str = "\n".join(
-            f"- {c.behavior_name}: {c.description}"
-            for c in evaluation.conflicts_with_existing
-        ) if evaluation.conflicts_with_existing else "None identified"
 
         # Format prompt
         user_prompt = format_recommendation_prompt(
@@ -727,40 +800,38 @@ class ResearchService:
         # Build implementation roadmap if applicable
         roadmap = None
         if verdict in (Verdict.ADOPT, Verdict.ADAPT) and data.get("implementation_roadmap"):
-            rm_data = data["implementation_roadmap"]
-            roadmap = ImplementationRoadmap(
-                affected_components=[
-                    AffectedComponent(
-                        path=c.get("path", ""),
-                        what_changes=c.get("what_changes", ""),
-                    )
-                    for c in rm_data.get("affected_components", [])
-                ],
-                proposed_steps=[
-                    ImplementationStep(
-                        order=s.get("order", i),
-                        description=s.get("description", ""),
-                        effort=s.get("effort", "M"),
-                    )
-                    for i, s in enumerate(rm_data.get("proposed_steps", []), 1)
-                ],
-                success_criteria=rm_data.get("success_criteria", []),
-                estimated_effort=rm_data.get("estimated_effort", ""),
-                adaptations_needed=rm_data.get("adaptations_needed", []),
-            )
+            rm_raw = data["implementation_roadmap"]
+            if isinstance(rm_raw, dict):
+                roadmap = ImplementationRoadmap(
+                    affected_components=parse_affected_components(
+                        rm_raw.get("affected_components")
+                    ),
+                    proposed_steps=parse_implementation_steps(
+                        rm_raw.get("proposed_steps")
+                    ),
+                    success_criteria=ensure_str_list(rm_raw.get("success_criteria")),
+                    estimated_effort=str(rm_raw.get("estimated_effort", "") or ""),
+                    adaptations_needed=ensure_str_list(rm_raw.get("adaptations_needed")),
+                )
 
         # Build adoption strategy if present
         adoption_strategy = None
         as_data = data.get("adoption_strategy")
         if as_data and isinstance(as_data, dict):
             adoption_strategy = AdoptionStrategy(
-                approach=as_data.get("approach", "build_custom"),
-                rationale=as_data.get("rationale", ""),
-                direct_use_candidates=as_data.get("direct_use_candidates", []),
-                concepts_to_extract=as_data.get("concepts_to_extract", []),
-                integration_points=as_data.get("integration_points", []),
-                estimated_time_saved=as_data.get("estimated_time_saved", ""),
+                approach=str(as_data.get("approach", "build_custom") or "build_custom"),
+                rationale=str(as_data.get("rationale", "") or ""),
+                direct_use_candidates=ensure_str_list(
+                    as_data.get("direct_use_candidates")
+                ),
+                concepts_to_extract=ensure_str_list(as_data.get("concepts_to_extract")),
+                integration_points=ensure_str_list(as_data.get("integration_points")),
+                estimated_time_saved=str(as_data.get("estimated_time_saved", "") or ""),
             )
+
+        handoff_ctx = data.get("handoff_context", {})
+        if not isinstance(handoff_ctx, dict):
+            handoff_ctx = {}
 
         result = Recommendation(
             verdict=verdict,
@@ -769,9 +840,9 @@ class ResearchService:
             implementation_roadmap=roadmap,
             adoption_strategy=adoption_strategy,
             next_agent=data.get("next_agent"),
-            priority=Priority(data.get("priority", "P3")),
-            blocking_dependencies=data.get("blocking_dependencies", []),
-            handoff_context=data.get("handoff_context", {}),
+            priority=parse_recommendation_priority(data.get("priority", "P3")),
+            blocking_dependencies=ensure_str_list(data.get("blocking_dependencies")),
+            handoff_context=handoff_ctx,
         )
 
         logger.info(f"Recommendation: {result.verdict.value}")
@@ -821,14 +892,33 @@ class ResearchService:
         logger.info(f"Starting full evaluation pipeline for: {request.source}")
         progress("Pipeline", f"🚀 Starting evaluation: {source_display}", 0.0)
 
-        # Phase 1: Ingest
-        progress("Ingest", "📄 Loading and parsing content...", 0.05)
-        paper = self.ingest_paper(
-            IngestPaperRequest(
-                source=request.source,
-                source_type=request.source_type,
+        # Phase 1: Ingest (optional pasted body skips URL HTML fetch)
+        body_md = (request.body_markdown or "").strip()
+        if body_md:
+            progress("Ingest", "📄 Ingesting pasted markdown (URL used for attribution only)...", 0.05)
+            paper = self.ingest_paper(
+                IngestPaperRequest(
+                    source=body_md,
+                    source_type=SourceType.MARKDOWN,
+                    title_override=request.title_override,
+                    metadata={"source_url": request.source},
+                )
             )
-        )
+            paper = replace(
+                paper,
+                source=request.source,
+                source_type=SourceType.URL,
+                metadata=replace(paper.metadata, source_url=request.source),
+            )
+        else:
+            progress("Ingest", "📄 Loading and parsing content...", 0.05)
+            paper = self.ingest_paper(
+                IngestPaperRequest(
+                    source=request.source,
+                    source_type=request.source_type,
+                    title_override=request.title_override,
+                )
+            )
 
         # Show ingestion details
         sections_info = f", {len(paper.sections)} section(s)" if paper.sections else ""
@@ -1018,18 +1108,7 @@ class ResearchService:
                 owner_id=owner_id,
                 org_id=org_id,
             )
-            papers = [
-                PaperSummary(
-                    paper_id=p["paper_id"],
-                    title=p["title"],
-                    source_type=SourceType(p["source_type"]) if p.get("source_type") else SourceType.URL,
-                    overall_score=p.get("overall_score", 0),
-                    verdict=Verdict(p["verdict"]) if p.get("verdict") else Verdict.DEFER,
-                    core_idea=p.get("core_idea", ""),
-                    created_at=datetime.fromisoformat(p["created_at"]) if p.get("created_at") else datetime.now(),
-                )
-                for p in raw.get("papers", [])
-            ]
+            papers = paper_summaries_from_postgres_search(raw)
             return SearchPapersResponse(
                 papers=papers,
                 total_count=raw.get("total_count", len(papers)),
@@ -1060,20 +1139,36 @@ class ResearchService:
             if raw.get("verdict"):
                 roadmap_data = json.loads(raw["implementation_roadmap"]) if raw.get("implementation_roadmap") else None
                 roadmap = None
-                if roadmap_data:
+                if roadmap_data and isinstance(roadmap_data, dict):
                     roadmap = ImplementationRoadmap(
-                        affected_components=roadmap_data.get("affected_components", []),
-                        proposed_steps=roadmap_data.get("proposed_steps", []),
-                        success_criteria=roadmap_data.get("success_criteria", []),
-                        estimated_effort=roadmap_data.get("estimated_effort", ""),
+                        affected_components=parse_affected_components(
+                            roadmap_data.get("affected_components")
+                        ),
+                        proposed_steps=parse_implementation_steps(
+                            roadmap_data.get("proposed_steps")
+                        ),
+                        success_criteria=ensure_str_list(
+                            roadmap_data.get("success_criteria")
+                        ),
+                        estimated_effort=str(
+                            roadmap_data.get("estimated_effort", "") or ""
+                        ),
+                        adaptations_needed=ensure_str_list(
+                            roadmap_data.get("adaptations_needed")
+                        ),
                     )
+                bd_raw = (
+                    json.loads(raw["blocking_dependencies"])
+                    if raw.get("blocking_dependencies")
+                    else []
+                )
                 recommendation = Recommendation(
                     verdict=Verdict(raw["verdict"]),
                     verdict_rationale=raw.get("verdict_rationale", ""),
                     implementation_roadmap=roadmap,
                     next_agent=raw.get("next_agent"),
-                    priority=Priority(raw["priority"]) if raw.get("priority") else Priority.P3,
-                    blocking_dependencies=json.loads(raw["blocking_dependencies"]) if raw.get("blocking_dependencies") else [],
+                    priority=parse_recommendation_priority(raw.get("priority")),
+                    blocking_dependencies=ensure_str_list(bd_raw),
                 )
 
             evaluation_obj = None
@@ -1091,9 +1186,15 @@ class ResearchService:
                     safety_rationale="",
                     overall_score=raw.get("overall_score", 0),
                     conflicts_with_existing=[],
-                    implementation_complexity=Complexity(raw["implementation_complexity"]) if raw.get("implementation_complexity") else Complexity.MEDIUM,
-                    maintenance_burden=Complexity(raw["maintenance_burden"]) if raw.get("maintenance_burden") else Complexity.MEDIUM,
-                    expertise_gap=Complexity.MEDIUM,
+                    implementation_complexity=parse_complexity(
+                        raw.get("implementation_complexity"), default=Complexity.MEDIUM
+                    ),
+                    maintenance_burden=parse_complexity(
+                        raw.get("maintenance_burden"), default=Complexity.MEDIUM
+                    ),
+                    expertise_gap=parse_complexity(
+                        raw.get("expertise_gap"), default=Complexity.MEDIUM
+                    ),
                     estimated_effort=raw.get("estimated_effort", ""),
                     concerns=json.loads(raw["concerns"]) if raw.get("concerns") else [],
                     risks=json.loads(raw["risks"]) if raw.get("risks") else [],
@@ -1197,23 +1298,46 @@ class ResearchService:
         """Try to extract JSON from text that may have extra content."""
         import re
 
-        # Try to find JSON in the text
-        patterns = [
-            r"```json\s*([\s\S]*?)\s*```",  # Markdown code block
-            r"```\s*([\s\S]*?)\s*```",  # Generic code block
-            r"\{[\s\S]*\}",  # Raw JSON object
-        ]
+        dec = json.JSONDecoder()
 
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                try:
-                    json_str = match.group(1) if "```" in pattern else match.group(0)
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    continue
+        def _decode_obj(blob: str) -> Optional[Dict[str, Any]]:
+            blob = blob.strip()
+            if not blob.startswith("{"):
+                return None
+            try:
+                obj, _end = dec.raw_decode(blob)
+            except (json.JSONDecodeError, ValueError):
+                return None
+            return obj if isinstance(obj, dict) else None
 
-        # Return empty dict if nothing found
+        # Fenced blocks first (common model output)
+        for pattern in (
+            r"```json\s*([\s\S]*?)\s*```",
+            r"```\s*([\s\S]*?)\s*```",
+        ):
+            m = re.search(pattern, text)
+            if m:
+                parsed = _decode_obj(m.group(1))
+                if parsed is not None:
+                    return parsed
+
+        # First JSON object in the string (handles trailing commentary)
+        brace = text.find("{")
+        if brace >= 0:
+            parsed = _decode_obj(text[brace:])
+            if parsed is not None:
+                return parsed
+
+        # Last-resort greedy slice (may fail on nested structures)
+        m = re.search(r"\{[\s\S]*\}", text)
+        if m:
+            try:
+                obj = json.loads(m.group(0))
+                if isinstance(obj, dict):
+                    return obj
+            except json.JSONDecodeError:
+                pass
+
         logger.error("Could not extract JSON from LLM response")
         return {}
 
@@ -1649,7 +1773,7 @@ class ResearchStorage:
                     evaluation.implementation_complexity.value,
                     evaluation.maintenance_burden.value,
                     evaluation.expertise_gap.value,
-                    evaluation.estimated_effort,
+                    coerce_estimated_effort(evaluation.estimated_effort),
                     json.dumps(evaluation.concerns),
                     json.dumps(evaluation.risks),
                     json.dumps(evaluation.potential_benefits),
@@ -2042,6 +2166,11 @@ class ResearchStorage:
             """
             params: List[Any] = []
 
+            if request.query:
+                query += " AND (LOWER(p.title) LIKE ? OR LOWER(c.core_idea) LIKE ?)"
+                like_query = f"%{request.query.lower()}%"
+                params.extend([like_query, like_query])
+
             if request.verdict:
                 query += " AND r.verdict = ?"
                 params.append(request.verdict.value)
@@ -2049,6 +2178,10 @@ class ResearchStorage:
             if request.min_score is not None:
                 query += " AND e.overall_score >= ?"
                 params.append(request.min_score)
+
+            if request.max_score is not None:
+                query += " AND e.overall_score <= ?"
+                params.append(request.max_score)
 
             if request.source_type:
                 query += " AND p.source_type = ?"
@@ -2064,29 +2197,42 @@ class ResearchStorage:
             cursor = conn.execute(query, params)
             rows = cursor.fetchall()
 
-            papers = [
-                PaperSummary(
-                    paper_id=row[0],
-                    title=row[1],
-                    source_type=SourceType(row[2]),
-                    overall_score=row[3],
-                    verdict=Verdict(row[4]),
-                    core_idea=row[5],
-                    created_at=datetime.fromisoformat(row[6]),
-                )
-                for row in rows
-            ]
+            papers = paper_summaries_from_sqlite_rows(rows)
 
             # Get total count
             count_query = """
                 SELECT COUNT(*) FROM research_papers p
                 JOIN recommendations r ON r.paper_id = p.id
+                JOIN evaluations e ON e.paper_id = p.id
+                JOIN comprehensions c ON c.paper_id = p.id
                 WHERE 1=1
             """
             count_params: List[Any] = []
+
+            if request.query:
+                count_query += " AND (LOWER(p.title) LIKE ? OR LOWER(c.core_idea) LIKE ?)"
+                like_query = f"%{request.query.lower()}%"
+                count_params.extend([like_query, like_query])
+
             if request.verdict:
                 count_query += " AND r.verdict = ?"
                 count_params.append(request.verdict.value)
+
+            if request.min_score is not None:
+                count_query += " AND e.overall_score >= ?"
+                count_params.append(request.min_score)
+
+            if request.max_score is not None:
+                count_query += " AND e.overall_score <= ?"
+                count_params.append(request.max_score)
+
+            if request.source_type:
+                count_query += " AND p.source_type = ?"
+                count_params.append(request.source_type.value)
+
+            if request.since:
+                count_query += " AND p.created_at >= ?"
+                count_params.append(request.since.isoformat())
 
             cursor = conn.execute(count_query, count_params)
             total_count = cursor.fetchone()[0]
@@ -2136,11 +2282,11 @@ class ResearchStorage:
             # Reconstruct objects
             from amprealize.research_contracts import (
                 AdoptionStrategy,
-                IngestedPaper, PaperMetadata, ParsedSection,
-                ComprehensionResult, ClaimedResult,
+                IngestedPaper, PaperMetadata,
+                ComprehensionResult,
                 CompetitiveLandscapeItem, StructuredCon, ValueProposition,
-                EvaluationResult, ConflictItem, Complexity,
-                Recommendation, ImplementationRoadmap, SourceType, Verdict, Priority,
+                EvaluationResult, Complexity,
+                Recommendation, ImplementationRoadmap, SourceType, Verdict,
                 EvaluatePaperResponse,
             )
 
@@ -2156,16 +2302,8 @@ class ResearchStorage:
                 keywords=metadata_dict.get("keywords", []),
             )
 
-            # Build sections
             sections_data = json.loads(paper_row["sections"]) if paper_row["sections"] else []
-            sections = [
-                ParsedSection(
-                    name=s.get("name", s.get("title", "")),
-                    content=s.get("content", ""),
-                    level=s.get("level", 1),
-                )
-                for s in sections_data
-            ]
+            sections = parse_parsed_sections(sections_data)
 
             # Build IngestedPaper
             paper = IngestedPaper(
@@ -2178,16 +2316,12 @@ class ResearchStorage:
                 word_count=len((paper_row["raw_text"] or "").split()),
             )
 
-            # Build ClaimedResults
-            claimed_results_data = json.loads(comp_row["claimed_results"]) if comp_row["claimed_results"] else []
-            claimed_results = [
-                ClaimedResult(
-                    metric=r.get("metric", r.get("claim", "")),
-                    improvement=r.get("improvement", r.get("evidence", "")),
-                    conditions=r.get("conditions", ""),
-                )
-                for r in claimed_results_data
-            ]
+            claimed_results_data = (
+                json.loads(comp_row["claimed_results"])
+                if comp_row["claimed_results"]
+                else []
+            )
+            claimed_results = parse_claimed_results(claimed_results_data)
 
             # Build ComprehensionResult
             comprehension = ComprehensionResult(
@@ -2204,62 +2338,43 @@ class ResearchStorage:
                 llm_model=comp_row["llm_model"],
             )
 
-            # Build Conflicts
-            conflicts_data = json.loads(eval_row["conflicts"]) if eval_row["conflicts"] else []
-            conflicts = [
-                ConflictItem(
-                    behavior_name=c.get("behavior_name", c.get("component", "")),
-                    description=c.get("description", ""),
-                    severity=c.get("severity", "low"),
+            conflicts_data = (
+                json.loads(eval_row["conflicts"]) if eval_row["conflicts"] else []
+            )
+            conflicts = parse_conflict_items(conflicts_data)
+
+            stored_structured_cons: List[StructuredCon] = []
+            try:
+                sc_data = (
+                    json.loads(eval_row["structured_cons"])
+                    if eval_row["structured_cons"]
+                    else []
                 )
-                for c in conflicts_data
-            ]
-
-            # Reconstruct structured_cons from stored JSON (column may not exist in older DBs)
-            stored_structured_cons = []
-            try:
-                sc_data = json.loads(eval_row["structured_cons"]) if eval_row["structured_cons"] else []
-                stored_structured_cons = [
-                    StructuredCon(
-                        description=sc.get("description", ""),
-                        severity=sc.get("severity", "medium"),
-                        likelihood=sc.get("likelihood", "medium"),
-                        mitigation=sc.get("mitigation", ""),
-                        category=sc.get("category", ""),
-                    )
-                    for sc in sc_data
-                ]
+                stored_structured_cons = parse_structured_cons(sc_data)
             except (KeyError, IndexError):
                 pass
 
-            # Reconstruct competitive_landscape from stored JSON
-            stored_landscape = []
+            stored_landscape: List[CompetitiveLandscapeItem] = []
             try:
-                cl_data = json.loads(eval_row["competitive_landscape"]) if eval_row["competitive_landscape"] else []
-                stored_landscape = [
-                    CompetitiveLandscapeItem(
-                        name=item.get("name", ""),
-                        category=item.get("category", "tool"),
-                        url=item.get("url"),
-                        description=item.get("description", ""),
-                        maturity=item.get("maturity", "unknown"),
-                        overlap_description=item.get("overlap_description", ""),
-                        differentiators=item.get("differentiators", []),
-                    )
-                    for item in cl_data
-                ]
+                cl_data = (
+                    json.loads(eval_row["competitive_landscape"])
+                    if eval_row["competitive_landscape"]
+                    else []
+                )
+                stored_landscape = parse_competitive_landscape(cl_data)
             except (KeyError, IndexError):
                 pass
 
-            # Reconstruct value_proposition from stored JSON
             stored_vp = None
             try:
                 vp_data = json.loads(eval_row["value_proposition"]) if eval_row["value_proposition"] else None
                 if vp_data and isinstance(vp_data, dict):
                     stored_vp = ValueProposition(
                         effectiveness_summary=vp_data.get("effectiveness_summary", ""),
-                        key_benefits=vp_data.get("key_benefits", []),
-                        measurable_outcomes=vp_data.get("measurable_outcomes", []),
+                        key_benefits=ensure_str_list(vp_data.get("key_benefits")),
+                        measurable_outcomes=ensure_str_list(
+                            vp_data.get("measurable_outcomes")
+                        ),
                         value_to_amprealize=vp_data.get("value_to_amprealize", ""),
                     )
             except (KeyError, IndexError):
@@ -2287,9 +2402,11 @@ class ResearchStorage:
                 overall_score=eval_row["overall_score"],
                 honest_assessment=stored_honest_assessment,
                 conflicts_with_existing=conflicts,
-                implementation_complexity=Complexity(eval_row["implementation_complexity"]),
-                maintenance_burden=Complexity(eval_row["maintenance_burden"]),
-                expertise_gap=Complexity(eval_row["expertise_gap"]),
+                implementation_complexity=parse_complexity(
+                    eval_row["implementation_complexity"]
+                ),
+                maintenance_burden=parse_complexity(eval_row["maintenance_burden"]),
+                expertise_gap=parse_complexity(eval_row["expertise_gap"]),
                 estimated_effort=eval_row["estimated_effort"],
                 concerns=json.loads(eval_row["concerns"]) if eval_row["concerns"] else [],
                 risks=json.loads(eval_row["risks"]) if eval_row["risks"] else [],
@@ -2300,29 +2417,50 @@ class ResearchStorage:
                 llm_model=eval_row["llm_model"],
             )
 
-            # Build ImplementationRoadmap if present
-            roadmap_data = json.loads(rec_row["implementation_roadmap"]) if rec_row["implementation_roadmap"] else None
+            roadmap_data = (
+                json.loads(rec_row["implementation_roadmap"])
+                if rec_row["implementation_roadmap"]
+                else None
+            )
             roadmap = None
-            if roadmap_data:
+            if roadmap_data and isinstance(roadmap_data, dict):
                 roadmap = ImplementationRoadmap(
-                    affected_components=roadmap_data.get("affected_components", []),
-                    proposed_steps=roadmap_data.get("proposed_steps", []),
-                    success_criteria=roadmap_data.get("success_criteria", []),
-                    estimated_effort=roadmap_data.get("estimated_effort", ""),
+                    affected_components=parse_affected_components(
+                        roadmap_data.get("affected_components")
+                    ),
+                    proposed_steps=parse_implementation_steps(
+                        roadmap_data.get("proposed_steps")
+                    ),
+                    success_criteria=ensure_str_list(
+                        roadmap_data.get("success_criteria")
+                    ),
+                    estimated_effort=str(
+                        roadmap_data.get("estimated_effort", "") or ""
+                    ),
+                    adaptations_needed=ensure_str_list(
+                        roadmap_data.get("adaptations_needed")
+                    ),
                 )
 
-            # Reconstruct adoption_strategy from stored JSON
             stored_adoption = None
             try:
                 as_data = json.loads(rec_row["adoption_strategy"]) if rec_row["adoption_strategy"] else None
                 if as_data and isinstance(as_data, dict):
                     stored_adoption = AdoptionStrategy(
-                        approach=as_data.get("approach", "build_custom"),
-                        rationale=as_data.get("rationale", ""),
-                        direct_use_candidates=as_data.get("direct_use_candidates", []),
-                        concepts_to_extract=as_data.get("concepts_to_extract", []),
-                        integration_points=as_data.get("integration_points", []),
-                        estimated_time_saved=as_data.get("estimated_time_saved", ""),
+                        approach=str(as_data.get("approach", "build_custom") or "build_custom"),
+                        rationale=str(as_data.get("rationale", "") or ""),
+                        direct_use_candidates=ensure_str_list(
+                            as_data.get("direct_use_candidates")
+                        ),
+                        concepts_to_extract=ensure_str_list(
+                            as_data.get("concepts_to_extract")
+                        ),
+                        integration_points=ensure_str_list(
+                            as_data.get("integration_points")
+                        ),
+                        estimated_time_saved=str(
+                            as_data.get("estimated_time_saved", "") or ""
+                        ),
                     )
             except (KeyError, IndexError):
                 pass
@@ -2341,7 +2479,11 @@ class ResearchStorage:
             except (KeyError, IndexError):
                 pass
 
-            # Build Recommendation
+            bd_hydrate = (
+                json.loads(rec_row["blocking_dependencies"])
+                if rec_row["blocking_dependencies"]
+                else []
+            )
             recommendation = Recommendation(
                 verdict=Verdict(rec_row["verdict"]),
                 verdict_rationale=rec_row["verdict_rationale"],
@@ -2349,8 +2491,8 @@ class ResearchStorage:
                 implementation_roadmap=roadmap,
                 adoption_strategy=stored_adoption,
                 next_agent=rec_row["next_agent"],
-                priority=Priority(rec_row["priority"]) if rec_row["priority"] else Priority.P3,
-                blocking_dependencies=json.loads(rec_row["blocking_dependencies"]) if rec_row["blocking_dependencies"] else [],
+                priority=parse_recommendation_priority(rec_row["priority"]),
+                blocking_dependencies=ensure_str_list(bd_hydrate),
                 handoff_context=stored_handoff_ctx,
             )
 

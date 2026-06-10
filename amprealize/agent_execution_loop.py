@@ -22,12 +22,18 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from .action_contracts import Actor
 from .agent_registry_contracts import Agent, AgentVersion
 from .boards.contracts import WorkItem
-from .run_contracts import Run, RunStatus, RunStep
+from .execution_observability import (
+    ExecutionObservabilityContext,
+    sanitize_observability_payload,
+    sanitize_observability_value,
+)
+from .run_contracts import Run, RunProgressUpdate, RunStatus, RunStep
 from .run_service import RunService
 from .task_cycle_contracts import (
     CyclePhase,
@@ -38,6 +44,7 @@ from .task_cycle_contracts import (
     TriggerType,
     VALID_TRANSITIONS,
 )
+from .run_reliability import checkpoint_metadata_delta, load_phase_checkpoint_for_cycle
 from .task_cycle_service import TaskCycleService
 from .telemetry import TelemetryClient
 from .agents.work_item_planner.prompts import GWS_COMPACT_SUMMARY
@@ -204,6 +211,7 @@ class AgentExecutionLoop:
 
         # PR execution context (set during run() if in PR mode)
         self._pr_context: Optional[PRExecutionContext] = None
+        self._current_observability_context: Optional[ExecutionObservabilityContext] = None
 
         # Phase handlers
         self._phase_handlers: Dict[CyclePhase, Callable] = {
@@ -335,6 +343,18 @@ class AgentExecutionLoop:
                 f"in {elapsed_ms:.1f}ms"
             )
 
+            try:
+                from amprealize.knowledge_retrieval_receipt import span_from_bci_match
+
+                strat = getattr(request.strategy, "value", request.strategy)
+                eka_spans = [
+                    span_from_bci_match(m, channel="eka_hybrid", retrieval_strategy=str(strat))
+                    for m in response.results
+                ]
+                self._run_service.append_knowledge_receipt_spans(run_id, eka_spans)
+            except Exception as exc:
+                logger.debug("EKA knowledge receipt append skipped: %s", exc)
+
             return behavior_summaries
 
         except Exception as e:
@@ -421,6 +441,37 @@ class AgentExecutionLoop:
             )
             return None  # Graceful degradation
 
+    def _commit_gep_checkpoint(
+        self,
+        *,
+        run_id: str,
+        cycle_id: str,
+        phase_outputs: Dict[CyclePhase, Dict[str, Any]],
+    ) -> None:
+        """Persist durable GEP phase outputs for worker resume (RUN_RELIABILITY.md)."""
+        try:
+            run = self._run_service.get_run(run_id)
+            meta_delta, seq, truncated = checkpoint_metadata_delta(
+                run, cycle_id=cycle_id, phase_outputs=phase_outputs
+            )
+            self._run_service.update_run(
+                run_id,
+                RunProgressUpdate(metadata=meta_delta),
+            )
+            self._telemetry.emit_event(
+                event_type="run.checkpoint_committed",
+                payload={
+                    "run_id": run_id,
+                    "cycle_id": cycle_id,
+                    "checkpoint_seq": seq,
+                    "phase_keys": [p.value for p in phase_outputs],
+                    "truncated": truncated,
+                },
+                run_id=run_id,
+            )
+        except Exception as exc:
+            logger.warning("GEP checkpoint write failed for run %s: %s", run_id, exc)
+
     async def run(
         self,
         *,
@@ -461,6 +512,16 @@ class AgentExecutionLoop:
             f"Starting execution loop for run {run_id}, "
             f"work item {work_item.item_id}, mode={execution_mode.value}"
         )
+        self._current_observability_context = self._build_observability_context(
+            run_id=run_id,
+            cycle_id=cycle_id,
+            work_item=work_item,
+            agent=agent,
+            model_id=model_id,
+            project_id=project_id,
+            org_id=org_id,
+            execution_mode=execution_mode.value,
+        )
 
         # =====================================================================
         # Session Mode: Override exec_policy for lightweight execution
@@ -492,6 +553,7 @@ class AgentExecutionLoop:
                 user_id=user_id,
                 org_id=org_id,
                 project_id=project_id,
+                observability_context=self._current_observability_context,
             )
             session_audit.log_session_start(
                 work_item_id=work_item.item_id,
@@ -551,6 +613,13 @@ class AgentExecutionLoop:
         # Track execution state
         total_iterations = 0
         phase_outputs: Dict[CyclePhase, Dict[str, Any]] = {}
+        try:
+            persisted = self._run_service.get_run(run_id)
+            loaded = load_phase_checkpoint_for_cycle(persisted, cycle_id)
+            if loaded:
+                phase_outputs.update(loaded)
+        except Exception as exc:
+            logger.warning("Could not hydrate GEP checkpoint for run %s: %s", run_id, exc)
         # Store early behaviors as instance attribute for access by phase handlers
         self._current_early_behaviors: List[Dict[str, Any]] = early_behaviors
         all_tool_calls: List[ToolCall] = []
@@ -585,6 +654,9 @@ class AgentExecutionLoop:
                         org_id=org_id,
                     )
                     phase_outputs[current_phase] = result.outputs
+                    self._commit_gep_checkpoint(
+                        run_id=run_id, cycle_id=cycle_id, phase_outputs=phase_outputs
+                    )
 
                     # Mark run as completed
                     self._run_service.update_progress(
@@ -631,6 +703,9 @@ class AgentExecutionLoop:
                 # Track outputs and tool calls
                 phase_outputs[current_phase] = result.outputs
                 all_tool_calls.extend(result.tool_calls)
+                self._commit_gep_checkpoint(
+                    run_id=run_id, cycle_id=cycle_id, phase_outputs=phase_outputs
+                )
 
                 # Handle phase failure
                 if not result.success:
@@ -879,6 +954,26 @@ class AgentExecutionLoop:
             PhaseResult with success status, outputs, and next phase
         """
         logger.info(f"Executing phase {phase.value} for run {run_id}")
+        phase_started_at = perf_counter()
+        observability_context = self._build_observability_context(
+            run_id=run_id,
+            cycle_id=cycle_id,
+            work_item=work_item,
+            agent=agent,
+            model_id=model_id,
+            project_id=project_id,
+            org_id=org_id,
+        )
+        self._current_observability_context = observability_context
+        self._current_phase = phase.value
+        self._emit_observability_event(
+            "execution.phase.started",
+            observability_context,
+            {
+                "phase": phase.value,
+                "available_tool_count": len(self._get_available_tools(phase, exec_policy)),
+            },
+        )
 
         # Record phase start
         step = ExecutionStep(
@@ -886,12 +981,31 @@ class AgentExecutionLoop:
             step_type=ExecutionStepType.PHASE_TRANSITION,
             phase=phase.value,
             timestamp=_now_iso(),
-            content={"entering_phase": True},
+            content={
+                "entering_phase": True,
+                **observability_context.to_metadata(),
+            },
         )
         self._add_run_step(run_id, step)
 
         # E3 S3.9 (T3.9.3): inject phase-specific behaviors
         phase_bci = self._inject_phase_behaviors(phase, work_item, run_id)
+        if phase_bci:
+            try:
+                from amprealize.knowledge_retrieval_receipt import spans_from_phase_behavior_names
+
+                injected = phase_bci.get("behaviors_injected") or []
+                self._run_service.append_knowledge_receipt_spans(
+                    run_id,
+                    spans_from_phase_behavior_names(injected, phase=phase.value),
+                )
+            except Exception as exc:
+                logger.debug("Phase BCI knowledge receipt append skipped: %s", exc)
+        if self._tool_executor:
+            if hasattr(self._tool_executor, "set_observability_context"):
+                self._tool_executor.set_observability_context(observability_context)
+            if hasattr(self._tool_executor, "set_current_phase"):
+                self._tool_executor.set_current_phase(phase.value)
 
         # Build phase context
         context = PhaseContext(
@@ -926,11 +1040,83 @@ class AgentExecutionLoop:
             # Record phase completion
             step.completed_at = _now_iso()
             step.outputs = result.outputs
+            elapsed_ms = int((perf_counter() - phase_started_at) * 1000)
+            step.duration_ms = elapsed_ms
+            step.metadata = {
+                **observability_context.to_metadata(),
+                "phase_success": result.success,
+                "tool_call_count": len(result.tool_calls),
+                "tool_result_count": len(result.tool_results),
+                "clarification_question_count": len(result.clarification_questions),
+                "phase_bci": self._summarize_phase_bci(phase_bci),
+            }
+            completion_step = ExecutionStep(
+                step_id=_short_id("step"),
+                step_type=ExecutionStepType.PHASE_END,
+                phase=phase.value,
+                timestamp=_now_iso(),
+                content={
+                    "phase": phase.value,
+                    "success": result.success,
+                    "should_advance": result.should_advance,
+                    "next_phase": result.next_phase.value if result.next_phase else None,
+                    "output_keys": sorted(result.outputs.keys()),
+                },
+                duration_ms=elapsed_ms,
+            )
+            completion_step.metadata = step.metadata
+            self._add_run_step(run_id, completion_step)
+            self._emit_observability_event(
+                "execution.phase.completed",
+                observability_context,
+                {
+                    "phase": phase.value,
+                    "elapsed_ms": elapsed_ms,
+                    "success": result.success,
+                    "should_advance": result.should_advance,
+                    "next_phase": result.next_phase.value if result.next_phase else None,
+                    "tool_call_count": len(result.tool_calls),
+                    "tool_result_count": len(result.tool_results),
+                    "clarification_question_count": len(result.clarification_questions),
+                    "phase_bci": self._summarize_phase_bci(phase_bci),
+                    "output_keys": sorted(result.outputs.keys()),
+                },
+            )
 
             return result
 
         except Exception as e:
             logger.exception(f"Phase {phase.value} error: {e}")
+            elapsed_ms = int((perf_counter() - phase_started_at) * 1000)
+            self._emit_observability_event(
+                "execution.phase.failed",
+                observability_context,
+                {
+                    "phase": phase.value,
+                    "elapsed_ms": elapsed_ms,
+                    "error": str(e),
+                    "error_class": type(e).__name__,
+                    "phase_bci": self._summarize_phase_bci(phase_bci),
+                },
+            )
+            failure_step = ExecutionStep(
+                step_id=_short_id("step"),
+                step_type=ExecutionStepType.ERROR,
+                phase=phase.value,
+                timestamp=_now_iso(),
+                content={
+                    "phase": phase.value,
+                    "error": str(e),
+                    "error_class": type(e).__name__,
+                },
+                duration_ms=elapsed_ms,
+            )
+            failure_step.metadata = {
+                **observability_context.to_metadata(),
+                "phase_success": False,
+                "phase_bci": self._summarize_phase_bci(phase_bci),
+            }
+            self._add_run_step(run_id, failure_step)
             return PhaseResult(
                 success=False,
                 phase=phase,
@@ -1865,29 +2051,29 @@ class AgentExecutionLoop:
         # NOTE: Tool names must match ToolRegistry in tool_executor.py
         phase_tools = {
             CyclePhase.PLANNING: [
-                "read_file", "list_dir", "grep_search", "semantic_search",
+                "read_file", "list_dir", "grep_search", "semantic_search", "resource_analyze",
             ],
             CyclePhase.CLARIFYING: [
-                "read_file", "work_item_comment",
+                "read_file", "work_item_comment", "resource_analyze",
             ],
             CyclePhase.ARCHITECTING: [
-                "read_file", "list_dir", "grep_search", "semantic_search",
+                "read_file", "list_dir", "grep_search", "semantic_search", "resource_analyze",
             ],
             CyclePhase.EXECUTING: [
                 "read_file", "write_file", "edit_file", "run_in_terminal",
-                "list_dir", "grep_search",
+                "list_dir", "grep_search", "resource_analyze",
             ],
             CyclePhase.TESTING: [
-                "read_file", "run_in_terminal",
+                "read_file", "run_in_terminal", "resource_analyze",
             ],
             CyclePhase.FIXING: [
-                "read_file", "write_file", "edit_file", "run_in_terminal",
+                "read_file", "write_file", "edit_file", "run_in_terminal", "resource_analyze",
             ],
             CyclePhase.VERIFYING: [
-                "read_file", "run_in_terminal",
+                "read_file", "run_in_terminal", "resource_analyze",
             ],
             CyclePhase.COMPLETING: [
-                "read_file", "work_item_update",
+                "read_file", "work_item_update", "resource_analyze",
             ],
         }
 
@@ -1918,6 +2104,12 @@ class AgentExecutionLoop:
         # Use instance-level audit objects if not passed explicitly
         audit = session_audit or getattr(self, "_session_audit", None)
         detector = escalation_detector or getattr(self, "_escalation_detector", None)
+        if (
+            audit
+            and self._current_observability_context
+            and hasattr(audit, "set_observability_context")
+        ):
+            audit.set_observability_context(self._current_observability_context)
 
         results = []
         for call in tool_calls:
@@ -1986,22 +2178,32 @@ class AgentExecutionLoop:
             tool_output = result.output if result.success else None
             content: Dict[str, Any] = {
                 "tool_name": call.tool_name,
-                "inputs": call.tool_args,
+                "inputs": sanitize_observability_value(call.tool_args),
                 "success": result.success,
-                "output": tool_output,
-                "error": result.error if not result.success else None,
+                "output": sanitize_observability_value(tool_output),
+                "error": sanitize_observability_value(
+                    result.error if not result.success else None
+                ),
+                **(
+                    self._current_observability_context.to_metadata()
+                    if self._current_observability_context
+                    else {}
+                ),
             }
             # Bubble up text from tool output for rich rendering (e.g. markdown reports)
             if isinstance(tool_output, dict) and "text" in tool_output:
-                content["text"] = tool_output["text"]
+                content["text"] = sanitize_observability_value(tool_output["text"])
             step = ExecutionStep(
                 step_id=_short_id("step"),
                 step_type=ExecutionStepType.TOOL_CALL,
-                phase="tool_execution",
+                phase=getattr(self, "_current_phase", "tool_execution"),
                 timestamp=start_time,
                 content=content,
                 tool_name=call.tool_name,
+                duration_ms=result.duration_ms,
             )
+            if self._current_observability_context:
+                step.metadata = self._current_observability_context.to_metadata()
             self._add_run_step(run_id, step)
 
             results.append(result)
@@ -2036,6 +2238,13 @@ class AgentExecutionLoop:
         """
         input_tokens = response.input_tokens if hasattr(response, "input_tokens") else 0
         output_tokens = response.output_tokens if hasattr(response, "output_tokens") else 0
+        cost_usd = float(getattr(response, "cost_usd", 0.0) or 0.0)
+        duration_ms = int(
+            getattr(response, "duration_ms", None)
+            or getattr(response, "latency_ms", None)
+            or 0
+        )
+        observability_context = self._current_observability_context
 
         step = ExecutionStep(
             step_id=_short_id("step"),
@@ -2047,12 +2256,141 @@ class AgentExecutionLoop:
                 "tool_calls_requested": len(response.tool_calls) if response.tool_calls else 0,
                 "phase_complete": response.phase_complete,
                 "needs_clarification": response.needs_clarification,
+                **(
+                    observability_context.to_metadata()
+                    if observability_context
+                    else {}
+                ),
             },
             model_id=model_id,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            duration_ms=duration_ms,
+            cost_usd=cost_usd,
         )
+        if observability_context:
+            step.metadata = observability_context.to_metadata()
         self._add_run_step(run_id, step)
+        if observability_context:
+            self._emit_observability_event(
+                "execution.llm.completed",
+                observability_context,
+                {
+                    "phase": phase,
+                    "model_id": model_id,
+                    "response_model_id": getattr(response, "model_id", None),
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost_usd": cost_usd,
+                    "duration_ms": duration_ms,
+                    "tool_call_count": len(response.tool_calls) if response.tool_calls else 0,
+                    "needs_clarification": response.needs_clarification,
+                    "phase_complete": response.phase_complete,
+                    "output_preview": (response.text_output or "")[:512],
+                },
+            )
+            try:
+                trace_uuid = str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, f"trace:{run_id}")
+                )
+                span_uuid = str(
+                    uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        f"llm:{run_id}:{phase}:{step.step_id}",
+                    )
+                )
+                self._telemetry.record_completed_execution_trace(
+                    trace_id=trace_uuid,
+                    span_id=span_uuid,
+                    run_id=run_id,
+                    operation_name=f"agent.llm.{phase}",
+                    duration_ms=int(duration_ms or 0),
+                    input_tokens=int(input_tokens or 0),
+                    output_tokens=int(output_tokens or 0),
+                    status="OK",
+                    attributes={
+                        "phase": phase,
+                        "model_id": model_id,
+                        "step_id": step.step_id,
+                    },
+                )
+            except Exception:
+                logger.debug(
+                    "record_completed_execution_trace failed",
+                    exc_info=True,
+                )
+
+    def _build_observability_context(
+        self,
+        *,
+        run_id: str,
+        cycle_id: str,
+        work_item: WorkItem,
+        agent: Agent,
+        model_id: Optional[str],
+        project_id: Optional[str],
+        org_id: Optional[str],
+        execution_mode: Optional[str] = None,
+    ) -> ExecutionObservabilityContext:
+        current_context = self._current_observability_context
+        return ExecutionObservabilityContext(
+            run_id=run_id,
+            cycle_id=cycle_id,
+            work_item_id=work_item.item_id,
+            project_id=project_id or getattr(work_item, "project_id", None) or "",
+            org_id=org_id,
+            agent_id=getattr(agent, "agent_id", None),
+            model_id=model_id,
+            execution_mode=execution_mode
+            or (current_context.execution_mode if current_context else None),
+            surface=current_context.surface if current_context else None,
+            conversation_id=current_context.conversation_id if current_context else None,
+            message_id=current_context.message_id if current_context else None,
+            request_id=current_context.request_id if current_context else None,
+            source_type=current_context.source_type if current_context else None,
+            queue_job_id=current_context.queue_job_id if current_context else None,
+        )
+
+    def _emit_observability_event(
+        self,
+        event_type: str,
+        context: ExecutionObservabilityContext,
+        payload: Dict[str, Any],
+    ) -> None:
+        session_id = context.conversation_id or None
+        self._telemetry.emit_event(
+            event_type=event_type,
+            payload=sanitize_observability_payload({
+                **payload,
+                **context.to_metadata(),
+            }),
+            run_id=context.run_id,
+            session_id=session_id,
+        )
+
+    @staticmethod
+    def _summarize_phase_bci(phase_bci: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if not phase_bci:
+            return {
+                "behaviors_injected_count": 0,
+                "overlays_included_count": 0,
+            }
+        behaviors = phase_bci.get("behaviors_injected") or []
+        overlays = phase_bci.get("overlays_included") or []
+        return {
+            "behaviors_injected_count": len(behaviors),
+            "behavior_ids": [
+                (
+                    item.get("behavior_id") or item.get("name") or str(item)
+                    if isinstance(item, dict)
+                    else str(item)
+                )
+                for item in behaviors[:10]
+                if item is not None
+            ],
+            "overlays_included_count": len(overlays),
+            "token_estimate": phase_bci.get("token_estimate"),
+        }
 
     def _add_run_step(self, run_id: str, step: ExecutionStep) -> None:
         """Add a step to the run."""
@@ -2065,7 +2403,12 @@ class AgentExecutionLoop:
             output_tokens = int(getattr(step, "output_tokens", 0) or 0)
             duration_ms = int(getattr(step, "duration_ms", 0) or 0)
             model_id = getattr(step, "model_id", None)
-            content = getattr(step, "content", None) or getattr(step, "outputs", None) or {}
+            raw_content = getattr(step, "content", None) or getattr(step, "outputs", None) or {}
+            content = (
+                sanitize_observability_payload(raw_content)
+                if isinstance(raw_content, dict)
+                else sanitize_observability_value(raw_content)
+            )
 
             # Store full content as JSON for retrieval, and a short preview for display
             content_json = json.dumps(content, ensure_ascii=True) if content else None
@@ -2099,6 +2442,11 @@ class AgentExecutionLoop:
             if isinstance(extra_metadata, dict):
                 for key, value in extra_metadata.items():
                     metadata.setdefault(key, value)
+            if (
+                self._current_observability_context
+                and "execution_observability" not in metadata
+            ):
+                metadata.update(self._current_observability_context.to_metadata())
 
             self._run_service.add_step(
                 run_id=run_id,
@@ -2460,6 +2808,8 @@ class AgentExecutionLoop:
             response.candidates[0].confidence,
         )
 
+        provenance = self._build_reflection_candidate_provenance(run_id, response)
+
         # Emit typed telemetry for each candidate
         for candidate in response.candidates:
             try:
@@ -2468,6 +2818,10 @@ class AgentExecutionLoop:
                     confidence=candidate.confidence,
                     run_id=run_id,
                     candidate_slug=candidate.slug,
+                    pattern_id=provenance.get("pattern_id"),
+                    source_trace_ids=provenance.get("source_trace_ids", []),
+                    extraction_job_id=provenance.get("extraction_job_id"),
+                    execution_observability=provenance.get("execution_observability"),
                     quality_scores={
                         "clarity": candidate.quality_scores.clarity,
                         "generality": candidate.quality_scores.generality,
@@ -2478,12 +2832,49 @@ class AgentExecutionLoop:
                 self._telemetry.emit_event(
                     event_type=TelemetryEventType.REFLECTION_CANDIDATE_EXTRACTED.value,
                     payload=payload.to_dict(),
+                    run_id=run_id,
                 )
             except Exception:
                 logger.debug("Failed to emit reflection telemetry", exc_info=True)
 
         # Persist candidates if PostgresReflectionService is available
         self._persist_reflection_candidates(run_id, response)
+
+    def _build_reflection_candidate_provenance(self, run_id: str, response: Any) -> Dict[str, Any]:
+        """Return stable provenance metadata for reflected behavior candidates."""
+        metadata = response.metadata if isinstance(getattr(response, "metadata", None), dict) else {}
+        source_trace_ids = self._normalize_reflection_source_trace_ids(run_id, metadata.get("source_trace_ids"))
+        provenance: Dict[str, Any] = {
+            "source_run_id": run_id,
+            "source_trace_ids": source_trace_ids,
+        }
+        pattern_id = metadata.get("pattern_id")
+        if pattern_id:
+            provenance["pattern_id"] = str(pattern_id)
+        extraction_job_id = metadata.get("extraction_job_id")
+        if extraction_job_id:
+            provenance["extraction_job_id"] = str(extraction_job_id)
+        if self._current_observability_context:
+            provenance["execution_observability"] = (
+                self._current_observability_context.to_dict(include_none=False)
+            )
+        return provenance
+
+    @staticmethod
+    def _normalize_reflection_source_trace_ids(
+        run_id: str,
+        raw_source_trace_ids: Any,
+    ) -> List[str]:
+        """Normalize source trace identifiers for telemetry and persistence."""
+        if isinstance(raw_source_trace_ids, str):
+            source_trace_ids = [raw_source_trace_ids]
+        elif isinstance(raw_source_trace_ids, (list, tuple, set)):
+            source_trace_ids = [str(value) for value in raw_source_trace_ids if value]
+        else:
+            source_trace_ids = []
+        if not source_trace_ids and run_id:
+            source_trace_ids = [run_id]
+        return source_trace_ids
 
     def _persist_reflection_candidates(self, run_id: str, response: Any) -> None:
         """Store reflection candidates in PostgreSQL if configured."""
@@ -2499,17 +2890,19 @@ class AgentExecutionLoop:
             from .reflection_service_postgres import PostgresReflectionService
 
             pg_reflection = PostgresReflectionService(dsn=dsn)
+            provenance = self._build_reflection_candidate_provenance(run_id, response)
             for candidate in response.candidates:
                 pg_reflection.create_candidate(
                     name=candidate.slug,
                     summary=candidate.instruction,
                     triggers=[f"Extracted from run {run_id}"],
                     steps=candidate.supporting_steps,
+                    pattern_id=provenance.get("pattern_id"),
                     confidence=candidate.confidence,
                     role="student",
                     keywords=candidate.tags,
                     metadata={
-                        "source_run_id": run_id,
+                        **provenance,
                         "quality_scores": {
                             "clarity": candidate.quality_scores.clarity,
                             "generality": candidate.quality_scores.generality,
@@ -2570,6 +2963,11 @@ Playbook Instructions:
 
 Available Tools: {', '.join(context.available_tools)}
 
+If the work item depends on existing Amprealize resources, call resource_analyze
+to inspect accessible projects, boards, work items, runs, agents, behaviors,
+wiki pages, settings, users, orgs, files, credentials, or conversations before
+choosing a plan. Treat it as read-only evidence, not permission to mutate data.
+
 Your response should include:
 1. Understanding of the requirements
 2. Key steps to complete the work item
@@ -2606,6 +3004,9 @@ Playbook Instructions:
 {json.dumps(context.playbook.get('architecture_instructions', {}), indent=2)}
 
 Available Tools: {', '.join(context.available_tools)}
+
+Use resource_analyze when architecture depends on current workspace state,
+existing runs, related work items, or resource relationships.
 
 Your response should include:
 1. Files to create or modify
@@ -2646,6 +3047,8 @@ Implement the changes step by step. Use the available tools to:
 2. Create new files as needed
 3. Modify existing files
 4. Run commands as required
+5. Use resource_analyze for read-only workspace/resource evidence when current
+   project state affects the implementation.
 
 Signal completion when all changes are made.
 """

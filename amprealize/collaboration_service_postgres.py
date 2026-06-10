@@ -493,6 +493,9 @@ class PostgresCollaborationService(CollaborationService):
         get_cache().invalidate_service(self.CACHE_SERVICE)
 
         document = self._row_to_document(row)
+        # Keep parent CollaborationService in-memory index in sync so base-class
+        # methods (apply_real_time_edit, add_comment, etc.) operate on this document.
+        self._documents[document.document_id] = document
 
         self._emit_telemetry("document_created", {
             "document_id": document_id,
@@ -1018,6 +1021,12 @@ class PostgresCollaborationService(CollaborationService):
         # Use hash of user_id to pick color deterministically
         index = hash(user_id) % len(self.CURSOR_COLORS)
         return self.CURSOR_COLORS[index]
+
+    def close(self) -> None:
+        """Release the PostgreSQL connection pool."""
+        pool = getattr(self, "_pool", None)
+        if pool is not None:
+            pool.close()
 
 
 __all__ = [

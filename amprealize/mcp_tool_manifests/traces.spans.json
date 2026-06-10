@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "traces.spans",
+  "description": "Return ordered span rows for a trace within a project (parity with POST /api/v1/observability/traces/spans). Requires VIEW_RUNS on project_id when permission service is configured.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_id": {
+        "type": "string",
+        "description": "Project scope (optional, uses session project_id)"
+      },
+      "trace_id": {
+        "type": "string",
+        "description": "Trace identifier (required)"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 2000,
+        "default": 500,
+        "description": "Max span rows"
+      }
+    },
+    "additionalProperties": false,
+    "required": []
+  }
+}

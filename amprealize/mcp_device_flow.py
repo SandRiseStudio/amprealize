@@ -50,6 +50,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from pathlib import Path
 
 from .device_flow import (
+    DeviceCodeNotFoundError,
     DeviceFlowManager,
     DeviceAuthorizationSession,
     DevicePollResult,
@@ -264,37 +265,32 @@ class MCPDeviceFlowService:
         Uses PostgreSQL store for shared state when available.
         """
         try:
-            # Use PostgreSQL store for shared state if available
+            pg_session = None
             if self._postgres_store:
                 # Wrap synchronous database call in asyncio.to_thread to avoid blocking event loop
-                session = await asyncio.wait_for(
+                pg_session = await asyncio.wait_for(
                     asyncio.to_thread(
                         self._postgres_store.get_by_device_code, device_code
                     ),
                     timeout=self._db_call_timeout_seconds(),
                 )
-                if session is None:
-                    return {
-                        "status": "error",
-                        "error": "invalid_device_code",
-                        "error_description": "Device code not found",
-                    }
 
+            if pg_session is not None:
                 status_normalized = {
                     "approved": "authorized",
                     "denied": "denied",
                     "expired": "expired",
                     "pending": "pending",
-                }.get(session.status.lower(), session.status.lower())
+                }.get(pg_session.status.lower(), pg_session.status.lower())
 
                 # Check for expiration
-                if session.expires_at and session.expires_at < datetime.now(timezone.utc):
+                if pg_session.expires_at and pg_session.expires_at < datetime.now(timezone.utc):
                     status_normalized = "expired"
 
                 result: Dict[str, Any] = {"status": status_normalized}
 
                 if status_normalized == "authorized":
-                    if session.access_token is None:
+                    if pg_session.access_token is None:
                         return {
                             "status": "error",
                             "error": "tokens_not_ready",
@@ -303,31 +299,31 @@ class MCPDeviceFlowService:
 
                     # Calculate expires_in
                     access_expires_in = 3600
-                    if session.access_token_expires_at:
-                        access_expires_in = int((session.access_token_expires_at - datetime.now(timezone.utc)).total_seconds())
+                    if pg_session.access_token_expires_at:
+                        access_expires_in = int((pg_session.access_token_expires_at - datetime.now(timezone.utc)).total_seconds())
 
                     result.update({
-                        "access_token": session.access_token,
-                        "refresh_token": session.refresh_token,
+                        "access_token": pg_session.access_token,
+                        "refresh_token": pg_session.refresh_token,
                         "token_type": "Bearer",
-                        "scopes": session.scopes or [],
+                        "scopes": pg_session.scopes or [],
                         "expires_in": max(0, access_expires_in),
-                        "user_id": session.oauth_user_id or session.oauth_email or session.approver,
-                        "email": session.oauth_email or session.approver,
+                        "user_id": pg_session.oauth_user_id or pg_session.oauth_email or pg_session.approver,
+                        "email": pg_session.oauth_email or pg_session.approver,
                     })
 
                     if store_tokens:
                         try:
                             store = self._get_token_store()
                             bundle = AuthTokenBundle(
-                                access_token=session.access_token,
-                                refresh_token=session.refresh_token,
+                                access_token=pg_session.access_token,
+                                refresh_token=pg_session.refresh_token,
                                 token_type="Bearer",
-                                scopes=session.scopes or [],
-                                client_id=session.client_id or client_id,
-                                issued_at=session.approved_at or datetime.now(timezone.utc),
-                                expires_at=session.access_token_expires_at or datetime.now(timezone.utc),
-                                refresh_expires_at=session.refresh_token_expires_at,
+                                scopes=pg_session.scopes or [],
+                                client_id=pg_session.client_id or client_id,
+                                issued_at=pg_session.approved_at or datetime.now(timezone.utc),
+                                expires_at=pg_session.access_token_expires_at or datetime.now(timezone.utc),
+                                refresh_expires_at=pg_session.refresh_token_expires_at,
                             )
                             await asyncio.wait_for(
                                 asyncio.to_thread(store.save, bundle),
@@ -339,15 +335,23 @@ class MCPDeviceFlowService:
 
                 elif status_normalized == "denied":
                     result["error"] = "access_denied"
-                    result["error_description"] = session.denied_reason or "Denied"
+                    result["error_description"] = pg_session.denial_reason or "Denied"
 
                 elif status_normalized == "expired":
                     result["error"] = "expired_token"
 
                 return result
 
-            # Fallback to in-memory manager
-            poll_result = self._adapter.poll(device_code)
+            # In-memory path: no Postgres configured, Postgres miss, or device_init fell back
+            # to DeviceFlowManager after DB timeout/error while postgres_store stayed set.
+            try:
+                poll_result = self._adapter.poll(device_code)
+            except DeviceCodeNotFoundError:
+                return {
+                    "status": "error",
+                    "error": "invalid_device_code",
+                    "error_description": "Device code not found",
+                }
             status_value = poll_result["status"]
 
             # Map status to standard values
@@ -1029,7 +1033,7 @@ class MCPDeviceFlowHandler:
                 store_tokens=params.get("store_tokens", True),
             )
 
-        elif tool_name == "auth.authStatus" or tool_name == "auth.devicePoll" or tool_name == "device_poll":
+        elif tool_name == "auth.authStatus" or tool_name == "device_poll":
             return await self._service.auth_status(
                 client_id=params.get("client_id", "amprealize-mcp-client"),
                 validate_remote=params.get("validate_remote", False),

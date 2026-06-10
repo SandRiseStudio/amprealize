@@ -18,6 +18,23 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def _notify_sync_reload(room_id: str) -> None:
+    """Best-effort: ping the sync sidecar so agent edits appear live in browsers.
+
+    Reads AMPREALIZE_WHITEBOARD_SYNC_URL from the environment. Never raises.
+    """
+    try:
+        from amprealize.services.whiteboard_sync_notify import notify_whiteboard_reload
+
+        notify_whiteboard_reload(room_id)
+    except Exception:  # noqa: BLE001 — best-effort
+        logger.debug("sync reload notify skipped for room=%s", room_id, exc_info=True)
+
+
+class WhiteboardToolValidationError(ValueError):
+    """Raised when a whiteboard MCP tool is missing required runtime arguments."""
+
+
 # ==============================================================================
 # Serialization Helpers
 # ==============================================================================
@@ -67,6 +84,22 @@ def _get_session_field(arguments: Dict[str, Any], field: str, default: str = "")
         return str(val)
     session = arguments.get("_session", {})
     return str(session.get(field, default))
+
+
+def _get_room_id(arguments: Dict[str, Any]) -> str:
+    """Resolve room_id from explicit params or active session context."""
+    room_id = arguments.get("room_id") or _get_session_field(arguments, "room_id")
+    if not room_id:
+        raise WhiteboardToolValidationError("Missing required parameter: room_id")
+    return str(room_id)
+
+
+def _require(arguments: Dict[str, Any], *fields: str) -> None:
+    missing = [field for field in fields if not arguments.get(field)]
+    if not missing:
+        return
+    label = "parameter" if len(missing) == 1 else "parameters"
+    raise WhiteboardToolValidationError(f"Missing required {label}: {', '.join(missing)}")
 
 
 # ==============================================================================
@@ -176,9 +209,7 @@ def handle_join_room(
 
     MCP Tool: whiteboard.joinRoom
     """
-    room_id = arguments.get("room_id")
-    if not room_id:
-        return {"success": False, "error": "room_id is required"}
+    room_id = _get_room_id(arguments)
 
     user_id = _get_user_id(arguments)
 
@@ -205,18 +236,17 @@ def handle_save_canvas(
 
     MCP Tool: whiteboard.saveCanvas
     """
-    room_id = arguments.get("room_id")
-    if not room_id:
-        return {"success": False, "error": "room_id is required"}
+    room_id = _get_room_id(arguments)
 
     canvas_state = arguments.get("canvas_state")
     if canvas_state is None:
-        return {"success": False, "error": "canvas_state is required"}
+        raise WhiteboardToolValidationError("Missing required parameter: canvas_state")
 
     try:
         room = service.save_canvas_state(room_id, canvas_state)
         if room is None:
             return {"success": False, "error": f"Room not found: {room_id}"}
+        _notify_sync_reload(room_id)
         return {
             "success": True,
             "room_id": room_id,
@@ -239,9 +269,7 @@ def handle_export_snapshot(
     """
     from whiteboard.models import SnapshotExportRequest, SnapshotFormat
 
-    room_id = arguments.get("room_id")
-    if not room_id:
-        return {"success": False, "error": "room_id is required"}
+    room_id = _get_room_id(arguments)
 
     fmt_str = arguments.get("format", "json")
     try:
@@ -290,9 +318,7 @@ def handle_add_shape(
 
     MCP Tool: whiteboard.addShape
     """
-    room_id = arguments.get("room_id")
-    if not room_id:
-        return {"success": False, "error": "room_id is required"}
+    room_id = _get_room_id(arguments)
 
     shape = arguments.get("shape")
     if shape is not None and not isinstance(shape, dict):
@@ -381,6 +407,7 @@ def handle_add_shape(
             return {"success": False, "error": f"Room not found: {room_id}"}
 
         _, shape_id = result
+        _notify_sync_reload(room_id)
 
         return {
             "success": True,
@@ -405,9 +432,7 @@ def handle_read_canvas(
 
     MCP Tool: whiteboard.readCanvas
     """
-    room_id = arguments.get("room_id")
-    if not room_id:
-        return {"success": False, "error": "room_id is required"}
+    room_id = _get_room_id(arguments)
 
     fmt = arguments.get("format", "summary")
 
@@ -456,13 +481,10 @@ def handle_annotate(
 
     MCP Tool: whiteboard.annotate
     """
-    room_id = arguments.get("room_id")
-    if not room_id:
-        return {"success": False, "error": "room_id is required"}
+    room_id = _get_room_id(arguments)
 
     text = arguments.get("text")
-    if not text:
-        return {"success": False, "error": "text is required"}
+    _require(arguments, "text")
 
     position = arguments.get("position", {})
     x = arguments.get("x")
@@ -488,6 +510,7 @@ def handle_annotate(
             return {"success": False, "error": f"Room not found: {room_id}"}
 
         _, shape_id = result
+        _notify_sync_reload(room_id)
 
         return {
             "success": True,

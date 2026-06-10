@@ -85,7 +85,7 @@
         "required": ["id", "role", "surface"]
       }
     },
-    "required": ["name", "description", "instruction", "role_focus", "actor"]
+    "required": ["name", "description", "instruction", "role_focus"]
   },
   "outputSchema": {
     "type": "object",

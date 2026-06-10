@@ -22,6 +22,11 @@
         "default": 5,
         "description": "Maximum number of behaviors to return"
       },
+      "brief": {
+        "type": "boolean",
+        "default": false,
+        "description": "Return compact behavior objects for agent chat latency (omits trigger keywords and confidence metadata)."
+      },
       "role_context": {
         "type": "object",
         "properties": {
@@ -56,7 +61,7 @@
         "description": "Optional actor context for audit logging"
       }
     },
-    "required": ["task_description"]
+    "required": []
   },
   "outputSchema": {
     "type": "object",

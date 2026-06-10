@@ -11,7 +11,12 @@
       },
       "verdict": {
         "type": "string",
-        "enum": ["ADOPT", "ADAPT", "DEFER", "REJECT"],
+        "enum": [
+          "ADOPT",
+          "ADAPT",
+          "DEFER",
+          "REJECT"
+        ],
         "description": "Filter by verdict"
       },
       "min_score": {
@@ -24,16 +29,26 @@
       },
       "source_type": {
         "type": "string",
-        "enum": ["url", "arxiv", "markdown", "pdf", "docx"],
+        "enum": [
+          "url",
+          "arxiv",
+          "markdown",
+          "pdf",
+          "docx"
+        ],
         "description": "Filter by source type"
       },
       "limit": {
         "type": "integer",
-        "description": "Maximum number of results (default: 50)"
+        "description": "Maximum number of results (default: 50)",
+        "minimum": 1,
+        "default": 50
       },
       "offset": {
         "type": "integer",
-        "description": "Offset for pagination (default: 0)"
+        "description": "Offset for pagination (default: 0)",
+        "minimum": 0,
+        "default": 0
       }
     },
     "required": []
@@ -46,16 +61,30 @@
         "items": {
           "type": "object",
           "properties": {
-            "paper_id": { "type": "string" },
-            "title": { "type": "string" },
-            "verdict": { "type": "string" },
-            "overall_score": { "type": "number" },
-            "core_idea": { "type": "string" }
+            "paper_id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "verdict": {
+              "type": "string"
+            },
+            "overall_score": {
+              "type": "number"
+            },
+            "core_idea": {
+              "type": "string"
+            }
           }
         }
       },
-      "total_count": { "type": "integer" },
-      "has_more": { "type": "boolean" }
+      "total_count": {
+        "type": "integer"
+      },
+      "has_more": {
+        "type": "boolean"
+      }
     }
   }
 }

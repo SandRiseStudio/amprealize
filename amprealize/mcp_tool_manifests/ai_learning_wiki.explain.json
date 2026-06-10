@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "ai_learning_wiki.explain",
+  "description": "Explain an AI/ML concept using the Learning Wiki. Looks up the best matching concept page and returns the explanation with prerequisites and difficulty level.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "concept": {
+        "type": "string",
+        "description": "The concept to explain (e.g., 'attention mechanism', 'embeddings', 'RAG')"
+      }
+    },
+    "required": ["concept"]
+  }
+}

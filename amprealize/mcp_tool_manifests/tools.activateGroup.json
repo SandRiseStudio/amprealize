@@ -1,13 +1,13 @@
 {
   "name": "tools.activateGroup",
-  "description": "Activate a tool group to make its tools available. Tool groups include: 'analytics' (cost/performance metrics), 'admin' (billing/rate limits), 'agents' (agent management), 'compliance' (audit/policy), 'development' (files/github), 'execution' (workflows/boards), 'bci' (behavior-conditioned inference), 'infrastructure' (breakeramp/raze).",
+  "description": "Activate a tool group to make its tools available. Tool groups include: 'analytics' (cost/performance metrics), 'admin' (billing/rate limits), 'agents' (agent management), 'compliance' (audit/policy), 'development' (files/github), 'execution' (workflows/boards), 'bci' (behavior-conditioned inference), 'infrastructure' (breakeramp/raze), 'wiki' (research/infra/AI-learning wikis), 'research' (paper evaluation), 'knowledge_packs' (context injection packs).",
   "inputSchema": {
     "type": "object",
     "properties": {
       "group_name": {
         "type": "string",
         "description": "Name of the tool group to activate",
-        "enum": ["analytics", "admin", "agents", "compliance", "development", "execution", "bci", "fine_tuning", "github", "infrastructure", "billing"]
+        "enum": ["analytics", "admin", "agents", "compliance", "development", "execution", "bci", "fine_tuning", "github", "infrastructure", "billing", "wiki", "research", "knowledge_packs"]
       }
     },
     "required": ["group_name"]

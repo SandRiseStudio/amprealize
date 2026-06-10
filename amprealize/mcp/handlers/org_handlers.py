@@ -7,6 +7,8 @@ Following `behavior_prefer_mcp_tools` - MCP provides consistent schemas and auto
 from __future__ import annotations
 
 from datetime import datetime
+import inspect
+import re
 from typing import Any, Dict, List, Optional
 # NOTE: Organization, OrgMembership, Invitation are Pydantic models - use .model_dump() not asdict()
 
@@ -21,6 +23,8 @@ from ...projects.contracts import (
     InvitationStatus,
     CreateOrgRequest,
     UpdateOrgRequest,
+    ProjectVisibility,
+    UpdateProjectRequest as ProjectUpdateRequest,
 )
 
 
@@ -64,6 +68,52 @@ def _invitation_to_dict(invitation: Invitation) -> Dict[str, Any]:
     return {k: _serialize_value(v) for k, v in result.items()}
 
 
+async def _call(method: Any, *args: Any, **kwargs: Any) -> Any:
+    """Call sync or async service methods through one awaitable path."""
+    result = method(*args, **kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
+def _is_admin_from_session(arguments: Dict[str, Any]) -> bool:
+    session = arguments.get("_session", {})
+    return bool(session.get("is_admin", False))
+
+
+def _resolve_user_id(arguments: Dict[str, Any]) -> Optional[str]:
+    session = arguments.get("_session", {})
+    return arguments.get("user_id") or session.get("user_id")
+
+
+def _auth_required_response() -> Dict[str, Any]:
+    return {
+        "success": False,
+        "error": "Authentication required. Call auth.deviceLogin first to authenticate.",
+        "hint": "Use the auth.deviceLogin tool to authenticate before accessing organizations.",
+    }
+
+
+async def _get_org_membership(
+    service: OrganizationService,
+    org_id: str,
+    user_id: str,
+    arguments: Dict[str, Any],
+) -> Optional[OrgMembership]:
+    if _is_admin_from_session(arguments):
+        return OrgMembership(org_id=org_id, user_id=user_id, role=MemberRole.OWNER)
+    return await _call(service.get_membership, org_id=org_id, user_id=user_id)
+
+
+def _has_admin_role(membership: Optional[OrgMembership]) -> bool:
+    return bool(membership and membership.role in [MemberRole.OWNER, MemberRole.ADMIN])
+
+
+def _slugify_project_name(name: str) -> str:
+    slug = name.strip().lower().replace(" ", "-").replace("_", "-")
+    return re.sub(r"[^a-z0-9-]", "", slug) or "project"
+
+
 # ==============================================================================
 # Handler Functions - Organization CRUD
 # ==============================================================================
@@ -78,12 +128,13 @@ async def handle_create_org(
 
     MCP Tool: orgs.create
     """
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
     name = arguments["name"]
     # Slug is required - auto-generate from name if not provided
     slug = arguments.get("slug") or name.lower().replace(" ", "-").replace("_", "-")
     # Ensure slug is URL-safe (only lowercase alphanumeric and hyphens)
-    import re
     slug = re.sub(r"[^a-z0-9-]", "", slug)
     display_name = arguments.get("display_name")
     plan = arguments.get("plan", "free")
@@ -106,7 +157,8 @@ async def handle_create_org(
         metadata=metadata,
     )
 
-    org = await service.create_organization(
+    org = await _call(
+        service.create_organization,
         request=request,
         owner_id=user_id,
     )
@@ -128,17 +180,19 @@ async def handle_get_org(
     MCP Tool: orgs.get
     """
     org_id = arguments["org_id"]
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
 
     # Check user has access to this org
-    membership = await service.get_membership(org_id=org_id, user_id=user_id)
+    membership = await _get_org_membership(service, org_id, user_id, arguments)
     if not membership:
         return {
             "success": False,
             "error": "Access denied or organization not found",
         }
 
-    org = await service.get_organization(org_id)
+    org = await _call(service.get_organization, org_id)
     if not org:
         return {
             "success": False,
@@ -163,13 +217,9 @@ async def handle_list_orgs(
     The user_id is automatically injected from the authenticated session context.
     If not authenticated, an error is returned.
     """
-    user_id = arguments.get("user_id")
+    user_id = _resolve_user_id(arguments)
     if not user_id:
-        return {
-            "success": False,
-            "error": "Authentication required. Call auth.deviceLogin first to authenticate.",
-            "hint": "Use the auth.deviceLogin tool to authenticate before accessing organizations.",
-        }
+        return _auth_required_response()
 
     role = arguments.get("role")
     limit = arguments.get("limit", 50)
@@ -183,25 +233,29 @@ async def handle_list_orgs(
         except ValueError:
             pass
 
-    orgs = await service.list_user_organizations(user_id=user_id)
+    if _is_admin_from_session(arguments) and hasattr(service, "list_organizations"):
+        orgs = await _call(service.list_organizations)
+    else:
+        orgs = await _call(service.list_user_organizations, user_id=user_id)
 
     # Apply role filter if specified
     if role_filter:
         # Filter orgs where user has the specified role
         filtered_orgs = []
         for org in orgs:
-            membership = await service.get_membership(org_id=org.id, user_id=user_id)
+            membership = await _get_org_membership(service, org.id, user_id, arguments)
             if membership and membership.role == role_filter:
                 filtered_orgs.append(org)
         orgs = filtered_orgs
 
     # Apply pagination
+    total = len(orgs)
     orgs = orgs[offset:offset + limit]
 
     return {
         "success": True,
         "organizations": [_org_to_dict(org) for org in orgs],
-        "total": len(orgs),
+        "total": total,
         "limit": limit,
         "offset": offset,
     }
@@ -216,12 +270,14 @@ async def handle_update_org(
 
     MCP Tool: orgs.update
     """
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
     org_id = arguments["org_id"]
 
     # Check user has admin access
-    membership = await service.get_membership(org_id=org_id, user_id=user_id)
-    if not membership or membership.role not in [MemberRole.OWNER, MemberRole.ADMIN]:
+    membership = await _get_org_membership(service, org_id, user_id, arguments)
+    if not _has_admin_role(membership):
         return {
             "success": False,
             "error": "Access denied. Requires admin or owner role.",
@@ -235,7 +291,7 @@ async def handle_update_org(
         metadata=arguments.get("metadata"),
     )
 
-    org = await service.update_organization(org_id, update_request)
+    org = await _call(service.update_organization, org_id, update_request)
     if not org:
         return {
             "success": False,
@@ -258,18 +314,20 @@ async def handle_delete_org(
 
     MCP Tool: orgs.delete
     """
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
     org_id = arguments["org_id"]
 
     # Check user is owner
-    membership = await service.get_membership(org_id=org_id, user_id=user_id)
+    membership = await _get_org_membership(service, org_id, user_id, arguments)
     if not membership or membership.role != MemberRole.OWNER:
         return {
             "success": False,
             "error": "Access denied. Only the owner can delete an organization.",
         }
 
-    success = await service.delete_organization(org_id)
+    success = await _call(service.delete_organization, org_id)
     if not success:
         return {
             "success": False,
@@ -292,18 +350,20 @@ async def handle_switch_org(
 
     MCP Tool: orgs.switch
     """
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
     org_id = arguments["org_id"]
 
     # Verify user has access to this org
-    membership = await service.get_membership(org_id=org_id, user_id=user_id)
+    membership = await _get_org_membership(service, org_id, user_id, arguments)
     if not membership:
         return {
             "success": False,
             "error": "Access denied or organization not found",
         }
 
-    org = await service.get_organization(org_id)
+    org = await _call(service.get_organization, org_id)
     if not org:
         return {
             "success": False,
@@ -312,7 +372,7 @@ async def handle_switch_org(
 
     # Set as current org in user preferences (if method exists)
     if hasattr(service, 'set_user_current_org'):
-        await service.set_user_current_org(user_id=user_id, org_id=org_id)
+        await _call(service.set_user_current_org, user_id=user_id, org_id=org_id)
 
     return {
         "success": True,
@@ -335,17 +395,19 @@ async def handle_get_context(
 
     MCP Tool: orgs.getContext
     """
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
     org_id = arguments["org_id"]
 
-    membership = await service.get_membership(org_id=org_id, user_id=user_id)
+    membership = await _get_org_membership(service, org_id, user_id, arguments)
     if not membership:
         return {
             "success": False,
             "error": "User is not a member of this organization",
         }
 
-    org = await service.get_organization(org_id)
+    org = await _call(service.get_organization, org_id)
     if not org:
         return {
             "success": False,
@@ -378,14 +440,16 @@ async def handle_list_members(
 
     MCP Tool: orgs.members
     """
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
     org_id = arguments["org_id"]
     role = arguments.get("role")
     limit = arguments.get("limit", 50)
     offset = arguments.get("offset", 0)
 
     # Check user has access to this org
-    membership = await service.get_membership(org_id=org_id, user_id=user_id)
+    membership = await _get_org_membership(service, org_id, user_id, arguments)
     if not membership:
         return {
             "success": False,
@@ -400,7 +464,10 @@ async def handle_list_members(
         except ValueError:
             pass
 
-    members = await service.list_memberships(org_id=org_id)
+    if hasattr(service, "list_memberships"):
+        members = await _call(service.list_memberships, org_id=org_id)
+    else:
+        members = await _call(service.list_members, org_id=org_id)
 
     # Apply role filter if specified
     if role_filter:
@@ -428,14 +495,16 @@ async def handle_add_member(
 
     MCP Tool: orgs.addMember
     """
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
     org_id = arguments["org_id"]
     target_user_id = arguments["target_user_id"]
     role = arguments.get("role", "member")
 
     # Check user has admin access
-    membership = await service.get_membership(org_id=org_id, user_id=user_id)
-    if not membership or membership.role not in [MemberRole.OWNER, MemberRole.ADMIN]:
+    membership = await _get_org_membership(service, org_id, user_id, arguments)
+    if not _has_admin_role(membership):
         return {
             "success": False,
             "error": "Access denied. Requires admin or owner role.",
@@ -447,7 +516,8 @@ async def handle_add_member(
     except ValueError:
         role_enum = MemberRole.MEMBER
 
-    new_membership = await service.add_member(
+    new_membership = await _call(
+        service.add_member,
         org_id=org_id,
         user_id=target_user_id,
         role=role_enum,
@@ -475,27 +545,29 @@ async def handle_remove_member(
 
     MCP Tool: orgs.removeMember
     """
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
     org_id = arguments["org_id"]
     target_user_id = arguments["target_user_id"]
 
     # Check user has admin access
-    membership = await service.get_membership(org_id=org_id, user_id=user_id)
-    if not membership or membership.role not in [MemberRole.OWNER, MemberRole.ADMIN]:
+    membership = await _get_org_membership(service, org_id, user_id, arguments)
+    if not _has_admin_role(membership):
         return {
             "success": False,
             "error": "Access denied. Requires admin or owner role.",
         }
 
     # Cannot remove owner
-    target_membership = await service.get_membership(org_id=org_id, user_id=target_user_id)
+    target_membership = await _get_org_membership(service, org_id, target_user_id, arguments)
     if target_membership and target_membership.role == MemberRole.OWNER:
         return {
             "success": False,
             "error": "Cannot remove the organization owner.",
         }
 
-    success = await service.remove_member(org_id=org_id, user_id=target_user_id)
+    success = await _call(service.remove_member, org_id=org_id, user_id=target_user_id)
     if not success:
         return {
             "success": False,
@@ -518,14 +590,16 @@ async def handle_update_member_role(
 
     MCP Tool: orgs.updateMemberRole
     """
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
     org_id = arguments["org_id"]
     target_user_id = arguments["target_user_id"]
     role = arguments["role"]
 
     # Check user has admin access
-    membership = await service.get_membership(org_id=org_id, user_id=user_id)
-    if not membership or membership.role not in [MemberRole.OWNER, MemberRole.ADMIN]:
+    membership = await _get_org_membership(service, org_id, user_id, arguments)
+    if not _has_admin_role(membership):
         return {
             "success": False,
             "error": "Access denied. Requires admin or owner role.",
@@ -547,7 +621,8 @@ async def handle_update_member_role(
             "error": "Only the current owner can transfer ownership.",
         }
 
-    updated = await service.update_member_role(
+    updated = await _call(
+        service.update_member_role,
         org_id=org_id,
         user_id=target_user_id,
         role=role_enum,
@@ -580,14 +655,16 @@ async def handle_invite_member(
 
     MCP Tool: orgs.invite
     """
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
     org_id = arguments["org_id"]
     email = arguments["email"]
     role = arguments.get("role", "member")
 
     # Check user has admin access
-    membership = await service.get_membership(org_id=org_id, user_id=user_id)
-    if not membership or membership.role not in [MemberRole.OWNER, MemberRole.ADMIN]:
+    membership = await _get_org_membership(service, org_id, user_id, arguments)
+    if not _has_admin_role(membership):
         return {
             "success": False,
             "error": "Access denied. Requires admin or owner role.",
@@ -599,7 +676,8 @@ async def handle_invite_member(
     except ValueError:
         role_enum = MemberRole.MEMBER
 
-    invitation = await service.create_invitation(
+    invitation = await _call(
+        service.create_invitation,
         org_id=org_id,
         email=email,
         role=role_enum,
@@ -628,10 +706,13 @@ async def handle_accept_invitation(
 
     MCP Tool: orgs.acceptInvitation
     """
-    user_id = arguments["user_id"]
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
     token = arguments["token"]
 
-    result = await service.accept_invitation(
+    result = await _call(
+        service.accept_invitation,
         token=token,
         user_id=user_id,
     )
@@ -656,6 +737,104 @@ async def handle_accept_invitation(
     }
 
 
+async def handle_org_projects(
+    service: OrganizationService,
+    arguments: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Manage projects within an organization through the legacy orgs.projects tool."""
+    user_id = _resolve_user_id(arguments)
+    if not user_id:
+        return _auth_required_response()
+    org_id = arguments["org_id"]
+    action = arguments.get("action", "list")
+
+    membership = await _get_org_membership(service, org_id, user_id, arguments)
+    if not membership:
+        return {
+            "success": False,
+            "error": "Access denied or organization not found",
+        }
+
+    if action == "list":
+        projects = await _call(service.list_projects, owner_id=user_id, org_id=org_id)
+        return {
+            "success": True,
+            "projects": [_serialize_value(p.model_dump() if hasattr(p, "model_dump") else p) for p in projects],
+            "total": len(projects),
+            "org_id": org_id,
+        }
+
+    if action == "get":
+        project_id = arguments.get("project_id")
+        if not project_id:
+            return {"success": False, "error": "project_id is required for get action"}
+        project = await _call(service.get_project, project_id, org_id=org_id)
+        if not project:
+            return {"success": False, "error": f"Project {project_id} not found"}
+        return {"success": True, "project": _serialize_value(project.model_dump() if hasattr(project, "model_dump") else project)}
+
+    if action in {"create", "update", "archive"} and not _has_admin_role(membership):
+        return {"success": False, "error": "Access denied. Requires admin or owner role."}
+
+    if action == "create":
+        name = arguments.get("name")
+        if not name:
+            return {"success": False, "error": "name is required for create action"}
+        visibility = arguments.get("visibility", "private")
+        try:
+            visibility_enum = ProjectVisibility(visibility)
+        except ValueError:
+            visibility_enum = ProjectVisibility.PRIVATE
+        project = await _call(
+            service.create_project,
+            owner_id=user_id,
+            org_id=org_id,
+            name=name,
+            slug=arguments.get("slug") or _slugify_project_name(name),
+            description=arguments.get("description"),
+            visibility=visibility_enum,
+            settings=arguments.get("settings", {}),
+        )
+        return {
+            "success": True,
+            "project": _serialize_value(project.model_dump() if hasattr(project, "model_dump") else project),
+            "message": f"Project '{name}' created successfully",
+        }
+
+    if action == "update":
+        project_id = arguments.get("project_id")
+        if not project_id:
+            return {"success": False, "error": "project_id is required for update action"}
+        update_request = ProjectUpdateRequest(
+            name=arguments.get("name"),
+            description=arguments.get("description"),
+            settings=arguments.get("settings"),
+        )
+        project = await _call(service.update_project, project_id, update_request)
+        if not project:
+            return {"success": False, "error": f"Failed to update project {project_id}"}
+        return {
+            "success": True,
+            "project": _serialize_value(project.model_dump() if hasattr(project, "model_dump") else project),
+            "message": "Project updated successfully",
+        }
+
+    if action == "archive":
+        project_id = arguments.get("project_id")
+        if not project_id:
+            return {"success": False, "error": "project_id is required for archive action"}
+        success = await _call(service.delete_project, project_id)
+        if not success:
+            return {"success": False, "error": f"Failed to archive project {project_id}"}
+        return {
+            "success": True,
+            "project_id": project_id,
+            "message": "Project archived successfully",
+        }
+
+    return {"success": False, "error": f"Unsupported orgs.projects action: {action}"}
+
+
 # ==============================================================================
 # Handler Registry
 # ==============================================================================
@@ -675,4 +854,5 @@ ORG_HANDLERS = {
     "orgs.updateMemberRole": handle_update_member_role,
     "orgs.invite": handle_invite_member,
     "orgs.acceptInvitation": handle_accept_invitation,
+    "orgs.projects": handle_org_projects,
 }

@@ -1,14 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "name": "workItems.create",
-  "description": "Create a new work item (goal, feature, task, or bug). Legacy values 'epic' and 'story' are accepted for backward compatibility.",
+  "description": "Create a new work item (goal, feature, task, bug, or research). Legacy values 'epic' and 'story' are accepted for backward compatibility.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "item_type": {
         "type": "string",
-        "enum": ["goal", "feature", "task", "bug", "epic", "story"],
-        "description": "Type of work item to create. Use goal/feature/task/bug. Legacy values epic/story are accepted (required)"
+        "enum": ["goal", "feature", "task", "bug", "research", "epic", "story"],
+        "description": "Type of work item to create. Use goal/feature/task/bug/research. Legacy values epic/story are accepted (required)"
       },
       "project_id": {
         "type": "string",
@@ -88,9 +88,14 @@
         "type": "string",
         "description": "Associated run ID from Amprealize"
       },
+      "research_url": {
+        "type": "string",
+        "format": "uri",
+        "description": "Research URL for research work items. Required when item_type is research; stored as metadata.research_url."
+      },
       "metadata": {
         "type": "object",
-        "description": "Additional metadata"
+        "description": "Additional metadata. For research work items, include research_url if not provided as a top-level field."
       },
       "user_id": {
         "type": "string",
@@ -99,9 +104,14 @@
       "org_id": {
         "type": "string",
         "description": "Optional organization ID for multi-tenant context"
+      },
+      "brief": {
+        "type": "boolean",
+        "default": true,
+        "description": "Return a compact created-item summary. Set false to return the full work item record."
       }
     },
-    "required": ["item_type", "project_id", "title"]
+    "required": ["item_type", "title"]
   },
   "outputSchema": {
     "type": "object",

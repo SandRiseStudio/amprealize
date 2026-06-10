@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "platform_wiki.ingest",
+  "description": "Ingest a page into the Platform Wiki. Creates or updates platform documentation covering how to use Amprealize — context system, surfaces, editions, MCP tools, and more.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "page_path": {
+        "type": "string",
+        "description": "Target wiki page path (e.g., reference/context-system.md)"
+      },
+      "title": {
+        "type": "string",
+        "description": "Page title"
+      },
+      "page_type": {
+        "type": "string",
+        "enum": ["reference", "howto", "architecture"],
+        "description": "Type of wiki page"
+      },
+      "body": {
+        "type": "string",
+        "description": "Markdown content for the page"
+      },
+      "applies_to": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["dev", "test", "staging", "prod"]
+        },
+        "description": "Environments this applies to (default: all)"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Topic tags for categorization"
+      }
+    },
+    "required": ["page_path", "title", "page_type", "body"]
+  }
+}

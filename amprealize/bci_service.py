@@ -437,12 +437,26 @@ class BCIService:
         if request.format == TraceFormat.JSON_STEPS:
             try:
                 parsed = json.loads(request.trace_text)
-                steps = [
-                    TraceStep(index=index, text=item.get("text", json.dumps(item)), metadata={k: v for k, v in item.items() if k != "text"})
-                    for index, item in enumerate(parsed)
-                ]
+                if isinstance(parsed, dict) and "steps" in parsed:
+                    raw_steps = parsed["steps"]
+                elif isinstance(parsed, list):
+                    raw_steps = parsed
+                else:
+                    raw_steps = []
+                steps: List[TraceStep] = []
+                for index, item in enumerate(raw_steps):
+                    if isinstance(item, dict):
+                        steps.append(
+                            TraceStep(
+                                index=index,
+                                text=item.get("text", json.dumps(item)),
+                                metadata={k: v for k, v in item.items() if k != "text"},
+                            )
+                        )
+                    else:
+                        steps.append(TraceStep(index=index, text=str(item)))
                 return SegmentTraceResponse(steps=steps)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, TypeError, KeyError):
                 pass  # Fall back to manual parsing
         if request.format == TraceFormat.PLAN_MARKDOWN:
             lines = [line.strip("- ") for line in request.trace_text.splitlines() if line.strip()]

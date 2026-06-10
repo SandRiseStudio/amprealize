@@ -353,6 +353,7 @@ def get_ttl(service: str, operation: str) -> int:
         'action': {'list': 1800, 'get': 1800},
         'metrics': {'default': 30},
         'embedding': {'default': 3600},
+        'console': {'dashboard_stats': 20},
     }
 
     if not SETTINGS_AVAILABLE:
@@ -372,6 +373,19 @@ def get_ttl(service: str, operation: str) -> int:
         ('action', 'get'): settings.cache_ttl.action_get_ttl,
         ('metrics', 'default'): settings.cache_ttl.metrics_ttl,
         ('embedding', 'default'): settings.cache_ttl.embedding_ttl,
+        ('console', 'dashboard_stats'): settings.cache_ttl.dashboard_stats_ttl,
     }
 
     return ttl_map.get((service, operation), defaults.get(service, {'default': 1800}).get(operation, 1800))
+
+
+def invalidate_console_dashboard_stats_cache() -> int:
+    """Invalidate cached ``GET /api/v1/dashboard/stats`` payloads.
+
+    Call after run lifecycle mutations so the home dashboard reflects new totals without
+    waiting for TTL (guideai-1153).
+    """
+    try:
+        return get_cache().delete("console:dashboard_stats:*")
+    except Exception:
+        return 0

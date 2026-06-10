@@ -172,7 +172,10 @@ class CacheTTLConfig(BaseSettings):
     compliance_list_ttl: int = 900
 
     # Short TTLs for volatile data (not explicitly invalidated)
-    # 30 seconds for metrics - frequently updated
+    # 20 seconds for console dashboard stats aggregate (invalidated on run mutation)
+    dashboard_stats_ttl: int = 20
+
+    # Metrics / telemetry aggregation cache (short-lived)
     metrics_ttl: int = 30
 
     # 60 seconds for negative cache (e.g., "not found" results)

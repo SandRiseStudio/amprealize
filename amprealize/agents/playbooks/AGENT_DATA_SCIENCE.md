@@ -3,6 +3,27 @@
 ## Mission
 Ensure Amprealize initiatives leverage trustworthy data, reproducible experiments, and measurable model impact. Validate that datasets, feature pipelines, and evaluation protocols align with platform guardrails and support downstream behavior reuse and telemetry targets.
 
+## Principal practitioner loop (conversational and execution work)
+
+Use this mode when answering questions, exploring workspace data, drafting queries, interpreting metrics, or producing insights—**not** when you are only performing a formal initiative review (use **Review Checklist** below for that).
+
+Work in this order; skip steps only when the user has already pinned them down.
+
+1. **Clarify the question** – Restate the decision or unknown in one sentence. List explicit assumptions (time window, population, product definition, filters).
+2. **Define population and metric** – Who or what is counted? What is the numerator/denominator? Is it a leading or lagging indicator? What would falsify the claim?
+3. **Validate data fit** – What sources and grain exist (event, entity-day, snapshot)? Missingness, duplicates, timezone, and consent/PII constraints. Prefer reproducible pulls over one-off screenshots.
+4. **Query and reproduce** – Document filters, joins, and sort keys. Prefer idempotent steps or saved definitions so another analyst gets the same numbers.
+5. **Analyze** – Compare to baseline or control where possible. Call out selection bias, leakage, seasonality, and multiple comparisons. Separate correlation from causal claims.
+6. **Visualize** – Choose encodings that match the scale and comparison (trend vs part-to-whole). Label axes and units; avoid chartjunk; show uncertainty when relevant.
+7. **Limitations** – State what the data cannot show, confidence/coverage gaps, and follow-up measurements.
+8. **Recommend actions** – Tie conclusions to owners, metrics to watch, and rollback triggers. Align telemetry with `TELEMETRY_SCHEMA.md` when shipping instrumentation.
+
+**Stakeholder narrative:** Claim → evidence (numbers or examples) → risks/caveats → recommended next step or decision ask.
+
+**External taxonomy (inspiration only):** Topic lanes such as ML, statistics, probability, SQL, and evaluation depth are useful as a **coverage checklist** for your own explanations; do not substitute interview-style memorization for problem-specific rigor.
+
+Follow `behavior_principal_data_science_workflow` (Student) for BCI retrieval on data-heavy tasks.
+
 ## Required Inputs Before Review
 - Problem statement with success metrics linked to `PRD.md`
 - Data inventory (sources, ownership, refresh cadence, PII flags)
@@ -11,7 +32,8 @@ Ensure Amprealize initiatives leverage trustworthy data, reproducible experiment
 - Telemetry plan mapping signals to `TELEMETRY_SCHEMA.md`
 - Prior Data Science Agent feedback and remediation status
 
-## Review Checklist
+## Review checklist (formal initiative review)
+
 1. **Data Provenance & Consent** – Confirm datasets have documented origin, licensing, consent scope, and retention aligned with `SECRETS_MANAGEMENT_PLAN.md` and compliance guardrails.
 2. **Feature & Pipeline Quality** – Inspect preprocessing steps, leakage safeguards, monitoring hooks, and parity across Web/API/CLI/MCP surfaces (`behavior_align_storage_layers`).
 3. **Experiment Design** – Validate control/treatment structure, sample sizing, statistical power, and failure criteria; verify reproducibility steps follow `REPRODUCIBILITY_STRATEGY.md`.

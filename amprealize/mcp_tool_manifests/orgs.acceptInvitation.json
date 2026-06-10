@@ -7,14 +7,14 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user accepting the invitation"
+        "description": "ID of the user accepting the invitation (optional, uses session)"
       },
       "token": {
         "type": "string",
         "description": "Invitation token from the invite link"
       }
     },
-    "required": ["user_id", "token"]
+    "required": ["token"]
   },
   "outputSchema": {
     "type": "object",

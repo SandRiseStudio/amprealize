@@ -22,6 +22,7 @@ class ProviderType(str, Enum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     OPENROUTER = "openrouter"
+    NVIDIA = "nvidia"
     OLLAMA = "ollama"
     TOGETHER = "together"
     GROQ = "groq"
@@ -44,6 +45,15 @@ class ModelDefinition:
     max_output_tokens: int
     input_price_per_m: float   # USD per 1M input tokens
     output_price_per_m: float  # USD per 1M output tokens
+    supports_tool_calls: bool = True
+    supports_structured_output: bool = False
+    supports_reasoning_delta: bool = False
+    supports_streaming: bool = True
+    is_open_model: bool = False
+    is_default: bool = False
+    free_endpoint: bool = False
+    provider_base_url: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 MODEL_CATALOG: Dict[str, ModelDefinition] = {
@@ -56,6 +66,7 @@ MODEL_CATALOG: Dict[str, ModelDefinition] = {
         max_output_tokens=32_000,
         input_price_per_m=15.0,
         output_price_per_m=75.0,
+        supports_structured_output=True,
     ),
     "claude-opus-4-5": ModelDefinition(
         model_id="claude-opus-4-5",
@@ -66,6 +77,7 @@ MODEL_CATALOG: Dict[str, ModelDefinition] = {
         max_output_tokens=32_000,
         input_price_per_m=15.0,
         output_price_per_m=75.0,
+        supports_structured_output=True,
     ),
     "claude-sonnet-4-5": ModelDefinition(
         model_id="claude-sonnet-4-5",
@@ -76,6 +88,7 @@ MODEL_CATALOG: Dict[str, ModelDefinition] = {
         max_output_tokens=16_000,
         input_price_per_m=3.0,
         output_price_per_m=15.0,
+        supports_structured_output=True,
     ),
     "gpt-5-2": ModelDefinition(
         model_id="gpt-5-2",
@@ -86,6 +99,7 @@ MODEL_CATALOG: Dict[str, ModelDefinition] = {
         max_output_tokens=32_000,
         input_price_per_m=10.0,
         output_price_per_m=30.0,
+        supports_structured_output=True,
     ),
     "gpt-4o": ModelDefinition(
         model_id="gpt-4o",
@@ -96,6 +110,7 @@ MODEL_CATALOG: Dict[str, ModelDefinition] = {
         max_output_tokens=16_384,
         input_price_per_m=2.5,
         output_price_per_m=10.0,
+        supports_structured_output=True,
     ),
     "claude-3-5-sonnet": ModelDefinition(
         model_id="claude-3-5-sonnet",
@@ -106,6 +121,254 @@ MODEL_CATALOG: Dict[str, ModelDefinition] = {
         max_output_tokens=8_192,
         input_price_per_m=3.0,
         output_price_per_m=15.0,
+        supports_structured_output=True,
+    ),
+    "nvidia-deepseek-v4-flash": ModelDefinition(
+        model_id="nvidia-deepseek-v4-flash",
+        api_name="deepseek-ai/deepseek-v4-flash",
+        provider=ProviderType.NVIDIA,
+        display_name="DeepSeek V4 Flash (NVIDIA NIM)",
+        context_limit=1_000_000,
+        max_output_tokens=16_384,
+        input_price_per_m=0.0,
+        output_price_per_m=0.0,
+        supports_structured_output=True,
+        supports_reasoning_delta=True,
+        is_open_model=True,
+        is_default=True,
+        free_endpoint=True,
+        provider_base_url="https://integrate.api.nvidia.com/v1",
+        metadata={
+            "publisher": "DeepSeek AI",
+            "source": "https://build.nvidia.com/deepseek-ai/deepseek-v4-flash",
+            "use_cases": ["coding", "agents", "reasoning"],
+            "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
+        },
+    ),
+    "nvidia-deepseek-v4-pro": ModelDefinition(
+        model_id="nvidia-deepseek-v4-pro",
+        api_name="deepseek-ai/deepseek-v4-pro",
+        provider=ProviderType.NVIDIA,
+        display_name="DeepSeek V4 Pro (NVIDIA NIM)",
+        context_limit=1_000_000,
+        max_output_tokens=16_384,
+        input_price_per_m=0.0,
+        output_price_per_m=0.0,
+        supports_tool_calls=True,
+        supports_structured_output=True,
+        supports_reasoning_delta=True,
+        is_open_model=True,
+        is_default=True,
+        free_endpoint=True,
+        provider_base_url="https://integrate.api.nvidia.com/v1",
+        metadata={
+            "publisher": "DeepSeek AI",
+            "source": "https://build.nvidia.com/deepseek-ai/deepseek-v4-pro",
+            "use_cases": ["coding", "agents", "reasoning"],
+            "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
+        },
+    ),
+    "nvidia-minimax-m2-7": ModelDefinition(
+        model_id="nvidia-minimax-m2-7",
+        api_name="minimaxai/minimax-m2.7",
+        provider=ProviderType.NVIDIA,
+        display_name="MiniMax M2.7 (NVIDIA NIM)",
+        context_limit=200_000,
+        max_output_tokens=16_384,
+        input_price_per_m=0.0,
+        output_price_per_m=0.0,
+        supports_structured_output=True,
+        supports_reasoning_delta=True,
+        is_open_model=True,
+        is_default=True,
+        free_endpoint=True,
+        provider_base_url="https://integrate.api.nvidia.com/v1",
+        metadata={
+            "publisher": "MiniMaxAI",
+            "source": "https://build.nvidia.com/minimaxai/minimax-m2.7",
+            "use_cases": ["coding", "reasoning", "office"],
+            "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
+        },
+    ),
+    "nvidia-kimi-k2-thinking": ModelDefinition(
+        model_id="nvidia-kimi-k2-thinking",
+        api_name="moonshotai/kimi-k2.6",
+        provider=ProviderType.NVIDIA,
+        display_name="Kimi K2.6 (NVIDIA NIM)",
+        context_limit=256_000,
+        max_output_tokens=16_384,
+        input_price_per_m=0.0,
+        output_price_per_m=0.0,
+        supports_tool_calls=True,
+        supports_structured_output=True,
+        supports_reasoning_delta=True,
+        is_open_model=True,
+        is_default=True,
+        free_endpoint=True,
+        provider_base_url="https://integrate.api.nvidia.com/v1",
+        metadata={
+            "publisher": "Moonshot AI",
+            "source": "https://build.nvidia.com/moonshotai/kimi-k2.6",
+            "use_cases": ["agentic-ai", "reasoning", "tool-calling"],
+            "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
+        },
+    ),
+    "nvidia-qwen3-coder-480b-a35b-instruct": ModelDefinition(
+        model_id="nvidia-qwen3-coder-480b-a35b-instruct",
+        api_name="qwen/qwen3-coder-480b-a35b-instruct",
+        provider=ProviderType.NVIDIA,
+        display_name="Qwen3 Coder 480B A35B Instruct (NVIDIA NIM)",
+        context_limit=262_144,
+        max_output_tokens=16_384,
+        input_price_per_m=0.0,
+        output_price_per_m=0.0,
+        supports_tool_calls=True,
+        supports_structured_output=True,
+        is_open_model=True,
+        is_default=True,
+        free_endpoint=True,
+        provider_base_url="https://integrate.api.nvidia.com/v1",
+        metadata={
+            "publisher": "Qwen",
+            "source": "https://build.nvidia.com/qwen/qwen3-coder-480b-a35b-instruct",
+            "use_cases": ["coding", "agentic-ai", "tool-calling"],
+            "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
+        },
+    ),
+    "nvidia-gpt-oss-120b": ModelDefinition(
+        model_id="nvidia-gpt-oss-120b",
+        api_name="openai/gpt-oss-120b",
+        provider=ProviderType.NVIDIA,
+        display_name="GPT-OSS 120B (NVIDIA NIM)",
+        context_limit=131_072,
+        max_output_tokens=4_096,
+        input_price_per_m=0.0,
+        output_price_per_m=0.0,
+        supports_tool_calls=True,
+        supports_structured_output=True,
+        supports_reasoning_delta=True,
+        is_open_model=True,
+        is_default=True,
+        free_endpoint=True,
+        provider_base_url="https://integrate.api.nvidia.com/v1",
+        metadata={
+            "publisher": "OpenAI",
+            "source": "https://build.nvidia.com/openai/gpt-oss-120b",
+            "use_cases": ["reasoning", "structured-output", "tool-calling"],
+            "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
+        },
+    ),
+    "nvidia-mistral-large-3-675b-instruct-2512": ModelDefinition(
+        model_id="nvidia-mistral-large-3-675b-instruct-2512",
+        api_name="mistralai/mistral-large-3-675b-instruct-2512",
+        provider=ProviderType.NVIDIA,
+        display_name="Mistral Large 3 675B Instruct (NVIDIA NIM)",
+        context_limit=256_000,
+        max_output_tokens=16_384,
+        input_price_per_m=0.0,
+        output_price_per_m=0.0,
+        supports_tool_calls=True,
+        supports_structured_output=True,
+        is_open_model=True,
+        is_default=True,
+        free_endpoint=True,
+        provider_base_url="https://integrate.api.nvidia.com/v1",
+        metadata={
+            "publisher": "Mistral AI",
+            "source": "https://build.nvidia.com/mistralai/mistral-large-3-675b-instruct-2512",
+            "use_cases": ["chat", "agents", "instruction-following"],
+            "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
+        },
+    ),
+    "nvidia-glm-5-1": ModelDefinition(
+        model_id="nvidia-glm-5-1",
+        api_name="z-ai/glm-5.1",
+        provider=ProviderType.NVIDIA,
+        display_name="GLM 5.1 (NVIDIA NIM)",
+        context_limit=200_000,
+        max_output_tokens=16_384,
+        input_price_per_m=0.0,
+        output_price_per_m=0.0,
+        supports_tool_calls=True,
+        supports_structured_output=True,
+        supports_reasoning_delta=True,
+        is_open_model=True,
+        is_default=True,
+        free_endpoint=True,
+        provider_base_url="https://integrate.api.nvidia.com/v1",
+        metadata={
+            "publisher": "Z.ai",
+            "source": "https://build.nvidia.com/z-ai/glm-5.1",
+            "use_cases": ["tool-calling", "coding", "agentic-ai"],
+            "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
+        },
+    ),
+    "nvidia-llama-3-1-nemotron-ultra-253b-v1": ModelDefinition(
+        model_id="nvidia-llama-3-1-nemotron-ultra-253b-v1",
+        api_name="nvidia/llama-3.1-nemotron-ultra-253b-v1",
+        provider=ProviderType.NVIDIA,
+        display_name="Llama 3.1 Nemotron Ultra 253B (NVIDIA NIM)",
+        context_limit=128_000,
+        max_output_tokens=16_384,
+        input_price_per_m=0.0,
+        output_price_per_m=0.0,
+        supports_tool_calls=True,
+        supports_structured_output=True,
+        supports_reasoning_delta=True,
+        is_open_model=True,
+        is_default=True,
+        free_endpoint=True,
+        provider_base_url="https://integrate.api.nvidia.com/v1",
+        metadata={
+            "publisher": "NVIDIA",
+            "source": "https://build.nvidia.com/nvidia/llama-3.1-nemotron-ultra-253b-v1",
+            "use_cases": ["reasoning", "rag", "tool-calling"],
+            "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
+        },
+    ),
+    "nvidia-llama-3-3-70b-instruct": ModelDefinition(
+        model_id="nvidia-llama-3-3-70b-instruct",
+        api_name="meta/llama-3.3-70b-instruct",
+        provider=ProviderType.NVIDIA,
+        display_name="Llama 3.3 70B Instruct (NVIDIA NIM)",
+        context_limit=128_000,
+        max_output_tokens=16_384,
+        input_price_per_m=0.0,
+        output_price_per_m=0.0,
+        supports_tool_calls=True,
+        supports_structured_output=True,
+        is_open_model=True,
+        is_default=True,
+        free_endpoint=True,
+        provider_base_url="https://integrate.api.nvidia.com/v1",
+        metadata={
+            "publisher": "Meta",
+            "source": "https://build.nvidia.com/meta/llama-3_3-70b-instruct",
+            "use_cases": ["chat", "multilingual", "instruction-following"],
+            "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
+        },
+    ),
+    "nvidia-nemotron-3-content-safety": ModelDefinition(
+        model_id="nvidia-nemotron-3-content-safety",
+        api_name="nvidia/nemotron-3-content-safety",
+        provider=ProviderType.NVIDIA,
+        display_name="Nemotron 3 Content Safety (NVIDIA NIM)",
+        context_limit=128_000,
+        max_output_tokens=8_192,
+        input_price_per_m=0.0,
+        output_price_per_m=0.0,
+        supports_tool_calls=False,
+        supports_structured_output=True,
+        is_open_model=True,
+        free_endpoint=True,
+        provider_base_url="https://integrate.api.nvidia.com/v1",
+        metadata={
+            "publisher": "NVIDIA",
+            "source": "https://build.nvidia.com/nvidia/nemotron-3-content-safety",
+            "chat_model": False,
+            "use_cases": ["safety", "moderation"],
+            "credit_note": "NVIDIA NIM free endpoint; production limits and credits are controlled by NVIDIA.",
+        },
     ),
 }
 
@@ -129,6 +392,7 @@ _DEFAULT_MODELS: Dict[ProviderType, str] = {
     ProviderType.OPENAI: "gpt-4o",
     ProviderType.ANTHROPIC: "claude-3-5-sonnet-20241022",
     ProviderType.OPENROUTER: "anthropic/claude-3.5-sonnet",
+    ProviderType.NVIDIA: "deepseek-ai/deepseek-v4-flash",
     ProviderType.OLLAMA: "llama3.2",
     ProviderType.TOGETHER: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     ProviderType.GROQ: "llama-3.3-70b-versatile",
@@ -141,6 +405,7 @@ _KEY_ENV_MAP: Dict[ProviderType, str] = {
     ProviderType.OPENAI: "OPENAI_API_KEY",
     ProviderType.ANTHROPIC: "ANTHROPIC_API_KEY",
     ProviderType.OPENROUTER: "OPENROUTER_API_KEY",
+    ProviderType.NVIDIA: "NVIDIA_API_KEY",
     ProviderType.TOGETHER: "TOGETHER_API_KEY",
     ProviderType.GROQ: "GROQ_API_KEY",
     ProviderType.FIREWORKS: "FIREWORKS_API_KEY",
@@ -149,10 +414,26 @@ _KEY_ENV_MAP: Dict[ProviderType, str] = {
 # Provider-specific base URLs
 _BASE_URL_MAP: Dict[ProviderType, str] = {
     ProviderType.OPENROUTER: "https://openrouter.ai/api/v1",
+    ProviderType.NVIDIA: "https://integrate.api.nvidia.com/v1",
     ProviderType.TOGETHER: "https://api.together.xyz/v1",
     ProviderType.GROQ: "https://api.groq.com/openai/v1",
     ProviderType.FIREWORKS: "https://api.fireworks.ai/inference/v1",
 }
+
+
+def get_provider_default_model(provider: ProviderType) -> str:
+    """Return the default API model name for a provider."""
+    return _DEFAULT_MODELS.get(provider, "gpt-4o")
+
+
+def get_provider_key_env(provider: ProviderType) -> str:
+    """Return the provider-specific API key environment variable name."""
+    return _KEY_ENV_MAP.get(provider, "")
+
+
+def get_provider_base_url(provider: ProviderType) -> Optional[str]:
+    """Return the default OpenAI-compatible base URL for a provider."""
+    return _BASE_URL_MAP.get(provider)
 
 
 @dataclass
@@ -184,6 +465,10 @@ class LLMConfig:
             AMPREALIZE_LLM_API_BASE, AMPREALIZE_LLM_MAX_TOKENS, AMPREALIZE_LLM_TEMPERATURE,
             AMPREALIZE_LLM_TIMEOUT, AMPREALIZE_LLM_MAX_RETRIES, AMPREALIZE_LLM_RETRY_DELAY,
             AMPREALIZE_LLM_TOKEN_BUDGET_ENABLED, AMPREALIZE_LLM_TOKEN_BUDGET
+
+        Chat-only override (read in ``ConversationReplyService`` for streaming, not here):
+            AMPREALIZE_CHAT_LLM_TEMPERATURE — when set, overrides effective temperature for
+            chat reply ``astream``/``call`` only; otherwise ``AMPREALIZE_LLM_TEMPERATURE`` applies.
 
         Provider-specific keys:
             OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY,
@@ -244,11 +529,13 @@ class LLMResponse:
     cost_usd: float = 0.0
     latency_ms: float = 0.0
     finish_reason: Optional[str] = None
+    reasoning_content: Optional[str] = None
 
 
 class StreamChunkType(str, Enum):
     """Types of streaming chunks."""
     TEXT_DELTA = "text_delta"
+    REASONING_DELTA = "reasoning_delta"
     TOOL_USE_START = "tool_use_start"
     TOOL_USE_DELTA = "tool_use_delta"
     TOOL_USE_END = "tool_use_end"
@@ -261,12 +548,15 @@ class StreamChunk:
     """A single chunk from a streaming LLM response."""
     type: StreamChunkType
     text: Optional[str] = None
+    reasoning: Optional[str] = None
     tool_name: Optional[str] = None
     tool_call_id: Optional[str] = None
     tool_args_delta: Optional[str] = None
     tool_call: Optional[Any] = None  # Completed ToolCall
     response: Optional[LLMResponse] = None  # Final accumulated response
     error: Optional[str] = None
+    # Set on ERROR chunks: original provider/SDK exception name (e.g. APITimeoutError)
+    error_class: Optional[str] = None
 
 
 @dataclass

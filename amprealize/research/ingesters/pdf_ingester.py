@@ -13,5 +13,8 @@ class PDFIngester(BaseIngester):
     Stub — replace with real PDF parsing (pdfplumber, PyMuPDF, etc.).
     """
 
-    async def ingest(self, source: str, **kwargs: Any) -> IngestResult:
+    def can_handle(self, source: str) -> bool:
+        return source.lower().endswith(".pdf")
+
+    def ingest(self, source: str, **kwargs: Any) -> IngestResult:
         raise NotImplementedError("PDFIngester.ingest not yet implemented")

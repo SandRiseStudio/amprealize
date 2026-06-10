@@ -27,6 +27,11 @@ if TYPE_CHECKING:
     from amprealize.agent_registry_contracts import Agent, AgentVersion
     from amprealize.work_item_execution_contracts import ExecutionPolicy
 
+from amprealize.execution_observability import (
+    ExecutionObservabilityContext,
+    sanitize_observability_payload,
+)
+
 # Execution queue imports
 from execution_queue import (
     ExecutionJob,
@@ -127,6 +132,7 @@ class ExecutionWorker:
         work_item_service: Optional[Any] = None,
         agent_service: Optional[Any] = None,
         orchestrator: Optional[Any] = None,
+        telemetry: Optional[Any] = None,
     ):
         """Initialize the worker.
 
@@ -149,6 +155,7 @@ class ExecutionWorker:
         self._work_item_service = work_item_service
         self._agent_service = agent_service
         self._orchestrator = orchestrator
+        self._telemetry = telemetry
 
         # State
         self._running = False
@@ -358,6 +365,42 @@ class ExecutionWorker:
                 "timeout_seconds": job.timeout_seconds,
             },
         )
+        self._emit_worker_event(
+            "execution.worker.started",
+            job,
+            started_at=started_at.isoformat(),
+        )
+
+        if job.payload.get("gateway_local_connector_stage_only"):
+            logger.info(
+                "Skipping agent execution loop for local_connector staging job",
+                extra={"job_id": job.job_id, "run_id": job.run_id},
+            )
+            set_jobs_in_progress(self.config.consumer_name or f"worker-{os.getpid()}", 1)
+            completed_at = datetime.now(timezone.utc)
+            duration = (completed_at - started_at).total_seconds()
+            record_job_processed(status=ExecutionStatus.SUCCESS.value, scope=job.get_isolation_scope())
+            record_job_duration(scope=job.get_isolation_scope(), duration_seconds=duration)
+            self._jobs_succeeded += 1
+            self._emit_worker_event(
+                "execution.worker.completed",
+                job,
+                status=ExecutionStatus.SUCCESS.value,
+                duration_ms=int(duration * 1000),
+                error=None,
+                retry_count=job.retry_count,
+                completed_at=completed_at.isoformat(),
+            )
+            set_jobs_in_progress(self.config.consumer_name or f"worker-{os.getpid()}", 0)
+            self._current_job = None
+            return ExecutionResult(
+                job_id=job.job_id,
+                run_id=job.run_id,
+                status=ExecutionStatus.SUCCESS,
+                started_at=started_at,
+                completed_at=completed_at,
+                error_message=None,
+            )
 
         # Start heartbeat
         self._heartbeat_task = asyncio.create_task(
@@ -450,6 +493,21 @@ class ExecutionWorker:
         record_job_processed(status=status.value, scope=scope)
         record_job_duration(scope=scope, duration_seconds=duration)
 
+        terminal_event = (
+            "execution.worker.completed"
+            if status == ExecutionStatus.SUCCESS
+            else "execution.worker.failed"
+        )
+        self._emit_worker_event(
+            terminal_event,
+            job,
+            status=status.value,
+            duration_ms=int(duration * 1000),
+            error=error_message,
+            retry_count=job.retry_count,
+            completed_at=completed_at.isoformat(),
+        )
+
         return ExecutionResult(
             job_id=job.job_id,
             run_id=job.run_id,
@@ -457,6 +515,61 @@ class ExecutionWorker:
             started_at=started_at,
             completed_at=completed_at,
             error_message=error_message,
+        )
+
+    def _observability_context_from_job(
+        self,
+        job: ExecutionJob,
+    ) -> ExecutionObservabilityContext:
+        payload_context = job.payload.get("execution_observability")
+        if not isinstance(payload_context, dict):
+            payload_context = {}
+
+        return ExecutionObservabilityContext(
+            run_id=payload_context.get("run_id") or job.run_id,
+            cycle_id=payload_context.get("cycle_id") or job.cycle_id,
+            work_item_id=payload_context.get("work_item_id") or job.work_item_id,
+            project_id=payload_context.get("project_id") or job.project_id,
+            org_id=payload_context.get("org_id") or job.org_id,
+            agent_id=payload_context.get("agent_id") or job.agent_id,
+            model_id=payload_context.get("model_id") or job.model_override,
+            surface=payload_context.get("surface") or job.payload.get("surface"),
+            conversation_id=payload_context.get("conversation_id")
+            or job.payload.get("conversation_id"),
+            message_id=payload_context.get("message_id") or job.payload.get("message_id"),
+            request_id=payload_context.get("request_id")
+            or job.payload.get("gateway_request_id"),
+            execution_mode=payload_context.get("execution_mode")
+            or job.payload.get("mode"),
+            source_type=payload_context.get("source_type")
+            or job.payload.get("source_type"),
+            queue_job_id=payload_context.get("queue_job_id") or job.job_id,
+        )
+
+    def _emit_worker_event(
+        self,
+        event_type: str,
+        job: ExecutionJob,
+        **payload: Any,
+    ) -> None:
+        if not getattr(self, "_telemetry", None):
+            return
+
+        observability_context = self._observability_context_from_job(job)
+        self._telemetry.emit_event(
+            event_type=event_type,
+            payload=sanitize_observability_payload({
+                "run_id": job.run_id,
+                "job_id": job.job_id,
+                "work_item_id": job.work_item_id,
+                "agent_id": job.agent_id,
+                "project_id": job.project_id,
+                "org_id": job.org_id,
+                "retry_count": job.retry_count,
+                **payload,
+                **observability_context.to_metadata(),
+            }),
+            run_id=job.run_id,
         )
 
     async def _heartbeat_loop(self, run_id: str) -> None:
@@ -935,6 +1048,8 @@ class ExecutionWorker:
                 "user_id": user_id,
             } if github_repo else None,
             workspace_info=workspace_info,
+            run_service=self._run_service,
+            run_id=run_id,
         )
 
         # =====================================================================

@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "runs.getReliability",
+  "description": "Return GEP checkpoint summary, outbound reliability policy snapshot, and run-scoped circuit breaker state for a run (see docs/contracts/RUN_RELIABILITY.md).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": {
+        "type": "string",
+        "description": "Run identifier"
+      }
+    },
+    "required": []
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "run_id": { "type": "string" },
+      "checkpoint": { "type": "object" },
+      "outbound_reliability": { "type": ["object", "null"] },
+      "circuits": { "type": "object" },
+      "status": { "type": "string" }
+    },
+    "required": ["run_id"]
+  }
+}

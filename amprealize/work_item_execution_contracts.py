@@ -21,6 +21,10 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from .llm.types import MODEL_CATALOG as CANONICAL_LLM_MODEL_CATALOG
+from .llm.types import ProviderType
+from .task_cycle_contracts import CyclePhase
+
 
 # =============================================================================
 # Enums
@@ -78,6 +82,10 @@ class AgentExecutionMode(str, Enum):
     SESSION = "session"
 
 
+# Backward-compatible name used by older MCP/API execution handlers.
+GEPPhase = CyclePhase
+
+
 class ToolPermissionLevel(str, Enum):
     """Per-tool permission level for fine-grained access control.
 
@@ -107,6 +115,7 @@ SESSION_MODE_TOOL_PERMISSIONS: Dict[str, ToolPermissionLevel] = {
     "fetch_url": ToolPermissionLevel.ALWAYS_ALLOW,
     "search_web": ToolPermissionLevel.ALWAYS_ALLOW,
     "research_evaluate": ToolPermissionLevel.ALWAYS_ALLOW,
+    "resource_analyze": ToolPermissionLevel.ALWAYS_ALLOW,
     # Write tools — require confirmation
     "write_file": ToolPermissionLevel.REQUIRE_CONFIRMATION,
     "edit_file": ToolPermissionLevel.REQUIRE_CONFIRMATION,
@@ -121,6 +130,11 @@ class LLMProvider(str, Enum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     OPENROUTER = "openrouter"
+    NVIDIA = "nvidia"
+    OLLAMA = "ollama"
+    TOGETHER = "together"
+    GROQ = "groq"
+    FIREWORKS = "fireworks"
     LOCAL = "local"
 
 
@@ -159,81 +173,45 @@ class ModelDefinition:
         }
 
 
-# Model Catalog - Static definitions of supported models
-MODEL_CATALOG: Dict[str, ModelDefinition] = {
-    "claude-opus-4-6": ModelDefinition(
-        model_id="claude-opus-4-6",
-        api_name="claude-opus-4-20260201",  # Actual Anthropic API model name
-        provider=LLMProvider.ANTHROPIC,
-        display_name="Claude Opus 4.6",
-        supports_tool_calls=True,
-        context_limit=200000,
-        max_output_tokens=32768,
-        output_limit=32768,
-        input_price_per_m=15.0,
-        output_price_per_m=75.0,
-    ),
-    "claude-opus-4-5": ModelDefinition(
-        model_id="claude-opus-4-5",
-        api_name="claude-opus-4-20250514",  # Actual Anthropic API model name
-        provider=LLMProvider.ANTHROPIC,
-        display_name="Claude Opus 4.5",
-        supports_tool_calls=True,
-        context_limit=200000,
-        max_output_tokens=32768,
-        output_limit=32768,
-        input_price_per_m=15.0,
-        output_price_per_m=75.0,
-    ),
-    "claude-sonnet-4-5": ModelDefinition(
-        model_id="claude-sonnet-4-5",
-        api_name="claude-sonnet-4-20250514",  # Actual Anthropic API model name
-        provider=LLMProvider.ANTHROPIC,
-        display_name="Claude Sonnet 4.5",
-        supports_tool_calls=True,
-        context_limit=200000,
-        max_output_tokens=16384,
-        output_limit=16384,
-        input_price_per_m=3.0,
-        output_price_per_m=15.0,
-    ),
-    "gpt-5-2": ModelDefinition(
-        model_id="gpt-5-2",
-        api_name="gpt-4o",  # Use gpt-4o as placeholder until GPT-5.2 is available
-        provider=LLMProvider.OPENAI,
-        display_name="GPT-5.2",
-        supports_tool_calls=True,
-        context_limit=128000,
-        max_output_tokens=16384,
-        output_limit=16384,
-        input_price_per_m=10.0,
-        output_price_per_m=30.0,
-    ),
-    "gpt-4o": ModelDefinition(
-        model_id="gpt-4o",
-        api_name="gpt-4o",  # Actual OpenAI API model name
-        provider=LLMProvider.OPENAI,
-        display_name="GPT-4o",
-        supports_tool_calls=True,
-        context_limit=128000,
-        max_output_tokens=16384,
-        output_limit=16384,
-        input_price_per_m=2.5,
-        output_price_per_m=10.0,
-    ),
-    "claude-3-5-sonnet": ModelDefinition(
-        model_id="claude-3-5-sonnet",
-        api_name="claude-3-5-sonnet-20241022",  # Actual Anthropic API model name
-        provider=LLMProvider.ANTHROPIC,
-        display_name="Claude 3.5 Sonnet",
-        supports_tool_calls=True,
-        context_limit=200000,
-        max_output_tokens=8192,
-        output_limit=8192,
-        input_price_per_m=3.0,
-        output_price_per_m=15.0,
-    ),
-}
+def _to_execution_provider(provider: ProviderType) -> LLMProvider:
+    """Map the canonical provider enum into execution policy provider values."""
+    try:
+        return LLMProvider(provider.value)
+    except ValueError:
+        return LLMProvider.LOCAL
+
+
+def _build_execution_model_catalog() -> Dict[str, ModelDefinition]:
+    """Build execution models from the canonical LLM catalog."""
+    return {
+        model_id: ModelDefinition(
+            model_id=model.model_id,
+            api_name=model.api_name,
+            provider=_to_execution_provider(model.provider),
+            display_name=model.display_name,
+            supports_tool_calls=model.supports_tool_calls,
+            context_limit=model.context_limit,
+            max_output_tokens=model.max_output_tokens,
+            output_limit=model.max_output_tokens,
+            input_price_per_m=model.input_price_per_m,
+            output_price_per_m=model.output_price_per_m,
+            metadata={
+                **model.metadata,
+                "supports_structured_output": model.supports_structured_output,
+                "supports_reasoning_delta": model.supports_reasoning_delta,
+                "supports_streaming": model.supports_streaming,
+                "is_open_model": model.is_open_model,
+                "is_default": model.is_default,
+                "free_endpoint": model.free_endpoint,
+                "provider_base_url": model.provider_base_url,
+            },
+        )
+        for model_id, model in CANONICAL_LLM_MODEL_CATALOG.items()
+    }
+
+
+# Model Catalog - execution-facing view of the canonical LLM catalog.
+MODEL_CATALOG: Dict[str, ModelDefinition] = _build_execution_model_catalog()
 
 
 def get_model(model_id: str) -> Optional[ModelDefinition]:
@@ -271,6 +249,68 @@ class ModelPolicy:
             preferred_model_id=data.get("preferred_model_id", "claude-opus-4-6"),
             fallback_model_ids=data.get("fallback_model_ids", ["gpt-4o"]),
             allow_mid_run_switching=data.get("allow_mid_run_switching", True),
+        )
+
+
+@dataclass
+class ToolOutboundRule:
+    """Per-tool or per-dependency outbound transport limits (retries, timeout, breaker)."""
+
+    max_retries: Optional[int] = None
+    timeout_seconds: Optional[float] = None
+    circuit_failure_threshold: Optional[int] = None
+    circuit_open_seconds: Optional[float] = 60.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "max_retries": self.max_retries,
+            "timeout_seconds": self.timeout_seconds,
+            "circuit_failure_threshold": self.circuit_failure_threshold,
+            "circuit_open_seconds": self.circuit_open_seconds,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ToolOutboundRule":
+        return cls(
+            max_retries=data.get("max_retries"),
+            timeout_seconds=data.get("timeout_seconds"),
+            circuit_failure_threshold=data.get("circuit_failure_threshold"),
+            circuit_open_seconds=data.get("circuit_open_seconds", 60.0),
+        )
+
+
+@dataclass
+class OutboundReliabilityPolicy:
+    """Defaults and overrides for tool execution (separate from LLM RetryMiddleware)."""
+
+    default_max_retries: int = 2
+    default_tool_timeout_seconds: float = 120.0
+    per_tool: Dict[str, ToolOutboundRule] = field(default_factory=dict)
+    per_dependency_key: Dict[str, ToolOutboundRule] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "default_max_retries": self.default_max_retries,
+            "default_tool_timeout_seconds": self.default_tool_timeout_seconds,
+            "per_tool": {k: v.to_dict() for k, v in self.per_tool.items()},
+            "per_dependency_key": {k: v.to_dict() for k, v in self.per_dependency_key.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "OutboundReliabilityPolicy":
+        per_tool: Dict[str, ToolOutboundRule] = {}
+        for k, v in (data.get("per_tool") or {}).items():
+            if isinstance(v, dict):
+                per_tool[str(k)] = ToolOutboundRule.from_dict(v)
+        per_dep: Dict[str, ToolOutboundRule] = {}
+        for k, v in (data.get("per_dependency_key") or {}).items():
+            if isinstance(v, dict):
+                per_dep[str(k)] = ToolOutboundRule.from_dict(v)
+        return cls(
+            default_max_retries=int(data.get("default_max_retries", 2)),
+            default_tool_timeout_seconds=float(data.get("default_tool_timeout_seconds", 120.0)),
+            per_tool=per_tool,
+            per_dependency_key=per_dep,
         )
 
 
@@ -320,6 +360,9 @@ class ExecutionPolicy:
     # Tools not listed default to ALWAYS_ALLOW in GEP and REQUIRE_CONFIRMATION in SESSION
     tool_permissions: Dict[str, "ToolPermissionLevel"] = field(default_factory=dict)
 
+    # Outbound transport: per-tool retries, timeouts, optional circuit breaker (see RUN_RELIABILITY.md)
+    outbound_reliability: OutboundReliabilityPolicy = field(default_factory=OutboundReliabilityPolicy)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "phase_gates": {k: v.value for k, v in self.phase_gates.items()},
@@ -333,6 +376,7 @@ class ExecutionPolicy:
             "skip_phases": list(self.skip_phases),
             "require_workspace": self.require_workspace,
             "tool_permissions": {k: v.value for k, v in self.tool_permissions.items()},
+            "outbound_reliability": self.outbound_reliability.to_dict(),
         }
 
     @classmethod
@@ -344,6 +388,13 @@ class ExecutionPolicy:
         tool_permissions = {}
         for k, v in data.get("tool_permissions", {}).items():
             tool_permissions[k] = ToolPermissionLevel(v) if isinstance(v, str) else v
+
+        ob_raw = data.get("outbound_reliability")
+        outbound = (
+            OutboundReliabilityPolicy.from_dict(ob_raw)
+            if isinstance(ob_raw, dict)
+            else OutboundReliabilityPolicy()
+        )
 
         return cls(
             phase_gates=phase_gates or cls().phase_gates,
@@ -357,6 +408,7 @@ class ExecutionPolicy:
             skip_phases=set(data.get("skip_phases", [])),
             require_workspace=data.get("require_workspace", True),
             tool_permissions=tool_permissions,
+            outbound_reliability=outbound,
         )
 
     @classmethod
@@ -589,6 +641,25 @@ class ExecutionStatusResponse:
     model_id: Optional[str] = None
     step_count: int = 0
     pending_clarifications: Optional[List[Dict[str, Any]]] = None
+    agent_id: Optional[str] = None
+    project_id: Optional[str] = None
+    org_id: Optional[str] = None
+    surface: Optional[str] = None
+    source_type: Optional[str] = None
+    conversation_id: Optional[str] = None
+    message_id: Optional[str] = None
+    request_id: Optional[str] = None
+    execution_mode: Optional[str] = None
+    queue_job_id: Optional[str] = None
+    queue_metadata: Dict[str, Any] = field(default_factory=dict)
+    phase_timings: Dict[str, Any] = field(default_factory=dict)
+    trace_summary: Dict[str, Any] = field(default_factory=dict)
+    total_tokens: Optional[int] = None
+    total_cost_usd: Optional[float] = None
+    tool_count: int = 0
+    last_error: Optional[str] = None
+    execution_workspace_kind: Optional[str] = None
+    connector_status: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -605,6 +676,25 @@ class ExecutionStatusResponse:
             "model_id": self.model_id,
             "step_count": self.step_count,
             "pending_clarifications": self.pending_clarifications,
+            "agent_id": self.agent_id,
+            "project_id": self.project_id,
+            "org_id": self.org_id,
+            "surface": self.surface,
+            "source_type": self.source_type,
+            "conversation_id": self.conversation_id,
+            "message_id": self.message_id,
+            "request_id": self.request_id,
+            "execution_mode": self.execution_mode,
+            "queue_job_id": self.queue_job_id,
+            "queue_metadata": self.queue_metadata,
+            "phase_timings": self.phase_timings,
+            "trace_summary": self.trace_summary,
+            "total_tokens": self.total_tokens,
+            "total_cost_usd": self.total_cost_usd,
+            "tool_count": self.tool_count,
+            "last_error": self.last_error,
+            "execution_workspace_kind": self.execution_workspace_kind,
+            "connector_status": self.connector_status,
         }
 
 

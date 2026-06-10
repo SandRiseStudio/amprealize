@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from amprealize.research.evaluation_parse import coerce_estimated_effort
 from amprealize.research_contracts import (
     ComprehensionResult,
     EvaluationResult,
@@ -160,7 +161,7 @@ class ResearchStoragePostgres:
                         evaluation.implementation_complexity.value,
                         evaluation.maintenance_burden.value,
                         evaluation.expertise_gap.value,
-                        evaluation.estimated_effort,
+                        coerce_estimated_effort(evaluation.estimated_effort),
                         json.dumps(evaluation.concerns),
                         json.dumps(evaluation.risks),
                         json.dumps(evaluation.potential_benefits),

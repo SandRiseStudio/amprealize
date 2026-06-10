@@ -1095,6 +1095,38 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Output format for the task assignments",
     )
 
+    suggest_agent_parser = subparsers.add_parser(
+        "suggest-agent",
+        help="Suggest agents for a board feature or task",
+    )
+    suggest_agent_parser.add_argument("assignable_id", help="Feature or task ID")
+    suggest_agent_parser.add_argument(
+        "assignable_type",
+        choices=("feature", "task"),
+        help="Assignable entity type",
+    )
+    suggest_agent_parser.add_argument(
+        "--behavior",
+        dest="behaviors",
+        action="append",
+        default=[],
+        metavar="SLUG",
+        help="Required behavior slug (repeatable)",
+    )
+    suggest_agent_parser.add_argument(
+        "--max-suggestions",
+        type=int,
+        default=5,
+        metavar="N",
+        help="Maximum number of suggestions (default 5)",
+    )
+    suggest_agent_parser.add_argument(
+        "--format",
+        choices=("json", "table"),
+        default="json",
+        help="Output format",
+    )
+
     # Behavior subcommands
     behaviors_parser = subparsers.add_parser(
         "behaviors",
@@ -1855,6 +1887,20 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Output format",
     )
 
+    run_reliability_parser = run_subparsers.add_parser(
+        "reliability",
+        help="Show GEP checkpoint and outbound reliability snapshot for a run",
+    )
+    run_reliability_parser.add_argument("run_id", help="Run identifier")
+    run_reliability_parser.add_argument(
+        "--format",
+        choices=("json", "table"),
+        default="json",
+        help="Output format",
+    )
+
+    run_subparsers.required = True
+
     # breakeramp
     amp_parser = subparsers.add_parser(
         "breakeramp",
@@ -2293,7 +2339,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     amp_machine_start_parser.add_argument(
         "name",
         nargs="?",
-        help="Machine name (defaults to amprealize-test or first available)",
+        help="Machine name (defaults to amprealize-dev, then amprealize-test, then first available)",
     )
 
     # breakeramp machine stop
@@ -2304,7 +2350,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     amp_machine_stop_parser.add_argument(
         "name",
         nargs="?",
-        help="Machine name (defaults to amprealize-test or current running machine)",
+        help="Machine name (defaults to amprealize-dev or current running machine)",
     )
     amp_machine_stop_parser.add_argument(
         "--all",
@@ -2322,8 +2368,8 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     amp_machine_ensure_parser.add_argument(
         "name",
         nargs="?",
-        default="amprealize-test",
-        help="Machine name (default: amprealize-test)",
+        default="amprealize-dev",
+        help="Machine name (default: amprealize-dev)",
     )
     amp_machine_ensure_parser.add_argument(
         "--cpus",
@@ -2352,7 +2398,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     amp_machine_status_parser.add_argument(
         "name",
         nargs="?",
-        help="Machine name (defaults to amprealize-test or first available)",
+        help="Machine name (defaults to amprealize-dev, then amprealize-test, then first available)",
     )
     amp_machine_status_parser.add_argument(
         "--output",
@@ -3677,7 +3723,48 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Use lightweight session mode (plan → execute → complete) instead of full GEP protocol",
     )
+    wi_execute_parser.add_argument(
+        "--workspace-kind",
+        dest="workspace_kind",
+        choices=["cloud_git", "local_connector"],
+        default=None,
+        help="Execution workspace: cloud_git (default) or local_connector (paired daemon)",
+    )
     wi_execute_parser.add_argument("--format", choices=["table", "json"], default="table")
+
+    # ------------------------------------------------------------------
+    # connector (local execution daemon / pairing)
+    # ------------------------------------------------------------------
+    conn_parser = subparsers.add_parser(
+        "connector",
+        help="Local execution connector: pairing codes, device claim, revoke, WebSocket listen",
+    )
+    conn_sub = conn_parser.add_subparsers(dest="connector_command")
+    conn_sub.required = True
+
+    conn_pc = conn_sub.add_parser(
+        "pairing-code",
+        help="Create a pairing code (POST /execution-connector/pairing-codes)",
+    )
+    conn_pc.add_argument("--user-id", required=True, help="User ID issuing the code")
+    conn_pc.add_argument("--format", choices=["table", "json"], default="json")
+
+    conn_pair = conn_sub.add_parser(
+        "pair",
+        help="Claim a pairing code and print device_token (POST /execution-connector/devices)",
+    )
+    conn_pair.add_argument("--code", required=True, help="Pairing code")
+    conn_pair.add_argument("--label", default="cli", help="Device label")
+    conn_pair.add_argument("--format", choices=["table", "json"], default="json")
+
+    conn_rev = conn_sub.add_parser("revoke", help="Revoke a device token")
+    conn_rev.add_argument("--device-token", default=None, help="Else AMPREALIZE_DEVICE_TOKEN")
+
+    conn_listen = conn_sub.add_parser(
+        "listen",
+        help="Run WebSocket client for run leases (needs: pip install 'amprealize[connector]')",
+    )
+    conn_listen.add_argument("--device-token", default=None, help="Else AMPREALIZE_DEVICE_TOKEN")
 
     # work-item status
     wi_status_parser = wi_subparsers.add_parser(
@@ -3714,6 +3801,36 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     wi_approve_parser.add_argument("--org-id", help="Organization ID")
     wi_approve_parser.add_argument("--phase", help="Phase gate to approve")
     wi_approve_parser.add_argument("--notes", help="Approval notes/feedback")
+
+    # ------------------------------------------------------------------
+    # resources subcommand group (read-only analyst via REST API)
+    # ------------------------------------------------------------------
+    resources_parser = subparsers.add_parser(
+        "resources",
+        help="Read-only natural-language resource analysis (calls the REST API)",
+    )
+    resources_subparsers = resources_parser.add_subparsers(dest="resources_command")
+    resources_subparsers.required = True
+    resources_analyze_parser = resources_subparsers.add_parser(
+        "analyze",
+        help="Ask a natural-language question over accessible workspace resources",
+    )
+    resources_analyze_parser.add_argument(
+        "query",
+        help="Natural-language question (quote if it contains shell metacharacters)",
+    )
+    resources_analyze_parser.add_argument("--project-id", help="Optional project scope")
+    resources_analyze_parser.add_argument("--org-id", help="Optional organization scope")
+    resources_analyze_parser.add_argument(
+        "--conversation-scope",
+        help="Optional conversation scope hint (e.g. project_space)",
+    )
+    resources_analyze_parser.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text)",
+    )
 
     # ── config ─────────────────────────────────────────────────────────────
     config_parser = subparsers.add_parser(
@@ -3821,6 +3938,14 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     context_remove_parser.add_argument(
         "name",
         help="Name of the context to remove",
+    )
+
+    context_subparsers.add_parser(
+        "init-standard-local",
+        help=(
+            "Create local-postgres-dev and local-postgres-test contexts if missing "
+            "(localhost DSNs aligned with infra/environments.yaml BreakerAmp port forwards)"
+        ),
     )
 
     context_subparsers.add_parser(
@@ -4485,19 +4610,43 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     conv_subparsers = conversation_parser.add_subparsers(dest="conversation_command")
 
     # conversation list
+    conversation_scope_choices = [
+        "project_room",
+        "agent_dm",
+        "global_user_home",
+        "global_personal_thread",
+        "project_space",
+        "dm",
+        "group_chat",
+        "work_item_thread",
+        "run_thread",
+    ]
     conv_list_parser = conv_subparsers.add_parser(
-        "list", help="List conversations in a project",
+        "list", help="List conversations",
     )
-    conv_list_parser.add_argument("--project-id", required=True, help="Project ID")
+    conv_list_parser.add_argument("--project-id", default=None, help="Optional project ID")
     conv_list_parser.add_argument("--user-id", default=DEFAULT_ACTOR_ID, help="User ID")
     conv_list_parser.add_argument("--org-id", default=None, help="Organization ID")
     conv_list_parser.add_argument(
-        "--scope", choices=["project_room", "agent_dm"], default=None,
-        help="Filter by conversation scope",
+        "--scope", choices=conversation_scope_choices, default=None,
+        help="Filter by a single conversation scope",
+    )
+    conv_list_parser.add_argument(
+        "--scopes",
+        nargs="+",
+        choices=conversation_scope_choices,
+        default=None,
+        help="Filter by multiple scopes (union). When set, overrides --scope.",
     )
     conv_list_parser.add_argument(
         "--include-archived", action="store_true", default=False,
         help="Include archived conversations",
+    )
+    conv_list_parser.add_argument(
+        "--include-total",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include total count query (default: true). Use --no-include-total to skip COUNT.",
     )
     conv_list_parser.add_argument("--limit", type=int, default=50, help="Max results")
     conv_list_parser.add_argument("--offset", type=int, default=0, help="Offset for pagination")
@@ -4520,9 +4669,13 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     conv_create_parser = conv_subparsers.add_parser(
         "create", help="Create a new conversation",
     )
-    conv_create_parser.add_argument("--project-id", required=True, help="Project ID")
     conv_create_parser.add_argument(
-        "--scope", choices=["project_room", "agent_dm"], default="agent_dm",
+        "--project-id",
+        default=None,
+        help="Project ID (required for project-scoped conversations)",
+    )
+    conv_create_parser.add_argument(
+        "--scope", choices=conversation_scope_choices, default="dm",
         help="Conversation scope",
     )
     conv_create_parser.add_argument("--title", default=None, help="Conversation title")
@@ -4544,6 +4697,22 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     conv_archive_parser.add_argument("--user-id", default=DEFAULT_ACTOR_ID, help="User ID")
     conv_archive_parser.add_argument("--org-id", default=None, help="Organization ID")
     conv_archive_parser.add_argument(
+        "--format", choices=["table", "json"], default="json", help="Output format",
+    )
+
+    conv_patch_parser = conv_subparsers.add_parser(
+        "patch", help="Update conversation fields (e.g. title)",
+    )
+    conv_patch_parser.add_argument("conversation_id", help="Conversation ID")
+    conv_patch_parser.add_argument("--title", default=None, help="New conversation title")
+    conv_patch_parser.add_argument(
+        "--clear-title",
+        action="store_true",
+        help="Clear the conversation title (mutually exclusive with --title)",
+    )
+    conv_patch_parser.add_argument("--user-id", default=DEFAULT_ACTOR_ID, help="User ID")
+    conv_patch_parser.add_argument("--org-id", default=None, help="Organization ID")
+    conv_patch_parser.add_argument(
         "--format", choices=["table", "json"], default="json", help="Output format",
     )
 
@@ -4576,6 +4745,12 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     conv_messages_parser.add_argument("--user-id", default=DEFAULT_ACTOR_ID, help="User ID")
     conv_messages_parser.add_argument("--org-id", default=None, help="Organization ID")
     conv_messages_parser.add_argument("--parent-id", default=None, help="Filter by parent (thread)")
+    conv_messages_parser.add_argument(
+        "--include-total",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include total count query (default: true). Use --no-include-total to skip COUNT.",
+    )
     conv_messages_parser.add_argument("--limit", type=int, default=50, help="Max results")
     conv_messages_parser.add_argument("--offset", type=int, default=0, help="Offset for pagination")
     conv_messages_parser.add_argument(
@@ -5785,6 +5960,37 @@ def _command_list_tasks(args: argparse.Namespace) -> int:
         _render_tasks_table(tasks)
     else:
         _print_json(tasks)
+    return 0
+
+
+def _command_suggest_agent(args: argparse.Namespace) -> int:
+    from amprealize.adapters import RestAssignmentAdapter
+    from amprealize.services.assignment_service import AssignmentService
+
+    try:
+        service = AssignmentService()
+    except Exception as exc:  # pragma: no cover - env-dependent
+        print(f"Error: could not initialize assignment service: {exc}", file=sys.stderr)
+        return 2
+
+    adapter = RestAssignmentAdapter(service)
+    payload: Dict[str, Any] = {
+        "assignable_id": args.assignable_id,
+        "assignable_type": args.assignable_type,
+        "required_behaviors": list(args.behaviors or []),
+        "max_suggestions": args.max_suggestions,
+        "actor": {"id": "cli", "role": "user", "surface": "cli"},
+    }
+    try:
+        result = adapter.suggest_agent(payload)
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "table":
+        _print_json(result)
+    else:
+        _print_json(result)
     return 0
 
 
@@ -7125,18 +7331,166 @@ def _command_auth_register(args: argparse.Namespace) -> int:
     return 1
 
 
-def _command_auth_login(args: argparse.Namespace) -> int:
-    """Perform login and cache issued tokens.
+def _cli_http_json_post(url: str, payload: Dict[str, Any], *, timeout: float = 120.0) -> Tuple[int, Any]:
+    """POST JSON and return (status_code, parsed_body). HTTPError bodies are parsed when JSON."""
 
-    Uses OAuth device flow with github or google providers.
-    Internal auth (username/password) has been deprecated.
+    body_bytes = json.dumps(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    req = urllib.request.Request(url, data=body_bytes, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode()
+            return resp.status, (json.loads(raw) if raw.strip() else {})
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode()
+        try:
+            parsed = json.loads(raw) if raw.strip() else {}
+        except json.JSONDecodeError:
+            parsed = {"detail": raw or str(e.reason)}
+        return e.code, parsed
+
+
+def _command_auth_login_via_rest_api(base_url: str, args: argparse.Namespace) -> int:
+    """Device login via POST /api/v1/auth/device so the consent UI on the API finds the user_code."""
+
+    try:
+        store = _get_token_store(allow_plaintext=args.allow_plaintext)
+    except TokenStoreError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    scopes = args.scopes or ["actions.read"]
+    metadata = {
+        "hostname": platform.node(),
+        "platform": sys.platform,
+        "shell": os.environ.get("SHELL", "unknown"),
+        "term": os.environ.get("TERM", "unknown"),
+    }
+
+    init_url = f"{base_url}/api/v1/auth/device"
+    try:
+        status, data = _cli_http_json_post(
+            init_url,
+            {
+                "client_id": args.client_id,
+                "scopes": scopes,
+                "surface": "CLI",
+                "metadata": metadata,
+            },
+        )
+    except urllib.error.URLError as exc:
+        print(
+            f"Could not reach Amprealize API at {base_url}: {exc}\n"
+            f"  Start your stack (e.g. BreakerAmp cloud-dev) and set AMPREALIZE_API_URL to your API or gateway "
+            f"(try http://localhost:8080 for nginx or http://localhost:8000 for direct API).\n"
+            f"  Legacy in-process flow (browser cannot see the code): export AMPREALIZE_CLI_AUTH_LOGIN_LOCAL_ONLY=1",
+            file=sys.stderr,
+        )
+        return 1
+
+    if status not in (200, 201):
+        print(f"Error starting device flow: HTTP {status} {data}", file=sys.stderr)
+        return 1
+
+    device_code = data["device_code"]
+    user_code = data["user_code"]
+    verification_uri = data.get("verification_uri", "")
+    verification_complete = data.get("verification_uri_complete") or f"{verification_uri}?user_code={user_code}"
+    expires_in = int(data.get("expires_in", 600))
+    poll_interval = int(data.get("interval", 5))
+
+    print("Amprealize Device Authorization")
+    print("=" * 80)
+    print(f"Requested Scopes  : {', '.join(scopes)}")
+    print(f"Verification URL  : {verification_uri}")
+    print(f"User Code         : {user_code}")
+    print(f"Expires In        : {expires_in}s")
+    print("\nVisit the URL above and enter the code to approve access.")
+
+    if args.open_browser:
+        try:
+            webbrowser.open(verification_complete)
+            print("Opened verification URL in your default browser.")
+        except webbrowser.Error as exc:
+            print(f"Warning: unable to open browser automatically ({exc}).", file=sys.stderr)
+
+    token_url = f"{base_url}/api/v1/auth/device/token"
+    deadline = time.monotonic() + args.timeout if args.timeout else None
+    try:
+        while True:
+            if deadline and time.monotonic() >= deadline:
+                print("\nTimed out waiting for approval.", file=sys.stderr)
+                return 2
+
+            st, body = _cli_http_json_post(token_url, {"device_code": device_code}, timeout=60.0)
+            if st == 200:
+                print("\n", end="")
+                now = datetime.now(timezone.utc)
+                access_ttl = int(body.get("expires_in", 3600))
+                refresh_ttl = int(body.get("refresh_expires_in", 7 * 24 * 3600))
+                expires_at = now + timedelta(seconds=max(0, access_ttl))
+                refresh_expires_at = now + timedelta(seconds=max(0, refresh_ttl))
+                scope_str = body.get("scope") or ""
+                scopes_out = scope_str.split() if scope_str else list(scopes)
+                bundle = AuthTokenBundle(
+                    access_token=str(body["access_token"]),
+                    refresh_token=str(body.get("refresh_token") or ""),
+                    token_type=str(body.get("token_type") or "Bearer"),
+                    scopes=scopes_out,
+                    client_id=args.client_id,
+                    issued_at=now,
+                    expires_at=expires_at,
+                    refresh_expires_at=refresh_expires_at,
+                )
+                try:
+                    store.save(bundle)
+                except TokenStoreError as exc:
+                    print(f"Warning: failed to persist tokens ({exc}).", file=sys.stderr)
+                    return 4
+
+                print("Login successful!")
+                print(f"Access token valid until : {bundle.expires_at.isoformat()}")
+                print(f"Refresh token valid until: {bundle.refresh_expires_at.isoformat()}")
+                return 0
+
+            detail = body.get("detail") if isinstance(body, dict) else None
+            if st == 400 and isinstance(detail, dict) and detail.get("error") == "authorization_pending":
+                retry_after = float(detail.get("interval", poll_interval))
+                if not args.quiet:
+                    remaining = ""
+                    if deadline:
+                        remaining = f"{max(0, int(deadline - time.monotonic()))}s remaining "
+                    print(
+                        f"Waiting for approval... {remaining}(poll in {retry_after:.0f}s)",
+                        end="\r",
+                        flush=True,
+                    )
+                time.sleep(retry_after)
+                continue
+
+            print("\n", end="")
+            if st == 400 and isinstance(detail, dict) and detail.get("error") == "access_denied":
+                desc = detail.get("error_description") or "Access denied"
+                print(f"Consent denied: {desc}", file=sys.stderr)
+                return 3
+            if st == 400 and isinstance(detail, dict) and detail.get("error") == "expired_token":
+                print("Device code expired before approval.", file=sys.stderr)
+                return 2
+
+            print(f"Error polling device token: HTTP {st} {body}", file=sys.stderr)
+            return 1
+    except KeyboardInterrupt:
+        print("\nLogin cancelled by user.")
+        return 130
+
+
+def _command_auth_login_in_process(args: argparse.Namespace) -> int:
+    """Legacy device login using in-memory DeviceFlowManager in this process only.
+
+    Browser-based activation at the API cannot resolve the user_code (different memory space).
+    Set AMPREALIZE_CLI_AUTH_LOGIN_LOCAL_ONLY=1 to use this path explicitly.
     """
-    # Check provider - internal auth is deprecated
-    provider = getattr(args, "provider", "github")
-    if provider == "internal":
-        return _command_auth_login_internal(args)
 
-    # Device flow for github/google
     manager = _get_device_flow_manager()
     try:
         store = _get_token_store(allow_plaintext=args.allow_plaintext)
@@ -7234,6 +7588,24 @@ def _command_auth_login(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         print("\nLogin cancelled by user.")
         return 130
+
+
+def _command_auth_login(args: argparse.Namespace) -> int:
+    """Perform login and cache issued tokens.
+
+    Uses API-backed device flow so /device/activate can resolve the user_code (shared Postgres store).
+    Internal auth (username/password) has been deprecated.
+    """
+    provider = getattr(args, "provider", "github")
+    if provider == "internal":
+        return _command_auth_login_internal(args)
+
+    if os.getenv("AMPREALIZE_CLI_AUTH_LOGIN_LOCAL_ONLY", "").strip().lower() in {"1", "true", "yes"}:
+        return _command_auth_login_in_process(args)
+
+    # Same default as _wi_api_base — gateway often :8080, direct API :8000
+    base_url = os.environ.get("AMPREALIZE_API_URL", "http://localhost:8000").rstrip("/")
+    return _command_auth_login_via_rest_api(base_url, args)
 
 
 def _command_auth_login_internal(args: argparse.Namespace) -> int:
@@ -9158,15 +9530,18 @@ def _command_breakeramp_machine_start(args: argparse.Namespace) -> int:
         # Determine which machine to start
         name = args.name
         if not name:
-            # Try amprealize-test first, then first available
-            amprealize_machine = next((m for m in machines if m.name == "amprealize-test"), None)
-            if amprealize_machine:
-                name = "amprealize-test"
-            elif machines:
-                name = machines[0].name
+            # Prefer amprealize-dev, then amprealize-test, then first machine
+            for pref in ("amprealize-dev", "amprealize-test"):
+                match = next((m for m in machines if m.name == pref), None)
+                if match:
+                    name = pref
+                    break
             else:
-                print("No Podman machines found. Use 'amprealize breakeramp machine ensure' to create one.", file=sys.stderr)
-                return 1
+                if machines:
+                    name = machines[0].name
+                else:
+                    print("No Podman machines found. Use 'amprealize breakeramp machine ensure' to create one.", file=sys.stderr)
+                    return 1
 
         # Check if already running
         machine = executor.get_machine(name)
@@ -9205,10 +9580,13 @@ def _command_breakeramp_machine_stop(args: argparse.Namespace) -> int:
         # Stop a specific machine
         name = args.name
         if not name:
-            # Try amprealize-test first, then first running machine
-            amprealize_machine = next((m for m in machines if m.name == "amprealize-test" and m.running), None)
-            if amprealize_machine:
-                name = "amprealize-test"
+            # Prefer stopping amprealize-dev if running, then amprealize-test, else first running
+            running_machines = [m for m in machines if m.running]
+            for pref in ("amprealize-dev", "amprealize-test"):
+                match = next((m for m in running_machines if m.name == pref), None)
+                if match:
+                    name = pref
+                    break
             else:
                 running = next((m for m in machines if m.running), None)
                 if running:
@@ -9236,7 +9614,7 @@ def _command_breakeramp_machine_ensure(args: argparse.Namespace) -> int:
     """Ensure a Podman machine is running (start if needed, create if missing)."""
     try:
         executor = _get_podman_executor()
-        name = args.name or "amprealize-test"
+        name = args.name or "amprealize-dev"
 
         machine = executor.get_machine(name)
 
@@ -9277,15 +9655,17 @@ def _command_breakeramp_machine_status(args: argparse.Namespace) -> int:
         # Determine which machine to show
         name = args.name
         if not name:
-            # Try amprealize-test first, then first available
-            amprealize_machine = next((m for m in machines if m.name == "amprealize-test"), None)
-            if amprealize_machine:
-                name = "amprealize-test"
-            elif machines:
-                name = machines[0].name
+            for pref in ("amprealize-dev", "amprealize-test"):
+                match = next((m for m in machines if m.name == pref), None)
+                if match:
+                    name = pref
+                    break
             else:
-                print("No Podman machines found.", file=sys.stderr)
-                return 1
+                if machines:
+                    name = machines[0].name
+                else:
+                    print("No Podman machines found.", file=sys.stderr)
+                    return 1
 
         machine = executor.get_machine(name)
         if not machine:
@@ -9517,6 +9897,126 @@ def _render_cleanup_result(result) -> None:
 
     if result.dry_run:
         print("  💡 Run without --dry-run to perform the cleanup")
+
+
+def _command_run(args: argparse.Namespace) -> int:
+    """Dispatch ``amprealize run`` subcommands (RunService CLI surface)."""
+    from amprealize.run_service import RunNotFoundError as RunNotFoundSqlite
+    from amprealize.run_service_postgres import RunNotFoundError as RunNotFoundPostgres
+
+    adapter = _get_run_adapter()
+    cmd = getattr(args, "run_command", None)
+    if not cmd:
+        print(
+            "Usage: amprealize run {create|get|list|complete|cancel|reliability} …",
+            file=sys.stderr,
+        )
+        return 1
+
+    not_found_errors = (RunNotFoundSqlite, RunNotFoundPostgres)
+
+    try:
+        if cmd == "create":
+            metadata: Dict[str, Any] = {}
+            if getattr(args, "metadata_file", None):
+                metadata = json.loads(Path(args.metadata_file).read_text(encoding="utf-8"))
+            result = adapter.create_run(
+                actor_id=args.actor_id,
+                actor_role=args.actor_role,
+                workflow_id=args.workflow_id,
+                workflow_name=args.workflow_name,
+                template_id=args.template_id,
+                template_name=args.template_name,
+                behavior_ids=list(args.behavior_ids or []),
+                metadata=metadata,
+                initial_message=getattr(args, "message", None),
+            )
+            if args.format == "json":
+                _print_json(result)
+            else:
+                print(f"Created run {result['run_id']} ({result['status']})")
+            return 0
+
+        if cmd == "get":
+            result = adapter.get_run(args.run_id)
+            if args.format == "json":
+                _print_json(result)
+            else:
+                wf = result.get("workflow_id") or result.get("template_id") or "-"
+                print(f"{'Run ID':<40} {'Status':<12} {'Workflow/Template':<24}")
+                print(f"{result['run_id']:<40} {result['status']:<12} {str(wf):<24}")
+            return 0
+
+        if cmd == "list":
+            result = adapter.list_runs(
+                status=getattr(args, "status", None),
+                workflow_id=getattr(args, "workflow_id", None),
+                template_id=getattr(args, "template_id", None),
+                limit=getattr(args, "limit", 50),
+            )
+            if args.format == "json":
+                _print_json(result)
+            elif not result:
+                print("No runs.")
+            else:
+                print(f"{'Run ID':<40} {'Status':<12} {'Progress':<10}")
+                for row in result:
+                    pct = row.get("progress_pct")
+                    pct_s = f"{pct:.0f}%" if isinstance(pct, (int, float)) else "-"
+                    print(f"{row['run_id']:<40} {row['status']:<12} {pct_s:<10}")
+            return 0
+
+        if cmd == "complete":
+            outputs: Dict[str, Any] = {}
+            if getattr(args, "outputs_file", None):
+                outputs = json.loads(Path(args.outputs_file).read_text(encoding="utf-8"))
+            meta_complete: Dict[str, Any] = {}
+            if getattr(args, "metadata_file", None):
+                meta_complete = json.loads(Path(args.metadata_file).read_text(encoding="utf-8"))
+            result = adapter.complete_run(
+                args.run_id,
+                status=args.status,
+                outputs=outputs,
+                message=getattr(args, "message", None),
+                error=getattr(args, "error", None),
+                metadata=meta_complete,
+            )
+            if args.format == "json":
+                _print_json(result)
+            else:
+                print(f"Completed run {result['run_id']} as {result['status']}")
+            return 0
+
+        if cmd == "cancel":
+            result = adapter.cancel_run(args.run_id, reason=getattr(args, "reason", None))
+            if args.format == "json":
+                _print_json(result)
+            else:
+                print(f"Cancelled run {result['run_id']} ({result['status']})")
+            return 0
+
+        if cmd == "reliability":
+            result = adapter.get_run_reliability(args.run_id)
+            if args.format == "json":
+                _print_json(result)
+            else:
+                chk = result.get("checkpoint") or {}
+                print(f"Run: {result.get('run_id')}")
+                print(f"  Status: {result.get('status')}")
+                print(
+                    f"  Checkpoint seq: {chk.get('seq')}  cycle: {chk.get('cycle_id') or '-'}"
+                )
+                print(f"  Phases: {', '.join(chk.get('phase_keys') or []) or '-'}")
+                circ = result.get("circuits") or {}
+                print(f"  Circuits: {len(circ)} key(s)")
+            return 0
+
+        print(f"Unknown run subcommand: {cmd}", file=sys.stderr)
+        return 1
+
+    except not_found_errors as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
 
 def _command_scan_secrets(args: argparse.Namespace) -> int:
@@ -11283,6 +11783,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _command_dr(args)
     elif args.command == "tasks":
         return _command_list_tasks(args)
+    elif args.command == "suggest-agent":
+        return _command_suggest_agent(args)
     elif args.command == "behaviors":
         if args.behaviors_command == "create":
             return _command_behaviors_create(args)
@@ -11337,6 +11839,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _command_workflow_run(args)
         elif args.workflow_command == "status":
             return _command_workflow_status(args)
+    elif args.command == "run":
+        return _command_run(args)
     elif args.command == "breakeramp":
         if args.breakeramp_command == "plan":
             return _command_breakeramp_plan(args)
@@ -11493,6 +11997,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _command_wi_clarify(args)
         elif args.wi_command == "approve-gate":
             return _command_wi_approve_gate(args)
+    elif args.command == "connector":
+        return _command_connector(args)
+    elif args.command == "resources":
+        if args.resources_command == "analyze":
+            return _command_resources_analyze(args)
     elif args.command == "config":
         if args.config_command == "show":
             return _command_config_show(args)
@@ -11512,6 +12021,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _command_context_add(args)
         elif args.context_command == "remove":
             return _command_context_remove(args)
+        elif args.context_command == "init-standard-local":
+            return _command_context_init_standard_local(args)
         elif args.context_command == "status":
             return _command_context_status(args)
         elif args.context_command == "migrate":
@@ -11594,6 +12105,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             return _command_conversation_create(args)
         elif args.conversation_command == "archive":
             return _command_conversation_archive(args)
+        elif args.conversation_command == "patch":
+            return _command_conversation_patch(args)
         elif args.conversation_command == "send":
             return _command_conversation_send(args)
         elif args.conversation_command == "messages":
@@ -12183,6 +12696,17 @@ def _command_context_use(args: argparse.Namespace) -> int:
     else:
         print(f"❌ {message}", file=sys.stderr)
         return 1
+
+
+def _command_context_init_standard_local(args: argparse.Namespace) -> int:
+    """Seed local-postgres-dev / local-postgres-test from infra-aligned DSNs."""
+    from amprealize.context import ensure_standard_local_postgres_contexts
+
+    created, messages = ensure_standard_local_postgres_contexts()
+    for line in messages:
+        print(line)
+    print(f"Created {created} new context(s). Use 'amprealize context list' to verify.")
+    return 0
 
 
 def _command_context_add(args: argparse.Namespace) -> int:
@@ -13702,7 +14226,8 @@ def _render_conversations_table(data: Dict[str, Any]) -> None:
         print("No conversations found.")
         return
     total = data.get("total", len(convs))
-    print(f"\nConversations ({len(convs)} of {total}):\n")
+    total_label = "?" if isinstance(total, int) and total < 0 else str(total)
+    print(f"\nConversations ({len(convs)} of {total_label}):\n")
     header = f"{'ID':<38} {'Scope':<14} {'Title':<30} {'Participants':<13} {'Archived':<9} {'Updated'}"
     print(header)
     print("-" * len(header))
@@ -13738,7 +14263,8 @@ def _render_messages_table(data: Dict[str, Any]) -> None:
         return
     total = data.get("total", len(msgs))
     has_more = data.get("has_more", False)
-    print(f"\nMessages ({len(msgs)} of {total}, more={has_more}):\n")
+    total_label = "?" if isinstance(total, int) and total < 0 else str(total)
+    print(f"\nMessages ({len(msgs)} of {total_label}, more={has_more}):\n")
     header = f"{'ID':<38} {'Sender':<20} {'Type':<14} {'Replies':<8} {'Time':<20} {'Content'}"
     print(header)
     print("-" * min(len(header) + 40, 160))
@@ -13809,9 +14335,11 @@ def _command_conversation_list(args: argparse.Namespace) -> int:
             user_id=args.user_id,
             org_id=args.org_id,
             scope=args.scope,
+            scopes=args.scopes,
             include_archived=args.include_archived,
             limit=args.limit,
             offset=args.offset,
+            include_total=args.include_total,
         )
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -13884,6 +14412,38 @@ def _command_conversation_archive(args: argparse.Namespace) -> int:
     return 0
 
 
+def _command_conversation_patch(args: argparse.Namespace) -> int:
+    if args.clear_title and args.title is not None:
+        print("Error: use either --title or --clear-title, not both", file=sys.stderr)
+        return 1
+    patch: Dict[str, Any] = {}
+    if args.clear_title:
+        patch["title"] = None
+    elif args.title is not None:
+        patch["title"] = args.title
+    else:
+        print("Error: provide --title or --clear-title", file=sys.stderr)
+        return 1
+
+    adapter = _get_conversation_adapter()
+    try:
+        result = adapter.patch_conversation(
+            args.conversation_id,
+            user_id=args.user_id,
+            org_id=args.org_id,
+            patch=patch,
+        )
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        _print_json(result)
+    else:
+        _render_conversation_detail(result)
+    return 0
+
+
 def _command_conversation_send(args: argparse.Namespace) -> int:
     adapter = _get_conversation_adapter()
     try:
@@ -13919,6 +14479,7 @@ def _command_conversation_messages(args: argparse.Namespace) -> int:
             parent_id=args.parent_id,
             limit=args.limit,
             offset=args.offset,
+            include_total=args.include_total,
         )
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -14957,6 +15518,111 @@ def _wi_auth_headers() -> Dict[str, str]:
     return headers
 
 
+def _command_resources_analyze(args: argparse.Namespace) -> int:
+    """Call POST /v1/resources:analyze for read-only natural-language resource queries."""
+
+    body: Dict[str, Any] = {"query": args.query}
+    if getattr(args, "project_id", None):
+        body["project_id"] = args.project_id
+    if getattr(args, "org_id", None):
+        body["org_id"] = args.org_id
+    if getattr(args, "conversation_scope", None):
+        body["conversation_scope"] = args.conversation_scope
+
+    result = _wi_api_call("POST", "/v1/resources:analyze", body)
+    if not isinstance(result, dict):
+        print(f"Error: {result}", file=sys.stderr)
+        return 1
+    if "detail" in result:
+        print(f"Error: {result['detail']}", file=sys.stderr)
+        return 1
+    if not result.get("success"):
+        print(f"Error: {result}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        import json as _json
+
+        print(_json.dumps(result, indent=2))
+        return 0
+
+    print(result.get("content", ""))
+    meta = result.get("metadata") or {}
+    qp = result.get("query_plan") or {}
+    print(
+        f"\n---\n{meta.get('analysis_mode', 'n/a')} | "
+        f"{qp.get('intent', '?')} | {qp.get('resource_type', '?')} | "
+        f"rows: {meta.get('row_count', 0)}"
+    )
+    return 0
+
+
+def _command_connector(args: argparse.Namespace) -> int:
+    """Local execution connector CLI (REST parity for pairing lifecycle + listen)."""
+    import json as _json
+    from urllib.parse import quote
+
+    from amprealize.connector_daemon.client import http_json
+
+    cmd = args.connector_command
+    if cmd == "pairing-code":
+        uid = quote(args.user_id, safe="")
+        status, data = http_json("POST", f"/v1/execution-connector/pairing-codes?user_id={uid}", None)
+        if status >= 400:
+            print(_json.dumps({"ok": False, "status": status, "detail": data}, indent=2), file=sys.stderr)
+            return 1
+        if args.format == "json":
+            _print_json(data)
+        else:
+            print(f"code={data.get('code')} expires_at={data.get('expires_at')}")
+        return 0
+    if cmd == "pair":
+        status, data = http_json(
+            "POST",
+            "/v1/execution-connector/devices",
+            {"code": args.code, "label": args.label or "cli"},
+        )
+        if status >= 400:
+            print(_json.dumps({"ok": False, "status": status, "detail": data}, indent=2), file=sys.stderr)
+            return 1
+        if args.format == "json":
+            _print_json(data)
+        else:
+            print(f"device_id={data.get('device_id')} user_id={data.get('user_id')}")
+            print("export AMPREALIZE_DEVICE_TOKEN='...'  # see JSON for device_token")
+        return 0
+    if cmd == "revoke":
+        token = getattr(args, "device_token", None) or os.environ.get("AMPREALIZE_DEVICE_TOKEN", "")
+        if not token:
+            print("--device-token or AMPREALIZE_DEVICE_TOKEN required", file=sys.stderr)
+            return 1
+        status, data = http_json("POST", "/v1/execution-connector/devices:revoke", {"device_token": token})
+        if status >= 400:
+            print(_json.dumps({"ok": False, "status": status, "detail": data}, indent=2), file=sys.stderr)
+            return 1
+        print("Device revoked.")
+        return 0
+    if cmd == "listen":
+        import asyncio
+
+        try:
+            import websockets  # noqa: F401
+        except ImportError:
+            print("Install optional dependency: pip install 'amprealize[connector]'", file=sys.stderr)
+            return 1
+
+        from amprealize.connector_daemon.runner import listen_forever, ws_url_with_token
+
+        token = getattr(args, "device_token", None) or os.environ.get("AMPREALIZE_DEVICE_TOKEN", "")
+        if not token:
+            print("--device-token or AMPREALIZE_DEVICE_TOKEN required", file=sys.stderr)
+            return 1
+        asyncio.run(listen_forever(ws_url_with_token(token)))
+        return 0
+    print(f"Unknown connector subcommand: {cmd}", file=sys.stderr)
+    return 1
+
+
 def _wi_api_call(
     method: str, path: str, body: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
@@ -14994,6 +15660,8 @@ def _command_wi_execute(args: argparse.Namespace) -> int:
         body["callback_url"] = args.callback_url
     if getattr(args, "session_mode", False):
         body["execution_mode"] = "session"
+    if getattr(args, "workspace_kind", None):
+        body["execution_workspace_kind"] = args.workspace_kind
 
     params = f"project_id={args.project_id}"
     if args.org_id:
@@ -15142,6 +15810,30 @@ def _command_wi_status(args: argparse.Namespace) -> int:
                 c_id = c.get("id", c.get("clarification_id", "N/A"))
                 q_text = c.get("question", c.get("text", str(c)))
                 print(f"      [{c_id}] {q_text}")
+
+        trace = result.get("trace_summary") or {}
+        kr = trace.get("knowledge_retrieval") if isinstance(trace, dict) else None
+        if isinstance(kr, dict):
+            spans = kr.get("spans") or []
+            count = kr.get("span_count")
+            if isinstance(spans, list) and spans:
+                print("\n   📚 Knowledge sources:")
+                if isinstance(count, int):
+                    print(f"      (reported count: {count})")
+                for row in spans[:25]:
+                    if not isinstance(row, dict):
+                        continue
+                    title = row.get("title") or row.get("anchor") or "source"
+                    channel = row.get("channel") or ""
+                    phase = row.get("phase") or ""
+                    meta_bits = [str(channel), str(phase)] if channel or phase else []
+                    meta = " · ".join(meta_bits) if meta_bits else ""
+                    if meta:
+                        print(f"      • {title} ({meta})")
+                    else:
+                        print(f"      • {title}")
+                if len(spans) > 25:
+                    print(f"      … and {len(spans) - 25} more")
 
     return 0
 

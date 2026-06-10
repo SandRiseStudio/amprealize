@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "config.getModelReadiness",
+  "version": "1.0.0",
+  "description": "Unified model + BYOK readiness (same contract as GET /api/v1/model-readiness). Use before first chat send.",
+  "category": "config",
+  "tags": ["config", "models", "llm", "readiness", "byok"],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "User scope for BYOK (optional when MCP session provides user_id)."
+      },
+      "project_id": { "type": "string", "description": "Project scope (optional)" },
+      "org_id": { "type": "string", "description": "Organization scope (optional)" },
+      "prefer_user": { "type": "boolean", "default": false },
+      "selected_model_id": { "type": "string", "description": "If set, validates this model for send." },
+      "provider_filter": { "type": "string" },
+      "free_open_only": { "type": "boolean", "default": false }
+    },
+    "required": [],
+    "additionalProperties": true
+  },
+  "outputSchema": {
+    "type": "object",
+    "description": "Readiness payload including models[], can_send, state, encryption"
+  }
+}

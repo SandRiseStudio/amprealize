@@ -19,6 +19,18 @@ import asyncio
 from typing import Any, Callable, Dict, Optional, Tuple
 
 
+class WikiToolValidationError(ValueError):
+    """Raised when a wiki MCP tool is missing required runtime arguments."""
+
+
+def _require(params: Dict[str, Any], *fields: str) -> None:
+    missing = [field for field in fields if not params.get(field)]
+    if not missing:
+        return
+    label = "parameter" if len(missing) == 1 else "parameters"
+    raise WikiToolValidationError(f"Missing required {label}: {', '.join(missing)}")
+
+
 def _extract_identity(params: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Extract owner_id, org_id, project_id from session-injected params."""
     session = params.get("_session", {})
@@ -50,9 +62,7 @@ async def handle_research_wiki_ingest(
     Optional params:
         - sources: List of source references (URLs, arxiv IDs)
     """
-    for required in ("paper_title", "paper_id", "verdict", "overall_score", "markdown_report"):
-        if required not in params:
-            return {"success": False, "error": f"Missing required parameter: {required}"}
+    _require(params, "paper_title", "paper_id", "verdict", "overall_score", "markdown_report")
 
     try:
         loop = asyncio.get_event_loop()
@@ -85,9 +95,8 @@ async def handle_research_wiki_query(
         - page_type: Filter by type (entity, concept, evaluation-summary, synthesis, contradiction)
         - max_results: Maximum results (default 10)
     """
-    query = params.get("query")
-    if not query:
-        return {"success": False, "error": "Missing required parameter: query"}
+    _require(params, "query")
+    query = params["query"]
 
     try:
         loop = asyncio.get_event_loop()
@@ -152,9 +161,7 @@ async def handle_infra_wiki_ingest(
     Optional params:
         - applies_to: Environments (dev, test, staging, prod)
     """
-    for required in ("source_file", "page_path", "title", "page_type", "summary"):
-        if required not in params:
-            return {"success": False, "error": f"Missing required parameter: {required}"}
+    _require(params, "source_file", "page_path", "title", "page_type", "summary")
 
     try:
         loop = asyncio.get_event_loop()
@@ -187,9 +194,8 @@ async def handle_infra_wiki_query(
         - page_type: Filter by type (reference, howto, architecture, troubleshooting, practice)
         - max_results: Maximum results (default 10)
     """
-    query = params.get("query")
-    if not query:
-        return {"success": False, "error": "Missing required parameter: query"}
+    _require(params, "query")
+    query = params["query"]
 
     try:
         loop = asyncio.get_event_loop()
@@ -256,9 +262,7 @@ async def handle_ai_learning_wiki_ingest(
         - sources: Source citations
         - amprealize_relevance: How this concept relates to Amprealize
     """
-    for required in ("page_path", "title", "page_type", "body"):
-        if required not in params:
-            return {"success": False, "error": f"Missing required parameter: {required}"}
+    _require(params, "page_path", "title", "page_type", "body")
 
     extra_fm: Dict[str, Any] = {
         "difficulty": params.get("difficulty", "beginner"),
@@ -300,9 +304,8 @@ async def handle_ai_learning_wiki_query(
         - page_type: concept | technology | pattern | glossary | in-practice
         - max_results: Maximum results (default 10)
     """
-    query = params.get("query")
-    if not query:
-        return {"success": False, "error": "Missing required parameter: query"}
+    _require(params, "query")
+    query = params["query"]
 
     try:
         loop = asyncio.get_event_loop()
@@ -329,9 +332,8 @@ async def handle_ai_learning_wiki_explain(
     Required params:
         - concept: The concept to explain
     """
-    concept = params.get("concept")
-    if not concept:
-        return {"success": False, "error": "Missing required parameter: concept"}
+    _require(params, "concept")
+    concept = params["concept"]
 
     try:
         loop = asyncio.get_event_loop()
@@ -377,11 +379,12 @@ async def handle_ai_learning_wiki_status(
 _VALID_DOMAINS = {"research", "infra", "ai-learning", "platform"}
 
 
-def _validate_domain(params: Dict[str, Any]) -> Optional[str]:
+def _validate_domain(params: Dict[str, Any]) -> str:
     domain = params.get("domain")
     if not domain or domain not in _VALID_DOMAINS:
-        return None
-    return domain
+        valid = ", ".join(sorted(_VALID_DOMAINS))
+        raise WikiToolValidationError(f"Invalid domain. Must be one of: {valid}")
+    return str(domain)
 
 
 async def handle_wiki_read_page(
@@ -393,12 +396,8 @@ async def handle_wiki_read_page(
     Required params: domain, page_path
     """
     domain = _validate_domain(params)
-    if not domain:
-        return {"success": False, "error": f"Invalid domain. Must be one of: {', '.join(sorted(_VALID_DOMAINS))}"}
-
-    page_path = params.get("page_path")
-    if not page_path:
-        return {"success": False, "error": "Missing required parameter: page_path"}
+    _require(params, "page_path")
+    page_path = params["page_path"]
 
     try:
         loop = asyncio.get_event_loop()
@@ -421,12 +420,7 @@ async def handle_wiki_create_page(
     Optional params: extra_frontmatter
     """
     domain = _validate_domain(params)
-    if not domain:
-        return {"success": False, "error": f"Invalid domain. Must be one of: {', '.join(sorted(_VALID_DOMAINS))}"}
-
-    for required in ("page_path", "title", "page_type", "body"):
-        if required not in params:
-            return {"success": False, "error": f"Missing required parameter: {required}"}
+    _require(params, "page_path", "title", "page_type", "body")
 
     try:
         loop = asyncio.get_event_loop()
@@ -467,15 +461,11 @@ async def handle_wiki_update_page(
     Optional params: body_additions, frontmatter_updates, replace_body
     """
     domain = _validate_domain(params)
-    if not domain:
-        return {"success": False, "error": f"Invalid domain. Must be one of: {', '.join(sorted(_VALID_DOMAINS))}"}
-
-    page_path = params.get("page_path")
-    if not page_path:
-        return {"success": False, "error": "Missing required parameter: page_path"}
+    _require(params, "page_path")
+    page_path = params["page_path"]
 
     if not params.get("body_additions") and not params.get("frontmatter_updates"):
-        return {"success": False, "error": "Must provide body_additions and/or frontmatter_updates"}
+        raise WikiToolValidationError("Must provide body_additions and/or frontmatter_updates")
 
     try:
         loop = asyncio.get_event_loop()
@@ -514,12 +504,8 @@ async def handle_wiki_delete_page(
     Required params: domain, page_path
     """
     domain = _validate_domain(params)
-    if not domain:
-        return {"success": False, "error": f"Invalid domain. Must be one of: {', '.join(sorted(_VALID_DOMAINS))}"}
-
-    page_path = params.get("page_path")
-    if not page_path:
-        return {"success": False, "error": "Missing required parameter: page_path"}
+    _require(params, "page_path")
+    page_path = params["page_path"]
 
     try:
         loop = asyncio.get_event_loop()
@@ -542,8 +528,6 @@ async def handle_wiki_list_pages(
     Optional params: page_type, folder
     """
     domain = _validate_domain(params)
-    if not domain:
-        return {"success": False, "error": f"Invalid domain. Must be one of: {', '.join(sorted(_VALID_DOMAINS))}"}
 
     filter_type = params.get("page_type")
     filter_folder = params.get("folder")
@@ -622,9 +606,7 @@ async def handle_platform_wiki_ingest(
         - applies_to: Environments (dev, test, staging, prod)
         - tags: List of topic tags
     """
-    for required in ("page_path", "title", "page_type", "body"):
-        if required not in params:
-            return {"success": False, "error": f"Missing required parameter: {required}"}
+    _require(params, "page_path", "title", "page_type", "body")
 
     extra_fm: Dict[str, Any] = {
         "applies_to": params.get("applies_to", ["dev", "test", "staging", "prod"]),
@@ -662,9 +644,8 @@ async def handle_platform_wiki_query(
         - page_type: Filter by type (reference, howto, architecture)
         - max_results: Maximum results (default 10)
     """
-    query = params.get("query")
-    if not query:
-        return {"success": False, "error": "Missing required parameter: query"}
+    _require(params, "query")
+    query = params["query"]
 
     try:
         loop = asyncio.get_event_loop()

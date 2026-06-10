@@ -7,14 +7,14 @@
     "properties": {
       "user_id": {
         "type": "string",
-        "description": "ID of the user performing the action (required for authorization)"
+        "description": "ID of the user performing the action (optional, uses session)"
       },
       "org_id": {
         "type": "string",
         "description": "Organization ID to delete"
       }
     },
-    "required": ["user_id", "org_id"]
+    "required": ["org_id"]
   },
   "outputSchema": {
     "type": "object",

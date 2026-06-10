@@ -5,6 +5,7 @@ Three execution modes, each with a distinct isolation model:
 - ContainerIsolatedExecutor: Full Podman sandbox; clone source into container.
 - ContainerConnectedExecutor: Podman sandbox with user's project mounted.
 - LocalDirectExecutor: No container; direct host filesystem access.
+- LocalConnectorHybridExecutor: Server-side loop; filesystem/shell tools delegate to a paired daemon.
 
 Part of E3 — Agent Execution Loop Rearchitecture (AMPREALIZE-277 / Phases 1+2).
 """
@@ -12,6 +13,7 @@ Part of E3 — Agent Execution Loop Rearchitecture (AMPREALIZE-277 / Phases 1+2)
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -413,6 +415,63 @@ class LocalDirectExecutor:
 
     async def cleanup(self, resolved: ResolvedExecution) -> None:
         """No-op — local filesystem is the user's responsibility."""
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Local connector hybrid (server loop + delegated tools)
+# ---------------------------------------------------------------------------
+
+
+class LocalConnectorHybridExecutor:
+    """Agent loop runs in the API process; workspace tools use the paired connector daemon.
+
+    Provisioning waits for ``run.lease_ack`` on :class:`LocalExecutionConnectorHub`
+    before ``AgentExecutionLoop`` runs. Filesystem and shell operations are routed
+    through :class:`ConnectorToolDelegate` on the execution loop's ``ToolExecutor``.
+    """
+
+    @property
+    def mode(self) -> NewExecutionMode:
+        return NewExecutionMode.LOCAL_CONNECTOR_HYBRID
+
+    async def provision_workspace(self, resolved: ResolvedExecution) -> ResolvedExecution:
+        from .local_execution_connector_hub import get_local_execution_connector_hub
+
+        hub = get_local_execution_connector_hub()
+        timeout = float(os.environ.get("AMPREALIZE_CONNECTOR_LEASE_ACK_TIMEOUT_SEC", "300"))
+        ok = await hub.wait_for_lease_ack(resolved.run_id, timeout_sec=timeout)
+        if not ok:
+            raise TimeoutError(
+                f"Timed out waiting for local connector lease ack for run {resolved.run_id}"
+            )
+        resolved.workspace_id = None
+        resolved.workspace_path = None
+        resolved.container_id = None
+        logger.info("Local connector lease acknowledged for run %s", resolved.run_id)
+        return resolved
+
+    async def execute(
+        self,
+        resolved: ResolvedExecution,
+        execution_loop: Any,
+        *,
+        work_item: Any,
+        agent: Any,
+        agent_version: Any,
+        exec_policy: Any,
+    ) -> Dict[str, Any]:
+        return await _drive_loop(
+            resolved,
+            execution_loop,
+            work_item=work_item,
+            agent=agent,
+            agent_version=agent_version,
+            exec_policy=exec_policy,
+        )
+
+    async def cleanup(self, resolved: ResolvedExecution) -> None:
+        """Daemon/host workspace is managed by the user and connector release."""
         pass
 
 

@@ -62,6 +62,27 @@ def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _strip_first_markdown_h1(markdown: str) -> str:
+    """Remove a leading ATX H1 (`# Title`) so the wiki page can use its own title line.
+
+    Does not strip `##` or deeper headings.
+    """
+    text = markdown.strip()
+    lines = text.split("\n")
+    if not lines:
+        return text
+    first = lines[0].strip()
+    if not first.startswith("#") or first.startswith("##"):
+        return text
+    # Single # must be followed by whitespace (ATX H1), not `#tag`
+    if not re.match(r"^#\s+\S", first):
+        return text
+    rest = lines[1:]
+    while rest and not rest[0].strip():
+        rest = rest[1:]
+    return "\n".join(rest).strip()
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -491,7 +512,8 @@ class WikiService:
         """Ingest a research evaluation into the Research Wiki.
 
         Extracts entities and concepts from the report, creates/updates pages,
-        and updates index + log.
+        and updates index + log. Reruns with the same paper title overwrite the
+        evaluation summary at ``evaluations/<slug>.md`` (stable slug from title).
 
         Args:
             paper_title: Title of the evaluated paper
@@ -505,7 +527,7 @@ class WikiService:
         created_pages: List[str] = []
         updated_pages: List[str] = []
 
-        # 1. Create evaluation summary page
+        # 1. Create or replace evaluation summary page (same title → same slug → overwrite on rerun)
         slug = re.sub(r'[^a-z0-9]+', '-', paper_title.lower()).strip('-')[:60]
         eval_path = f"evaluations/{slug}.md"
         confidence = "high" if overall_score >= 7 else ("medium" if overall_score >= 4 else "low")
@@ -513,25 +535,42 @@ class WikiService:
         eval_body = f"# {paper_title}\n\n"
         eval_body += f"**Verdict**: {verdict} | **Score**: {overall_score}/10\n\n"
 
-        # Extract executive summary from report if present
-        exec_match = re.search(r'(?:Executive Summary|## Summary)\s*\n(.*?)(?=\n##|\Z)', markdown_report, re.DOTALL | re.IGNORECASE)
-        if exec_match:
-            eval_body += "## Key Findings\n\n" + exec_match.group(1).strip() + "\n"
+        # Include the full pipeline markdown. Previously only an "Executive Summary"
+        # excerpt was merged when a narrow regex matched; research reports use
+        # structured sections (e.g. ### Executive summary) so the page was empty.
+        report_md = (markdown_report or "").strip()
+        if report_md:
+            remainder = _strip_first_markdown_h1(report_md)
+            if remainder:
+                eval_body += "## Full evaluation report\n\n" + remainder + "\n"
 
-        result = self.create_page(
-            domain=domain,
-            page_path=eval_path,
-            title=f"Evaluation: {paper_title}",
-            page_type="evaluation-summary",
-            body=eval_body,
-            extra_frontmatter={
-                "sources": sources or [paper_id],
-                "confidence": confidence,
-                "tags": [verdict.lower()],
-            },
-        )
-        if result["success"]:
-            created_pages.append(eval_path)
+        eval_full = self._resolve_page_path(domain, eval_path)
+        fm_updates = {
+            "title": f"Evaluation: {paper_title}",
+            "sources": sources or [paper_id],
+            "confidence": confidence,
+            "tags": [verdict.lower()],
+        }
+        if eval_full.exists():
+            self.update_page(
+                domain=domain,
+                page_path=eval_path,
+                body_additions=eval_body,
+                frontmatter_updates=fm_updates,
+                replace_body=True,
+            )
+            updated_pages.append(eval_path)
+        else:
+            result = self.create_page(
+                domain=domain,
+                page_path=eval_path,
+                title=f"Evaluation: {paper_title}",
+                page_type="evaluation-summary",
+                body=eval_body,
+                extra_frontmatter=fm_updates,
+            )
+            if result["success"]:
+                created_pages.append(eval_path)
 
         # 2. Extract entities and concepts (simple extraction from report)
         entities, concepts = self._extract_entities_and_concepts(markdown_report)

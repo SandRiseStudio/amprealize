@@ -227,6 +227,7 @@ class OpenAIProvider(Provider):
 
         try:
             content_parts: List[str] = []
+            reasoning_parts: List[str] = []
             input_tokens = 0
             output_tokens = 0
             finish_reason: Optional[str] = None
@@ -236,6 +237,12 @@ class OpenAIProvider(Provider):
             for chunk in stream:
                 if chunk.choices:
                     delta = chunk.choices[0].delta
+                    reasoning_delta = (
+                        getattr(delta, "reasoning", None)
+                        or getattr(delta, "reasoning_content", None)
+                    )
+                    if reasoning_delta:
+                        reasoning_parts.append(reasoning_delta)
                     if delta and delta.content:
                         content_parts.append(delta.content)
                         if callback:
@@ -255,6 +262,7 @@ class OpenAIProvider(Provider):
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 finish_reason=finish_reason,
+                reasoning_content="".join(reasoning_parts) or None,
             )
         except (TokenBudgetError, RateLimitError, AuthenticationError):
             raise
@@ -303,6 +311,7 @@ class OpenAIProvider(Provider):
 
         try:
             content_parts: List[str] = []
+            reasoning_parts: List[str] = []
             # Track in-progress tool calls by index
             tool_builders: Dict[int, Dict[str, Any]] = {}
             tool_calls: list = []
@@ -321,6 +330,17 @@ class OpenAIProvider(Provider):
                     delta = choice.delta
 
                     # Text content
+                    reasoning_delta = (
+                        getattr(delta, "reasoning", None)
+                        or getattr(delta, "reasoning_content", None)
+                    )
+                    if reasoning_delta:
+                        reasoning_parts.append(reasoning_delta)
+                        yield StreamChunk(
+                            type=StreamChunkType.REASONING_DELTA,
+                            reasoning=reasoning_delta,
+                        )
+
                     if delta and delta.content:
                         content_parts.append(delta.content)
                         yield StreamChunk(
@@ -392,6 +412,7 @@ class OpenAIProvider(Provider):
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 finish_reason=finish_reason,
+                reasoning_content="".join(reasoning_parts) or None,
             )
             yield StreamChunk(
                 type=StreamChunkType.MESSAGE_COMPLETE,
@@ -400,9 +421,18 @@ class OpenAIProvider(Provider):
         except (TokenBudgetError, RateLimitError, AuthenticationError):
             raise
         except Exception as exc:
+            logger.error(
+                "openai.astream failed provider=%s api_base=%s model=%s: %s",
+                self.config.provider,
+                self.config.api_base or "",
+                self.config.model,
+                exc,
+                exc_info=True,
+            )
             yield StreamChunk(
                 type=StreamChunkType.ERROR,
                 error=str(exc),
+                error_class=type(exc).__name__,
             )
 
     def is_available(self) -> bool:

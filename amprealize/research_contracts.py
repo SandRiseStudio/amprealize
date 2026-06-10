@@ -414,6 +414,10 @@ class EvaluatePaperRequest(SerializableMixin):
 
     source: str  # URL, file path, or arxiv ID
     source_type: Optional[SourceType] = None
+    title_override: Optional[str] = None
+    #: When set (e.g. pasted article), ingest this as markdown instead of fetching ``source`` HTML.
+    #: ``source`` should still be the canonical http(s) URL for attribution.
+    body_markdown: Optional[str] = None
     context_documents: List[str] = field(
         default_factory=lambda: ["AGENTS.md", "PRD.md", "docs/contracts/MCP_SERVER_DESIGN.md"]
     )

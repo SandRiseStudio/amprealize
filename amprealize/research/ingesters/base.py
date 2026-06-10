@@ -23,7 +23,10 @@ class BaseIngester:
     def __init__(self, **kwargs: Any) -> None:
         self._config = kwargs
 
-    async def ingest(self, source: str, **kwargs: Any) -> IngestResult:
+    def can_handle(self, source: str) -> bool:
+        return False
+
+    def ingest(self, source: str, **kwargs: Any) -> IngestResult:
         raise NotImplementedError("Subclasses must implement ingest()")
 
 

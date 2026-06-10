@@ -26,6 +26,7 @@ from .action_contracts import (
     utc_now_iso,
 )
 from .action_replay_executor import ActionReplayExecutor, ExecutionStatus
+from .execution_observability import sanitize_observability_payload
 from .action_service import (
     ActionService,
     ActionServiceError,
@@ -219,12 +220,23 @@ class PostgresActionService:
         checksum = request.checksum or ActionService._calculate_checksum(request)
         action_id = str(uuid.uuid4())
         timestamp = utc_now_iso()
+        metadata = dict(request.metadata or {})
+        trace_id = ActionService._trace_value(request, "trace_id") or request.related_run_id
+        span_id = ActionService._trace_value(request, "span_id") or f"action:{action_id}"
+        parent_span_id = ActionService._trace_value(request, "parent_span_id")
+        outcome_ref = ActionService._trace_value(request, "outcome_ref")
+        metadata.setdefault("action_trace", {
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "parent_span_id": parent_span_id,
+            "outcome_ref": outcome_ref,
+        })
 
         def _execute(conn: Any) -> Sequence[Any]:
             with conn.cursor() as cur:  # type: ignore[misc]
                 cur.execute(
                     """
-                    INSERT INTO actions (
+                    INSERT INTO public.actions (
                         action_id, timestamp, actor_id, actor_role, actor_surface,
                         artifact_path, summary, behaviors_cited, metadata,
                         related_run_id, audit_log_event_id, checksum, replay_status
@@ -246,7 +258,7 @@ class PostgresActionService:
                         request.artifact_path,
                         request.summary,
                         Json(request.behaviors_cited),
-                        Json(request.metadata),
+                        Json(metadata),
                         request.related_run_id,
                         request.audit_log_event_id,
                         checksum,
@@ -279,6 +291,10 @@ class PostgresActionService:
             metadata=row[8],
             related_run_id=str(row[9]) if row[9] else None,
             audit_log_event_id=str(row[10]) if row[10] else None,
+            trace_id=trace_id,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            outcome_ref=outcome_ref,
             checksum=row[11],
             replay_status=row[12],
         )
@@ -292,7 +308,29 @@ class PostgresActionService:
                 "artifact_path": action.artifact_path,
                 "summary": action.summary,
                 "behaviors_cited": list(action.behaviors_cited),
-                "metadata": dict(action.metadata),
+                "metadata": sanitize_observability_payload(dict(action.metadata)),
+                "related_run_id": action.related_run_id,
+                "audit_log_event_id": action.audit_log_event_id,
+                "trace_id": action.trace_id,
+                "span_id": action.span_id,
+                "parent_span_id": action.parent_span_id,
+                "outcome_ref": action.outcome_ref,
+            },
+            actor=ActionService._actor_payload(actor),
+            action_id=action.action_id,
+            run_id=action.related_run_id,
+        )
+        self._telemetry.emit_event(
+            event_type="action.business_outcome",
+            payload={
+                "outcome_type": "action_recorded",
+                "outcome_ref": action.outcome_ref or f"action:{action.action_id}",
+                "action_id": action.action_id,
+                "artifact_path": action.artifact_path,
+                "summary": action.summary,
+                "trace_id": action.trace_id,
+                "span_id": action.span_id,
+                "parent_span_id": action.parent_span_id,
                 "related_run_id": action.related_run_id,
                 "audit_log_event_id": action.audit_log_event_id,
             },
@@ -321,7 +359,7 @@ class PostgresActionService:
                     SELECT action_id, timestamp, actor_id, actor_role, actor_surface,
                            artifact_path, summary, behaviors_cited, metadata,
                            related_run_id, audit_log_event_id, checksum, replay_status
-                    FROM actions
+                    FROM public.actions
                     ORDER BY timestamp ASC;
                     """
                 )
@@ -340,6 +378,10 @@ class PostgresActionService:
                     metadata=row[8],
                     related_run_id=str(row[9]) if row[9] else None,
                     audit_log_event_id=str(row[10]) if row[10] else None,
+                    trace_id=self._metadata_trace_value(row[8], "trace_id") or (str(row[9]) if row[9] else None),
+                    span_id=self._metadata_trace_value(row[8], "span_id"),
+                    parent_span_id=self._metadata_trace_value(row[8], "parent_span_id"),
+                    outcome_ref=self._metadata_trace_value(row[8], "outcome_ref"),
                     checksum=row[11],
                     replay_status=row[12],
                 )
@@ -371,7 +413,7 @@ class PostgresActionService:
                     SELECT action_id, timestamp, actor_id, actor_role, actor_surface,
                            artifact_path, summary, behaviors_cited, metadata,
                            related_run_id, audit_log_event_id, checksum, replay_status
-                    FROM actions
+                    FROM public.actions
                     WHERE action_id = %s;
                     """,
                     (action_id,),
@@ -393,6 +435,10 @@ class PostgresActionService:
             metadata=row[8],
             related_run_id=str(row[9]) if row[9] else None,
             audit_log_event_id=str(row[10]) if row[10] else None,
+            trace_id=self._metadata_trace_value(row[8], "trace_id") or (str(row[9]) if row[9] else None),
+            span_id=self._metadata_trace_value(row[8], "span_id"),
+            parent_span_id=self._metadata_trace_value(row[8], "parent_span_id"),
+            outcome_ref=self._metadata_trace_value(row[8], "outcome_ref"),
             checksum=row[11],
             replay_status=row[12],
         )
@@ -414,20 +460,6 @@ class PostgresActionService:
         audit_log_event_id = f"urn:amprealize:audit:replay:{replay_id}"
         created_at = datetime.now(timezone.utc)
 
-        self._telemetry.emit_event(
-            event_type="action_replay_start",
-            payload={
-                "action_ids": action_ids,
-                "strategy": request.strategy,
-                "options": {
-                    "skip_existing": request.options.skip_existing,
-                    "dry_run": request.options.dry_run,
-                },
-            },
-            actor=ActionService._actor_payload(actor),
-            action_id=replay_id,
-        )
-
         # Fetch actions to replay, capturing any missing IDs for clearer errors
         actions: List[Action] = []
         missing_action_ids: List[str] = []
@@ -441,6 +473,29 @@ class PostgresActionService:
             raise ActionNotFoundError(
                 f"Cannot replay missing actions: {missing_action_ids}"
             )
+
+        trace_id = ActionService._common_trace_id(actions) or f"replay:{replay_id}"
+        span_id = f"replay:{replay_id}"
+        parent_span_id = actions[0].span_id if len(actions) == 1 else None
+        outcome_ref = audit_log_event_id
+
+        self._telemetry.emit_event(
+            event_type="action_replay_start",
+            payload={
+                "action_ids": action_ids,
+                "strategy": request.strategy,
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_span_id": parent_span_id,
+                "outcome_ref": outcome_ref,
+                "options": {
+                    "skip_existing": request.options.skip_existing,
+                    "dry_run": request.options.dry_run,
+                },
+            },
+            actor=ActionService._actor_payload(actor),
+            action_id=replay_id,
+        )
 
         # Execute using real executor
         if request.strategy == "PARALLEL":
@@ -475,12 +530,12 @@ class PostgresActionService:
                 if not request.options.dry_run:
                     for action_id in succeeded:
                         cur.execute(
-                            "UPDATE actions SET replay_status = 'SUCCEEDED' WHERE action_id = %s;",
+                            "UPDATE public.actions SET replay_status = 'SUCCEEDED' WHERE action_id = %s;",
                             (action_id,),
                         )
                     for action_id in failed:
                         cur.execute(
-                            "UPDATE actions SET replay_status = 'FAILED' WHERE action_id = %s;",
+                            "UPDATE public.actions SET replay_status = 'FAILED' WHERE action_id = %s;",
                             (action_id,),
                         )
 
@@ -493,7 +548,7 @@ class PostgresActionService:
 
                 cur.execute(
                     """
-                    INSERT INTO replays (
+                    INSERT INTO public.replays (
                         replay_id, status, progress, logs, failed_action_ids,
                         action_ids, succeeded_action_ids, audit_log_event_id,
                         strategy, actor_id, actor_role, actor_surface,
@@ -565,6 +620,43 @@ class PostgresActionService:
                 "started_at": replay_status.started_at,
                 "completed_at": replay_status.completed_at,
                 "strategy": request.strategy,
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_span_id": parent_span_id,
+                "outcome_ref": outcome_ref,
+            },
+            actor=ActionService._actor_payload(actor),
+            action_id=replay_id,
+        )
+        self._telemetry.emit_event(
+            event_type="action.replay.performance",
+            payload={
+                "action_ids": action_ids,
+                "status": replay_status.status,
+                "succeeded_count": len(succeeded),
+                "failed_count": len(failed),
+                "progress": replay_status.progress,
+                "strategy": request.strategy,
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_span_id": parent_span_id,
+            },
+            actor=ActionService._actor_payload(actor),
+            action_id=replay_id,
+        )
+        self._telemetry.emit_event(
+            event_type="action.business_outcome",
+            payload={
+                "outcome_type": "action_replay",
+                "outcome_ref": outcome_ref,
+                "replay_id": replay_id,
+                "action_ids": action_ids,
+                "completed_action_ids": succeeded,
+                "failed_action_ids": failed,
+                "status": replay_status.status,
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_span_id": parent_span_id,
             },
             actor=ActionService._actor_payload(actor),
             action_id=replay_id,
@@ -583,7 +675,7 @@ class PostgresActionService:
                            action_ids, succeeded_action_ids, audit_log_event_id,
                            strategy, actor_id, actor_role, actor_surface,
                            created_at, started_at, completed_at
-                    FROM replays
+                    FROM public.replays
                     WHERE replay_id = %s;
                     """,
                     (replay_id,),
@@ -626,6 +718,23 @@ class PostgresActionService:
             actor_role=str(actor_role) if actor_role else None,
             actor_surface=str(actor_surface) if actor_surface else None,
         )
+
+    @staticmethod
+    def _metadata_trace_value(metadata: Any, key: str) -> Optional[str]:
+        if not isinstance(metadata, dict):
+            return None
+        if metadata.get(key):
+            return str(metadata[key])
+        action_trace = metadata.get("action_trace")
+        if isinstance(action_trace, dict) and action_trace.get(key):
+            return str(action_trace[key])
+        execution_observability = metadata.get("execution_observability")
+        if isinstance(execution_observability, dict):
+            if key == "trace_id" and execution_observability.get("run_id"):
+                return str(execution_observability["run_id"])
+            if key == "parent_span_id" and execution_observability.get("cycle_id"):
+                return str(execution_observability["cycle_id"])
+        return None
 
     @staticmethod
     def _hydrate_cached_action(payload: Dict[str, Any]) -> Action:

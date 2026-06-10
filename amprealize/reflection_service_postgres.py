@@ -74,6 +74,17 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _coerce_db_json(value: Any) -> Any:
+    """Decode JSON from Postgres text columns or accept dict/list from JSONB adapters."""
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        return json.loads(value)
+    return value
+
+
 # ============================================================================
 # Data Models
 # ============================================================================
@@ -568,7 +579,9 @@ class PostgresReflectionService(ReflectionService):
                     (candidate_id,)
                 )
                 existing = cur.fetchone()
-                metadata = json.loads(existing["metadata"]) if existing and existing["metadata"] else {}
+                metadata = (
+                    _coerce_db_json(existing["metadata"]) if existing and existing["metadata"] else {}
+                )
                 if reason:
                     metadata["rejection_reason"] = reason
 
@@ -795,8 +808,8 @@ class PostgresReflectionService(ReflectionService):
             description=row["description"],
             frequency=row.get("frequency", 1),
             confidence=float(row.get("confidence", 0.5)),
-            context=json.loads(row["context"]) if row.get("context") else None,
-            metadata=json.loads(row["metadata"]) if row.get("metadata") else None,
+            context=_coerce_db_json(row["context"]) if row.get("context") else None,
+            metadata=_coerce_db_json(row["metadata"]) if row.get("metadata") else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -815,13 +828,14 @@ class PostgresReflectionService(ReflectionService):
             role=row.get("role", "student"),
             keywords=row.get("keywords") or [],
             historical_validation=(
-                json.loads(row["historical_validation"])
-                if row.get("historical_validation") else None
+                _coerce_db_json(row["historical_validation"])
+                if row.get("historical_validation")
+                else None
             ),
             reviewed_by=row.get("reviewed_by"),
             reviewed_at=row.get("reviewed_at"),
             merged_behavior_id=row.get("merged_behavior_id"),
-            metadata=json.loads(row["metadata"]) if row.get("metadata") else None,
+            metadata=_coerce_db_json(row["metadata"]) if row.get("metadata") else None,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -838,8 +852,14 @@ class PostgresReflectionService(ReflectionService):
             file_path=row.get("file_path"),
             line_range=row.get("line_range"),
             observed_at=row["observed_at"],
-            metadata=json.loads(row["metadata"]) if row.get("metadata") else None,
+            metadata=_coerce_db_json(row["metadata"]) if row.get("metadata") else None,
         )
+
+    def close(self) -> None:
+        """Release the PostgreSQL connection pool."""
+        pool = getattr(self, "_pool", None)
+        if pool is not None:
+            pool.close()
 
 
 __all__ = [

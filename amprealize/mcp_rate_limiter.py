@@ -699,6 +699,63 @@ class DistributedRateLimiter:
     - mcp:ratelimit:user:{user_id}:minute - Per-user minute window
     """
 
+    _COMBINED_RATE_LIMIT_SCRIPT = """
+    local now = tonumber(ARGV[1])
+    local window_start = tonumber(ARGV[2])
+    local tier = ARGV[3]
+    local daily_quota = tonumber(ARGV[4])
+    local org_rpm = tonumber(ARGV[5])
+    local user_rpm = tonumber(ARGV[6])
+
+    local function consume_minute(key, max_requests)
+        redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
+        local count = redis.call('ZCARD', key)
+
+        if count < max_requests then
+            local member = now .. ':' .. redis.call('INCR', key .. ':seq')
+            redis.call('ZADD', key, now, member)
+            redis.call('EXPIRE', key, 120)
+            redis.call('EXPIRE', key .. ':seq', 120)
+            return {1, max_requests - count - 1, 0}
+        end
+
+        local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+        local retry_after = 60
+        if oldest and oldest[2] then
+            retry_after = math.ceil(tonumber(oldest[2]) + 60 - now)
+            if retry_after < 1 then retry_after = 1 end
+        end
+        return {0, 0, retry_after}
+    end
+
+    if daily_quota >= 0 then
+        local daily_count = redis.call('INCR', KEYS[1])
+        redis.call('EXPIRE', KEYS[1], 90000)
+        local daily_remaining = daily_quota - daily_count
+        if daily_remaining < 0 then daily_remaining = 0 end
+        if daily_count > daily_quota then
+            return {0, daily_remaining, 86400 - (now % 86400), 'daily', tier}
+        end
+    end
+
+    local org_result = consume_minute(KEYS[2], org_rpm)
+    if org_result[1] == 0 then
+        return {0, 0, org_result[3], 'minute', tier}
+    end
+
+    if user_rpm >= 0 and KEYS[3] ~= '' then
+        local user_result = consume_minute(KEYS[3], user_rpm)
+        if user_result[1] == 0 then
+            return {0, 0, user_result[3], 'user_minute', tier}
+        end
+        local remaining = org_result[2]
+        if user_result[2] < remaining then remaining = user_result[2] end
+        return {1, remaining, 0, 'minute', tier}
+    end
+
+    return {1, org_result[2], 0, 'minute', tier}
+    """
+
     def __init__(
         self,
         redis_url: Optional[str] = None,
@@ -720,6 +777,9 @@ class DistributedRateLimiter:
             or os.getenv("AMPREALIZE_MCP_RATE_LIMIT_KEY_PREFIX")
             or "mcp:ratelimit"
         ).rstrip(":")
+        # Cached EVALSHA for the combined rate-limit Lua script.
+        # Loaded once at connect time; None means EVAL will be used as fallback.
+        self._lua_sha: Optional[str] = None
 
         # In-memory fallback state
         self._memory_counters: Dict[str, Dict[str, Any]] = {}
@@ -732,6 +792,7 @@ class DistributedRateLimiter:
             "memory_checks": 0,
             "denies_total": 0,
             "redis_errors": 0,
+            "redis_combined_checks": 0,
         }
 
     def _redis_key(self, *parts: str) -> str:
@@ -761,14 +822,30 @@ class DistributedRateLimiter:
             self._redis_client = aioredis.from_url(
                 url,
                 decode_responses=True,
-                socket_connect_timeout=2,
-                socket_timeout=2,
+                max_connections=int(os.getenv("AMPREALIZE_MCP_RATE_LIMIT_REDIS_MAX_CONNECTIONS", "20")),
+                health_check_interval=int(os.getenv("AMPREALIZE_MCP_RATE_LIMIT_REDIS_HEALTH_CHECK_SECONDS", "30")),
+                socket_connect_timeout=float(os.getenv("AMPREALIZE_MCP_RATE_LIMIT_REDIS_CONNECT_TIMEOUT", "0.25")),
+                socket_timeout=float(os.getenv("AMPREALIZE_MCP_RATE_LIMIT_REDIS_SOCKET_TIMEOUT", "0.25")),
             )
 
-            # Test connection
-            await self._redis_client.ping()
+            # Avoid an extra startup round trip on the hot path. Operations fail
+            # open to memory below if Redis is actually unavailable.
+            if os.getenv("AMPREALIZE_MCP_RATE_LIMIT_REDIS_PING_ON_CONNECT", "").lower() in ("1", "true", "yes", "on"):
+                await self._redis_client.ping()
+
+            # Pre-load the combined Lua script so hot-path checks can use
+            # EVALSHA (skips Lua compilation in Redis) instead of EVAL.
+            try:
+                self._lua_sha = await self._redis_client.script_load(
+                    self._COMBINED_RATE_LIMIT_SCRIPT
+                )
+                logger.debug(f"Loaded combined rate-limit Lua script: SHA={self._lua_sha}")
+            except Exception as e:
+                logger.warning(f"SCRIPT LOAD failed, will fall back to EVAL: {e}")
+                self._lua_sha = None
+
             self._use_redis = True
-            logger.info(f"Distributed rate limiter connected to Redis")
+            logger.info("Distributed rate limiter configured Redis backend")
             return True
 
         except ImportError:
@@ -823,6 +900,18 @@ class DistributedRateLimiter:
 
         # Try Redis first
         redis_available = await self._ensure_redis()
+        if redis_available and self._redis_client:
+            result = await self._check_tenant_limit_redis(
+                identifier=identifier,
+                org_id=org_id,
+                user_id=user_id,
+                limits=limits,
+                now=now,
+                tier=tier.value,
+            )
+            if not result.allowed:
+                self._metrics["denies_total"] += 1
+            return result
 
         # Check daily quota first (if applicable)
         if limits.daily_quota is not None:
@@ -861,6 +950,100 @@ class DistributedRateLimiter:
                 return user_result
 
         return minute_result
+
+    async def _check_tenant_limit_redis(
+        self,
+        *,
+        identifier: str,
+        org_id: Optional[str],
+        user_id: Optional[str],
+        limits: TierLimits,
+        now: int,
+        tier: str,
+    ) -> DistributedRateLimitResult:
+        """Check tenant limits in one Redis script round trip."""
+        day_key = now // 86400
+        daily_key = self._redis_key(identifier, "daily", str(day_key))
+        minute_key = self._redis_key(identifier, "minute")
+        user_key = (
+            self._redis_key(f"user:{user_id}:in:{org_id}", "minute")
+            if org_id and user_id and limits.user_requests_per_minute
+            else ""
+        )
+        user_rpm = (
+            limits.user_requests_per_minute
+            if user_key and limits.user_requests_per_minute
+            else -1
+        )
+        daily_quota = limits.daily_quota if limits.daily_quota is not None else -1
+
+        try:
+            self._metrics["redis_combined_checks"] += 1
+            self._metrics["redis_checks"] += 1
+            script_args = [
+                now, now - 60, tier, daily_quota, limits.requests_per_minute, user_rpm,
+            ]
+            if self._lua_sha:
+                # EVALSHA skips Lua compilation in Redis on each call.
+                try:
+                    result = await self._redis_client.evalsha(
+                        self._lua_sha,
+                        3,
+                        daily_key,
+                        minute_key,
+                        user_key,
+                        *script_args,
+                    )
+                except Exception as noscript_exc:
+                    # NOSCRIPT or SHA mismatch — fall back to EVAL and reload SHA.
+                    if "NOSCRIPT" in str(noscript_exc):
+                        result = await self._redis_client.eval(
+                            self._COMBINED_RATE_LIMIT_SCRIPT,
+                            3,
+                            daily_key,
+                            minute_key,
+                            user_key,
+                            *script_args,
+                        )
+                        try:
+                            self._lua_sha = await self._redis_client.script_load(
+                                self._COMBINED_RATE_LIMIT_SCRIPT
+                            )
+                        except Exception:
+                            self._lua_sha = None
+                    else:
+                        raise
+            else:
+                result = await self._redis_client.eval(
+                    self._COMBINED_RATE_LIMIT_SCRIPT,
+                    3,
+                    daily_key,
+                    minute_key,
+                    user_key,
+                    *script_args,
+                )
+            allowed = bool(int(result[0]))
+            retry_after = int(result[2]) if not allowed else None
+            limit_type = str(result[3])
+            return DistributedRateLimitResult(
+                allowed=allowed,
+                remaining=int(result[1]),
+                reset_at=now + (retry_after if retry_after else 60),
+                retry_after=retry_after,
+                limit_type=limit_type,
+                tier=str(result[4]),
+            )
+        except Exception as e:
+            logger.error(f"Redis tenant rate limit error: {e}")
+            self._metrics["redis_errors"] += 1
+            self._use_redis = False
+            self._lua_sha = None  # will be reloaded on reconnect
+            return DistributedRateLimitResult(
+                allowed=True,
+                remaining=limits.requests_per_minute,
+                reset_at=now + 60,
+                tier=tier,
+            )
 
     async def _check_minute_limit(
         self,
@@ -933,6 +1116,7 @@ class DistributedRateLimiter:
         except Exception as e:
             logger.error(f"Redis rate limit error: {e}")
             self._metrics["redis_errors"] += 1
+            self._use_redis = False
             # Fail open
             return DistributedRateLimitResult(
                 allowed=True,
@@ -1044,6 +1228,7 @@ class DistributedRateLimiter:
         except Exception as e:
             logger.error(f"Redis daily quota error: {e}")
             self._metrics["redis_errors"] += 1
+            self._use_redis = False
             return DistributedRateLimitResult(
                 allowed=True,
                 remaining=limits.daily_quota,
@@ -1233,6 +1418,7 @@ class DistributedRateLimiter:
             await self._redis_client.close()
             self._redis_client = None
             self._use_redis = False
+            self._lua_sha = None
 
 
 # Singleton instance for distributed rate limiter

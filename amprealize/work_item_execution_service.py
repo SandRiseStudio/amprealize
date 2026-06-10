@@ -24,13 +24,16 @@ import os
 import uuid
 import warnings
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from dotenv import load_dotenv
 
 from .action_contracts import Actor
 from .agent_registry_contracts import Agent, AgentVersion
 from .agent_registry_service import AgentRegistryService
 from .auth.llm_credential_repository import LLMCredentialRepository
-from .boards.contracts import WorkItem, WorkItemStatus, AssigneeType
+from .boards.contracts import WorkItem, WorkItemStatus, AssigneeType, WorkItemType, validate_research_url
 from .run_contracts import Run, RunCreateRequest, RunProgressUpdate, RunStatus, RunStep
 from .run_service import RunService, RunNotFoundError
 from .services.board_service import BoardService, WorkItemNotFoundError
@@ -76,6 +79,7 @@ from .projects.settings import (
     LOCAL_CAPABLE_SURFACES,
     REMOTE_ONLY_SURFACES,
 )
+from .resource_analysis import ResourceAnalysisService
 from .multi_tenant.settings import SettingsService
 from .workspace_agent import (
     AmprealizeWorkspaceClient,
@@ -143,12 +147,12 @@ def _short_id(prefix: str) -> str:
 
 
 class CredentialStore:
-    """Manages LLM provider credentials at platform/org/project scope.
+    """Manages LLM provider credentials at platform/org/project/user scope.
 
-    Resolution order (first match wins):
-    1. Project credential (if present) — BYOK takes priority
-    2. Org credential (if present) — BYOK at org level
-    3. Platform credential (if present) — admin-managed defaults
+    Resolution order depends on context:
+    - Project/agent execution: project -> user -> org -> platform.
+    - Personal chat: user -> org -> platform.
+    - If ``prefer_user`` is true: user -> project -> org -> platform.
     """
 
     def __init__(
@@ -164,7 +168,16 @@ class CredentialStore:
 
     def _load_platform_credentials(self) -> None:
         """Load platform credentials from environment variables."""
-        import os
+        explicit_env_file = os.getenv("AMPREALIZE_ENV_FILE")
+        env_paths = [
+            Path(explicit_env_file).expanduser() if explicit_env_file else None,
+            Path.cwd() / ".env",
+            Path(__file__).resolve().parents[1] / ".env",
+            Path(__file__).resolve().parents[2] / ".env",
+        ]
+        for env_path in env_paths:
+            if env_path and env_path.exists():
+                load_dotenv(env_path, override=False)
 
         # Load provider API keys from environment
         if api_key := os.getenv("ANTHROPIC_API_KEY"):
@@ -173,24 +186,181 @@ class CredentialStore:
             self._platform_credentials["openai"] = api_key
         if api_key := os.getenv("OPENROUTER_API_KEY"):
             self._platform_credentials["openrouter"] = api_key
+        if api_key := os.getenv("NVIDIA_API_KEY"):
+            self._platform_credentials["nvidia"] = api_key
+        if api_key := os.getenv("TOGETHER_API_KEY"):
+            self._platform_credentials["together"] = api_key
+        if api_key := os.getenv("GROQ_API_KEY"):
+            self._platform_credentials["groq"] = api_key
+        if api_key := os.getenv("FIREWORKS_API_KEY"):
+            self._platform_credentials["fireworks"] = api_key
+
+    def _credential_scope_pairs(
+        self,
+        *,
+        project_id: Optional[str],
+        org_id: Optional[str],
+        user_id: Optional[str],
+        prefer_user: bool,
+    ) -> List[Tuple[Any, str]]:
+        """Return (scope_type, scope_id) tuples in BYOK resolution order."""
+        from amprealize.auth.llm_credential_repository import CredentialScopeType
+
+        scope_order: List[Tuple[Any, Optional[str]]] = []
+        if prefer_user and user_id:
+            scope_order.append((CredentialScopeType.USER, user_id))
+        if project_id:
+            scope_order.append((CredentialScopeType.PROJECT, project_id))
+        if user_id and (CredentialScopeType.USER, user_id) not in scope_order:
+            scope_order.append((CredentialScopeType.USER, user_id))
+        if org_id:
+            scope_order.append((CredentialScopeType.ORG, org_id))
+        return [(st, sid) for st, sid in scope_order if sid]
+
+    def credential_blocked_by_invalid_scoped_byok(
+        self,
+        model_id: str,
+        *,
+        project_id: Optional[str] = None,
+        org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user: bool = False,
+    ) -> bool:
+        """True when scoped BYOK exists but cannot be used and no credential was resolved.
+
+        Used for error messaging when :meth:`get_credential_for_model` returns
+        ``None`` (e.g. broken BYOK and no platform key).
+        """
+        model = get_model(model_id)
+        if not model or not self._credential_repository:
+            return False
+        provider = model.provider.value
+        for scope_type, scope_id in self._credential_scope_pairs(
+            project_id=project_id,
+            org_id=org_id,
+            user_id=user_id,
+            prefer_user=prefer_user,
+        ):
+            resolved = self._resolve_scoped_byok(
+                scope_type=scope_type,
+                scope_id=scope_id,
+                provider=provider,
+            )
+            if resolved:
+                api_key, _source, _is_byok, scope_was_configured = resolved
+                if scope_was_configured and not api_key:
+                    return True
+                if api_key:
+                    return False
+        return False
+
+    def get_active_byok_credential_id(
+        self,
+        model_id: str,
+        *,
+        project_id: Optional[str] = None,
+        org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user: bool = False,
+    ) -> Optional[str]:
+        """Database id of the BYOK row supplying credentials, if any."""
+        resolved = self.get_credential_for_model(
+            model_id,
+            project_id=project_id,
+            org_id=org_id,
+            user_id=user_id,
+            prefer_user=prefer_user,
+        )
+        if not resolved or not self._credential_repository:
+            return None
+        _key, source, is_byok = resolved
+        if not is_byok:
+            return None
+        model = get_model(model_id)
+        if not model:
+            return None
+        provider = model.provider.value
+        from amprealize.auth.llm_credential_repository import CredentialScopeType
+
+        scope_id: Optional[str] = None
+        scope_type: Any = None
+        if source == "user":
+            scope_type, scope_id = CredentialScopeType.USER, user_id
+        elif source == "project":
+            scope_type, scope_id = CredentialScopeType.PROJECT, project_id
+        elif source == "org":
+            scope_type, scope_id = CredentialScopeType.ORG, org_id
+        if not scope_type or not scope_id:
+            return None
+        cred = self._credential_repository.get_for_provider(
+            scope_type=scope_type,
+            scope_id=scope_id,
+            provider=provider,
+            decrypt=False,
+        )
+        return cred.id if cred else None
+
+    def _resolve_scoped_byok(
+        self,
+        *,
+        scope_type: Any,
+        scope_id: Optional[str],
+        provider: str,
+    ) -> Optional[Tuple[Optional[str], str, bool, bool]]:
+        """Resolve one BYOK scope.
+
+        Returns:
+            (api_key, source, is_byok, scope_was_configured) or None when the
+            scope is not applicable.
+        """
+        if not self._credential_repository or not scope_id:
+            return None
+
+        cred = self._credential_repository.get_for_provider(
+            scope_type=scope_type,
+            scope_id=scope_id,
+            provider=provider,
+            decrypt=True,
+            include_invalid=True,
+        )
+        if not cred:
+            return None
+
+        source = scope_type.value
+        if cred.is_valid and cred.decrypted_key:
+            return (cred.decrypted_key, source, True, True)
+
+        logger.warning(
+            "BYOK credential exists for provider %s in %s %s but cannot be used "
+            "(is_valid=%s, decrypted=%s)",
+            provider,
+            source,
+            scope_id,
+            cred.is_valid,
+            cred.decrypted_key is not None,
+        )
+        return (None, source, True, True)
 
     def get_credential_for_model(
         self,
         model_id: str,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user: bool = False,
     ) -> Optional[Tuple[str, str, bool]]:
         """Get credential for a model.
 
         Returns:
             Tuple of (api_key, source, is_byok) or None if not available
-            source is one of: "project", "org", "platform"
+            source is one of: "user", "project", "org", "platform"
 
-        BYOK Priority:
-            If user has configured BYOK for a provider, ONLY that credential
-            is used - we do NOT fall back to platform credentials for that provider.
-            This ensures user intent is honored (e.g., user wants to use their
-            Anthropic key, not the platform's OpenAI key).
+        BYOK priority:
+            The first scope in resolution order that yields a **decrypted,
+            valid** BYOK key wins. Rows that exist but cannot be used (invalid,
+            decrypt failure) are skipped so platform keys can still apply.
+            When a usable BYOK key is found, platform credentials for that
+            provider are not used for the same resolution pass.
         """
         model = get_model(model_id)
         if not model:
@@ -199,50 +369,40 @@ class CredentialStore:
         provider = model.provider.value
         byok_configured_for_provider = False
 
-        # Check database for project/org BYOK credentials
+        # Check database for scoped BYOK credentials.
         if self._credential_repository:
-            from amprealize.auth.llm_credential_repository import CredentialScopeType
+            scope_order = self._credential_scope_pairs(
+                project_id=project_id,
+                org_id=org_id,
+                user_id=user_id,
+                prefer_user=prefer_user,
+            )
 
-            # 1. Check project-level BYOK credential
-            if project_id:
-                cred = self._credential_repository.get_for_provider(
-                    scope_type=CredentialScopeType.PROJECT,
-                    scope_id=project_id,
+            for scope_type, scope_id in scope_order:
+                resolved = self._resolve_scoped_byok(
+                    scope_type=scope_type,
+                    scope_id=scope_id,
                     provider=provider,
-                    decrypt=True,
                 )
-                if cred:
-                    # User has configured BYOK for this provider at project level
-                    byok_configured_for_provider = True
-                    if cred.is_valid and cred.decrypted_key:
-                        return (cred.decrypted_key, "project", True)
-                    # BYOK exists but can't be used (invalid or decryption failed)
-                    # Do NOT fall back to platform - return None to signal unavailable
+                if not resolved:
+                    continue
+                api_key, source, is_byok, scope_was_configured = resolved
+                if api_key:
+                    if scope_was_configured:
+                        byok_configured_for_provider = True
+                    return (api_key, source, is_byok)
+                # Row exists at this scope but no usable key (invalid, decrypt failure,
+                # auto-disabled). Do not block platform fallback — otherwise model lists
+                # and chat stay empty while env keys are configured.
+                if scope_was_configured:
                     logger.warning(
-                        f"BYOK credential exists for provider {provider} in project {project_id} "
-                        f"but cannot be used (is_valid={cred.is_valid}, decrypted={cred.decrypted_key is not None})"
+                        "Ignoring unusable BYOK for provider %s at scope %s/%s; "
+                        "trying remaining scopes or platform credentials",
+                        provider,
+                        getattr(scope_type, "value", scope_type),
+                        scope_id,
                     )
-                    return None
-
-            # 2. Check org-level BYOK credential
-            if org_id:
-                cred = self._credential_repository.get_for_provider(
-                    scope_type=CredentialScopeType.ORG,
-                    scope_id=org_id,
-                    provider=provider,
-                    decrypt=True,
-                )
-                if cred:
-                    # User has configured BYOK for this provider at org level
-                    byok_configured_for_provider = True
-                    if cred.is_valid and cred.decrypted_key:
-                        return (cred.decrypted_key, "org", True)
-                    # BYOK exists but can't be used
-                    logger.warning(
-                        f"BYOK credential exists for provider {provider} in org {org_id} "
-                        f"but cannot be used (is_valid={cred.is_valid}, decrypted={cred.decrypted_key is not None})"
-                    )
-                    return None
+                continue
 
         # 3. Fall back to platform credentials from environment
         # Only if user has NOT configured BYOK for this provider
@@ -256,7 +416,9 @@ class CredentialStore:
         model_id: str,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         actor_id: Optional[str] = None,
+        prefer_user: bool = False,
     ) -> None:
         """Record successful use of a BYOK credential.
 
@@ -270,29 +432,15 @@ class CredentialStore:
         if not model:
             return
 
-        provider = model.provider.value
-        from amprealize.auth.llm_credential_repository import CredentialScopeType
-
-        # Find which credential was used
-        if project_id:
-            cred = self._credential_repository.get_for_provider(
-                scope_type=CredentialScopeType.PROJECT,
-                scope_id=project_id,
-                provider=provider,
-            )
-            if cred and cred.is_valid:
-                self._credential_repository.record_success(cred.id, actor_id)
-                return
-
-        if org_id:
-            cred = self._credential_repository.get_for_provider(
-                scope_type=CredentialScopeType.ORG,
-                scope_id=org_id,
-                provider=provider,
-            )
-            if cred and cred.is_valid:
-                self._credential_repository.record_success(cred.id, actor_id)
-                return
+        cred_id = self.get_active_byok_credential_id(
+            model_id,
+            project_id=project_id,
+            org_id=org_id,
+            user_id=user_id,
+            prefer_user=prefer_user,
+        )
+        if cred_id:
+            self._credential_repository.record_success(cred_id, actor_id)
 
     def record_credential_failure(
         self,
@@ -300,7 +448,9 @@ class CredentialStore:
         error_code: Optional[int] = None,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         actor_id: Optional[str] = None,
+        prefer_user: bool = False,
     ) -> bool:
         """Record auth failure for a BYOK credential.
 
@@ -328,27 +478,19 @@ class CredentialStore:
         if not model:
             return False
 
-        provider = model.provider.value
-        from amprealize.auth.llm_credential_repository import CredentialScopeType
-
-        # Find which credential was used
-        if project_id:
-            cred = self._credential_repository.get_for_provider(
-                scope_type=CredentialScopeType.PROJECT,
-                scope_id=project_id,
-                provider=provider,
+        cred_id = self.get_active_byok_credential_id(
+            model_id,
+            project_id=project_id,
+            org_id=org_id,
+            user_id=user_id,
+            prefer_user=prefer_user,
+        )
+        if cred_id:
+            return self._credential_repository.record_failure(
+                cred_id,
+                error_code=error_code,
+                run_id=actor_id,
             )
-            if cred:
-                return self._credential_repository.record_failure(cred.id, actor_id)
-
-        if org_id:
-            cred = self._credential_repository.get_for_provider(
-                scope_type=CredentialScopeType.ORG,
-                scope_id=org_id,
-                provider=provider,
-            )
-            if cred:
-                return self._credential_repository.record_failure(cred.id, actor_id)
 
         return False
 
@@ -356,12 +498,35 @@ class CredentialStore:
         self,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user: bool = False,
+        provider_filter: Optional[str] = None,
+        free_open_only: bool = False,
     ) -> List[AvailableModel]:
         """Get all models available for a project."""
         available = []
+        credential_cache: Dict[str, Optional[Tuple[str, str, bool]]] = {}
 
         for model_id, model in MODEL_CATALOG.items():
-            cred = self.get_credential_for_model(model_id, project_id, org_id)
+            provider = model.provider.value if hasattr(model.provider, "value") else str(model.provider)
+            if provider_filter and provider != provider_filter:
+                continue
+            if free_open_only and (
+                not model.metadata.get("is_open_model", False)
+                or not model.metadata.get("free_endpoint", False)
+                or not model.metadata.get("chat_model", True)
+            ):
+                continue
+
+            if provider not in credential_cache:
+                credential_cache[provider] = self.get_credential_for_model(
+                    model_id,
+                    project_id,
+                    org_id,
+                    user_id=user_id,
+                    prefer_user=prefer_user,
+                )
+            cred = credential_cache[provider]
             if cred:
                 api_key, source, is_byok = cred
                 available.append(AvailableModel(
@@ -378,9 +543,17 @@ class CredentialStore:
         model_id: str,
         project_id: Optional[str] = None,
         org_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        prefer_user: bool = False,
     ) -> bool:
         """Check if a model is available for a project."""
-        return self.get_credential_for_model(model_id, project_id, org_id) is not None
+        return self.get_credential_for_model(
+            model_id,
+            project_id,
+            org_id,
+            user_id=user_id,
+            prefer_user=prefer_user,
+        ) is not None
 
 
 class InternetAccessResolver:
@@ -587,6 +760,7 @@ class WorkItemExecutionService:
         self._credential_store = credential_store or CredentialStore(pool=pool, credential_repository=credential_repo)
         self._internet_resolver = internet_resolver or InternetAccessResolver(pool=pool)
         self._write_resolver = write_resolver or WriteTargetResolver(pool=pool)
+        self._resource_analysis_service = ResourceAnalysisService()
 
         # Initialize workspace client for GitHub repo access during execution
         # This connects to the workspace-agent gRPC service
@@ -618,6 +792,30 @@ class WorkItemExecutionService:
     def set_execution_loop(self, loop: Any) -> None:
         """Set the execution loop (avoids circular import)."""
         self._execution_loop = loop
+
+    def _resolve_project_default_model_id(self, project_id: Optional[str]) -> Optional[str]:
+        """Return the project-level agent model default from project settings."""
+        if not project_id:
+            return None
+        settings_service = getattr(self._write_resolver, "_settings_service", None)
+        if not settings_service:
+            return None
+        try:
+            settings = settings_service.get_project_settings(project_id)
+        except Exception:
+            return None
+
+        prefs: Any = None
+        if isinstance(settings, dict):
+            prefs = settings.get("agent_model_preferences")
+        elif settings is not None:
+            prefs = getattr(settings, "agent_model_preferences", None)
+
+        if isinstance(prefs, dict):
+            value = prefs.get("default_model_id")
+            return value.strip() if isinstance(value, str) and value.strip() else None
+        value = getattr(prefs, "default_model_id", None)
+        return value.strip() if isinstance(value, str) and value.strip() else None
 
     async def execute(
         self,
@@ -658,13 +856,17 @@ class WorkItemExecutionService:
         if not project_id:
             project_id = work_item.project_id
 
-        # Step 2: Validate agent assignment
-        if not work_item.assignee_id or work_item.assignee_type != AssigneeType.AGENT:
-            raise WorkItemNotAssignedError(
-                f"Work item {work_item_id} has no agent assigned"
-            )
-
-        agent_id = work_item.assignee_id
+        # Step 2: Resolve the execution agent. Research ownership is assignable
+        # to anyone, but execution is restricted to the builtin AI Research agent.
+        if work_item.item_type == WorkItemType.RESEARCH:
+            validate_research_url(work_item.metadata)
+            agent_id = self._resolve_ai_research_agent_id()
+        else:
+            if not work_item.assignee_id or work_item.assignee_type != AssigneeType.AGENT:
+                raise WorkItemNotAssignedError(
+                    f"Work item {work_item_id} has no agent assigned"
+                )
+            agent_id = work_item.assignee_id
 
         # Step 3: Check for existing active execution (idempotency)
         if work_item.run_id:
@@ -723,7 +925,11 @@ class WorkItemExecutionService:
                 logger.warning(f"Could not validate execution surface for project {project_id}: {e}")
 
         # Step 6: Resolve model
-        model_id = request.model_id or exec_policy.model_policy.preferred_model_id
+        model_id = (
+            request.model_id
+            or self._resolve_project_default_model_id(project_id)
+            or exec_policy.model_policy.preferred_model_id
+        )
         if not self._credential_store.is_model_available(model_id, project_id, org_id):
             # Try fallbacks
             model_id = None
@@ -984,9 +1190,13 @@ class WorkItemExecutionService:
                     "project_id": project_id,
                     "org_id": org_id,
                     "user_id": user_id,
-                } if github_repo else None,
+                },
+                resource_analysis_service=self._resource_analysis_service,
+                resource_analysis_inventory_provider=self._build_execution_resource_inventory,
                 workspace_info=workspace_info,  # Pass workspace info for container exec
                 workspace_manager=self._workspace_manager,  # Pass workspace manager for container operations
+                run_service=self._run_service,
+                run_id=run_id,
             )
             self._execution_loop.set_tool_executor(tool_executor)
             logger.info(f"Created ToolExecutor for run {run_id} with policy: write_scope={exec_policy.write_scope}, internet={exec_policy.internet_access}")
@@ -1362,43 +1572,35 @@ class WorkItemExecutionService:
         except RunNotFoundError:
             return None
 
-        # Get cycle for phase info
+        # Get cycle for phase info (GEP). Research runs advance phase via run metadata
+        # only — the TaskCycle stays at planning because no AgentExecutionLoop runs.
         cycle_id = run.metadata.get("cycle_id")
+        run_metadata = run.metadata or {}
         phase = CyclePhase.PLANNING.value
         if cycle_id:
             cycle = self._task_cycle_service.get_cycle(cycle_id)
             if cycle:
                 phase = cycle.current_phase.value
-
-        # Map run status to execution state
-        status_map = {
-            RunStatus.PENDING: ExecutionState.PENDING,
-            RunStatus.RUNNING: ExecutionState.RUNNING,
-            RunStatus.COMPLETED: ExecutionState.COMPLETED,
-            RunStatus.FAILED: ExecutionState.FAILED,
-            RunStatus.CANCELLED: ExecutionState.CANCELLED,
-        }
+        if work_item.item_type == WorkItemType.RESEARCH:
+            rp = run_metadata.get("phase")
+            if isinstance(rp, str) and rp.strip():
+                phase = rp.strip()
+        elif run_metadata.get("execution_pipeline") == "research":
+            rp = run_metadata.get("phase")
+            if isinstance(rp, str) and rp.strip():
+                phase = rp.strip()
 
         # Extract pending clarifications from run metadata
         pending_clarifications = None
-        run_metadata = run.metadata or {}
         clarification_questions = run_metadata.get("clarification_questions")
         if clarification_questions and isinstance(clarification_questions, list):
             pending_clarifications = clarification_questions
 
-        return ExecutionStatusResponse(
-            run_id=run.run_id,
-            cycle_id=cycle_id or "",
+        return self._execution_status_from_run(
+            run,
             work_item_id=work_item_id,
-            status=status_map.get(run.status, ExecutionState.PENDING),
+            cycle_id=cycle_id or "",
             phase=phase,
-            progress_pct=run.progress_pct,
-            current_step=run.current_step,
-            started_at=run.started_at,
-            completed_at=run.completed_at,
-            error=run.error,
-            model_id=run.metadata.get("model_id"),
-            step_count=len(run.steps),
             pending_clarifications=pending_clarifications,
         )
 
@@ -1816,20 +2018,14 @@ class WorkItemExecutionService:
                 if cycle:
                     phase = cycle.current_phase.value
 
-            results.append(ExecutionStatusResponse(
-                run_id=run.run_id,
-                cycle_id=cycle_id,
-                work_item_id=work_item_id,
-                status=self._map_run_status(run.status),
-                phase=phase,
-                progress_pct=run.progress_pct,
-                current_step=run.current_step,
-                started_at=run.started_at,
-                completed_at=run.completed_at,
-                error=run.error,
-                model_id=run.metadata.get("model_id"),
-                step_count=len(run.steps),
-            ))
+            results.append(
+                self._execution_status_from_run(
+                    run,
+                    work_item_id=work_item_id,
+                    cycle_id=cycle_id,
+                    phase=phase,
+                )
+            )
 
         return results
 
@@ -1862,26 +2058,31 @@ class WorkItemExecutionService:
         work_item_id = run.metadata.get("work_item_id", "")
         cycle_id = run.metadata.get("cycle_id", "")
 
-        # Get phase from cycle
+        # Phase from GEP cycle unless this is a research pipeline run (metadata-driven).
+        run_md = run.metadata or {}
         phase = CyclePhase.PLANNING.value
         if cycle_id:
             cycle = self._task_cycle_service.get_cycle(cycle_id)
             if cycle:
                 phase = cycle.current_phase.value
+        if run_md.get("execution_pipeline") == "research":
+            rp = run_md.get("phase")
+            if isinstance(rp, str) and rp.strip():
+                phase = rp.strip()
+        else:
+            rp = run_md.get("phase")
+            if (
+                isinstance(rp, str)
+                and rp.strip().startswith("research_")
+                and phase == CyclePhase.PLANNING.value
+            ):
+                phase = rp.strip()
 
-        return ExecutionStatusResponse(
-            run_id=run.run_id,
-            cycle_id=cycle_id,
+        return self._execution_status_from_run(
+            run,
             work_item_id=work_item_id,
-            status=self._map_run_status(run.status),
+            cycle_id=cycle_id,
             phase=phase,
-            progress_pct=run.progress_pct,
-            current_step=run.current_step,
-            started_at=run.started_at,
-            completed_at=run.completed_at,
-            error=run.error,
-            model_id=run.metadata.get("model_id"),
-            step_count=len(run.steps),
         )
 
     def get_execution_steps(
@@ -1922,25 +2123,92 @@ class WorkItemExecutionService:
         result = []
         for i, step in enumerate(steps):
             # RunStep has: step_id, name, status, started_at, completed_at, progress_pct, metadata
-            step_metadata = step.metadata or {}
+            step_metadata = self._step_metadata(step)
+            tool_calls = step_metadata.get("tool_calls")
+            duration_ms = step_metadata.get("duration_ms") or step_metadata.get("elapsed_ms")
+            if not isinstance(duration_ms, int):
+                duration_ms = self._duration_ms(step.started_at, step.completed_at)
             step_dict = {
                 "step_id": step.step_id or f"{run_id}-step-{offset + i}",
                 "step_number": offset + i + 1,
+                "name": step.name,
+                "status": step.status,
                 "phase": step_metadata.get("phase", "unknown"),
                 "step_type": step_metadata.get("step_type", step.name or "unknown"),
                 "started_at": step.started_at,
                 "completed_at": step.completed_at,
+                "progress_pct": step.progress_pct,
+                "duration_ms": duration_ms,
                 "input_tokens": step_metadata.get("input_tokens", 0),
                 "output_tokens": step_metadata.get("output_tokens", 0),
-                "tool_calls": len(step_metadata.get("tool_calls", [])),
+                "cost_usd": step_metadata.get("cost_usd"),
+                "tool_calls": self._tool_call_count(tool_calls),
                 "content_preview": step_metadata.get("content_preview"),
                 "content_full": step_metadata.get("content_full"),  # Full content for detail view
-                "tool_names": [tc.get("tool_name") for tc in step_metadata.get("tool_calls", [])],
+                "tool_names": self._tool_names(tool_calls) or step_metadata.get("tool_names"),
                 "model_id": step_metadata.get("model_id"),
+                "error": step_metadata.get("error"),
+                "metadata": step_metadata,
             }
             result.append(step_dict)
 
         return result
+
+    async def _build_execution_resource_inventory(
+        self,
+        *,
+        query: str,  # noqa: ARG002 - reserved for future query-specific fetching
+        resource_type: Optional[str] = None,  # noqa: ARG002 - reserved for narrower fetches
+        intent: Optional[str] = None,  # noqa: ARG002 - reserved for narrower fetches
+        user_id: Optional[str] = None,  # noqa: ARG002 - access is enforced by underlying services
+        org_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build an access-scoped resource inventory for agent analysis tools."""
+        projects: List[Dict[str, Any]] = []
+        boards_by_project: Dict[str, List[Dict[str, Any]]] = {}
+        work_items_by_project: Dict[str, List[Dict[str, Any]]] = {}
+
+        if project_id:
+            projects.append({"project_id": project_id, "id": project_id, "name": project_id})
+            try:
+                boards = self._board_service.list_boards(
+                    project_id=project_id,
+                    org_id=org_id,
+                    limit=100,
+                    offset=0,
+                )
+                boards_by_project[project_id] = [self._resource_to_dict(board) for board in boards]
+            except Exception as exc:
+                logger.warning("resource_analysis.board_inventory_failed project_id=%s err=%s", project_id, exc)
+                boards_by_project[project_id] = []
+            try:
+                items = self._board_service.list_work_items(
+                    project_id=project_id,
+                    org_id=org_id,
+                    limit=100,
+                    offset=0,
+                )
+                if isinstance(items, tuple):
+                    items = items[0]
+                work_items_by_project[project_id] = [self._resource_to_dict(item) for item in items]
+            except Exception as exc:
+                logger.warning("resource_analysis.work_item_inventory_failed project_id=%s err=%s", project_id, exc)
+                work_items_by_project[project_id] = []
+
+        try:
+            runs = [self._resource_to_dict(run) for run in self._run_service.list_runs(limit=50)]
+        except Exception as exc:
+            logger.warning("resource_analysis.run_inventory_failed err=%s", exc)
+            runs = []
+
+        return {
+            "projects": projects,
+            "boards_by_project": boards_by_project,
+            "work_items_by_project": work_items_by_project,
+            "runs": runs,
+            "agent_assignments": [],
+        }
 
     def _map_run_status(self, run_status: str) -> ExecutionState:
         """Map RunStatus string to ExecutionState."""
@@ -1956,6 +2224,252 @@ class WorkItemExecutionService:
             if run_status == rs:
                 return es
         return ExecutionState.PENDING
+
+    @staticmethod
+    def _execution_observability_context(run: Run) -> Dict[str, Any]:
+        metadata = run.metadata or {}
+        raw_context = metadata.get("execution_observability")
+        context = dict(raw_context) if isinstance(raw_context, dict) else {}
+        for key in (
+            "run_id",
+            "cycle_id",
+            "work_item_id",
+            "project_id",
+            "org_id",
+            "agent_id",
+            "model_id",
+            "surface",
+            "conversation_id",
+            "message_id",
+            "request_id",
+            "execution_mode",
+            "source_type",
+            "queue_job_id",
+        ):
+            if context.get(key) is None and metadata.get(key) is not None:
+                context[key] = metadata.get(key)
+        return context
+
+    @staticmethod
+    def _step_metadata(step: RunStep) -> Dict[str, Any]:
+        metadata = step.metadata or {}
+        input_data = metadata.get("input_data")
+        if isinstance(input_data, dict):
+            return {**metadata, **input_data}
+        return dict(metadata)
+
+    @staticmethod
+    def _tool_call_count(value: Any) -> int:
+        if isinstance(value, list):
+            return len(value)
+        if isinstance(value, int):
+            return value
+        return 0
+
+    @staticmethod
+    def _tool_names(value: Any) -> List[str]:
+        if not isinstance(value, list):
+            return []
+        return [
+            str(tool_call.get("tool_name"))
+            for tool_call in value
+            if isinstance(tool_call, dict) and tool_call.get("tool_name")
+        ]
+
+    @staticmethod
+    def _duration_ms(started_at: Optional[str], completed_at: Optional[str]) -> Optional[int]:
+        if not started_at or not completed_at:
+            return None
+        try:
+            start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+            end = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return max(0, int((end - start).total_seconds() * 1000))
+
+    def _summarize_run_trace(self, run: Run) -> Dict[str, Any]:
+        phase_timings: Dict[str, Dict[str, Any]] = {}
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_cost_usd = 0.0
+        total_cost_seen = False
+        tool_count = 0
+        last_error = run.error
+
+        for step in run.steps:
+            metadata = self._step_metadata(step)
+            phase = str(metadata.get("phase") or "unknown")
+            phase_entry = phase_timings.setdefault(
+                phase,
+                {
+                    "step_count": 0,
+                    "tool_count": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "duration_ms": 0,
+                    "started_at": None,
+                    "completed_at": None,
+                },
+            )
+            input_tokens = int(metadata.get("input_tokens") or 0)
+            output_tokens = int(metadata.get("output_tokens") or 0)
+            step_tool_count = self._tool_call_count(metadata.get("tool_calls"))
+            duration_ms = metadata.get("duration_ms") or metadata.get("elapsed_ms")
+            if not isinstance(duration_ms, int):
+                duration_ms = self._duration_ms(step.started_at, step.completed_at) or 0
+
+            total_input_tokens += input_tokens
+            total_output_tokens += output_tokens
+            tool_count += step_tool_count
+            if metadata.get("cost_usd") is not None:
+                total_cost_seen = True
+                total_cost_usd += float(metadata.get("cost_usd") or 0.0)
+            if metadata.get("error"):
+                last_error = str(metadata.get("error"))
+
+            phase_entry["step_count"] += 1
+            phase_entry["tool_count"] += step_tool_count
+            phase_entry["input_tokens"] += input_tokens
+            phase_entry["output_tokens"] += output_tokens
+            phase_entry["duration_ms"] += duration_ms
+            if step.started_at and (
+                phase_entry["started_at"] is None or step.started_at < phase_entry["started_at"]
+            ):
+                phase_entry["started_at"] = step.started_at
+            if step.completed_at and (
+                phase_entry["completed_at"] is None or step.completed_at > phase_entry["completed_at"]
+            ):
+                phase_entry["completed_at"] = step.completed_at
+
+        return {
+            "phase_timings": phase_timings,
+            "total_tokens": total_input_tokens + total_output_tokens,
+            "total_cost_usd": total_cost_usd if total_cost_seen else None,
+            "tool_count": tool_count,
+            "last_error": last_error,
+        }
+
+    def _execution_status_from_run(
+        self,
+        run: Run,
+        *,
+        work_item_id: str,
+        cycle_id: str,
+        phase: str,
+        pending_clarifications: Optional[List[Dict[str, Any]]] = None,
+    ) -> ExecutionStatusResponse:
+        metadata = run.metadata or {}
+        context = self._execution_observability_context(run)
+        summary = self._summarize_run_trace(run)
+        queue_metadata = metadata.get("queue_metadata")
+        if not isinstance(queue_metadata, dict):
+            queue_metadata = {
+                key: value
+                for key, value in {
+                    "queue_job_id": context.get("queue_job_id"),
+                    "dispatch_mode": metadata.get("dispatch_mode"),
+                    "queue_name": metadata.get("queue_name"),
+                    "queue_attempt": metadata.get("queue_attempt"),
+                }.items()
+                if value is not None
+            }
+        from amprealize.knowledge_retrieval_receipt import (
+            RECEIPT_METADATA_KEY,
+            trace_summary_knowledge_slice,
+        )
+
+        raw_receipt = metadata.get(RECEIPT_METADATA_KEY)
+        knowledge_retrieval = trace_summary_knowledge_slice(
+            raw_receipt if isinstance(raw_receipt, dict) else None,
+        )
+
+        trace_summary = {
+            "origin": {
+                "surface": context.get("surface") or metadata.get("surface"),
+                "source_type": context.get("source_type") or metadata.get("source_type"),
+                "conversation_id": context.get("conversation_id") or metadata.get("conversation_id"),
+                "message_id": context.get("message_id") or metadata.get("message_id"),
+                "request_id": context.get("request_id") or metadata.get("request_id"),
+            },
+            "execution": {
+                "run_id": run.run_id,
+                "cycle_id": cycle_id,
+                "work_item_id": work_item_id,
+                "agent_id": context.get("agent_id") or metadata.get("agent_id"),
+                "model_id": context.get("model_id") or metadata.get("model_id"),
+                "execution_mode": context.get("execution_mode") or metadata.get("execution_mode"),
+                "status": self._map_run_status(run.status).value,
+                "phase": phase,
+            },
+            "queue": queue_metadata,
+            "metrics": {
+                "step_count": len(run.steps),
+                "tool_count": summary["tool_count"],
+                "total_tokens": summary["total_tokens"],
+                "total_cost_usd": summary["total_cost_usd"],
+            },
+            "phase_timings": summary["phase_timings"],
+            "last_error": summary["last_error"],
+            "knowledge_retrieval": knowledge_retrieval,
+        }
+
+        return ExecutionStatusResponse(
+            run_id=run.run_id,
+            cycle_id=cycle_id,
+            work_item_id=work_item_id,
+            status=self._map_run_status(run.status),
+            phase=phase,
+            progress_pct=run.progress_pct,
+            current_step=run.current_step,
+            started_at=run.started_at,
+            completed_at=run.completed_at,
+            error=run.error,
+            model_id=context.get("model_id") or metadata.get("model_id"),
+            step_count=len(run.steps),
+            pending_clarifications=pending_clarifications,
+            agent_id=context.get("agent_id") or metadata.get("agent_id"),
+            project_id=context.get("project_id") or metadata.get("project_id"),
+            org_id=context.get("org_id") or metadata.get("org_id"),
+            surface=context.get("surface") or metadata.get("surface"),
+            source_type=context.get("source_type") or metadata.get("source_type"),
+            conversation_id=context.get("conversation_id") or metadata.get("conversation_id"),
+            message_id=context.get("message_id") or metadata.get("message_id"),
+            request_id=context.get("request_id") or metadata.get("request_id"),
+            execution_mode=context.get("execution_mode") or metadata.get("execution_mode"),
+            queue_job_id=context.get("queue_job_id") or metadata.get("queue_job_id"),
+            queue_metadata=queue_metadata,
+            phase_timings=summary["phase_timings"],
+            trace_summary=trace_summary,
+            total_tokens=summary["total_tokens"],
+            total_cost_usd=summary["total_cost_usd"],
+            tool_count=summary["tool_count"],
+            last_error=summary["last_error"],
+            execution_workspace_kind=metadata.get("execution_workspace_kind"),
+            connector_status=metadata.get("connector_status"),
+        )
+
+    @staticmethod
+    def _resource_to_dict(value: Any) -> Dict[str, Any]:
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return dict(value)
+        if hasattr(value, "model_dump"):
+            return value.model_dump()
+        if hasattr(value, "to_dict"):
+            return value.to_dict()
+        data: Dict[str, Any] = {}
+        for key in dir(value):
+            if key.startswith("_"):
+                continue
+            try:
+                attr = getattr(value, key)
+            except Exception:
+                continue
+            if callable(attr):
+                continue
+            data[key] = attr
+        return data
 
     # =========================================================================
     # Private Helpers
@@ -2009,6 +2523,17 @@ class WorkItemExecutionService:
         except Exception as e:
             logger.exception(f"Error loading agent {agent_id}: {e}")
             return None, None
+
+    def _resolve_ai_research_agent_id(self) -> str:
+        """Resolve the builtin AI Research agent by stable slug."""
+        agent = None
+        if hasattr(self._agent_registry, "_find_agent_by_slug"):
+            agent = self._agent_registry._find_agent_by_slug("ai_research")
+        if agent is None:
+            raise AgentNotFoundError(
+                "Builtin AI Research agent is not registered; bootstrap agent playbooks before executing research work items"
+            )
+        return agent.agent_id
 
     def _get_agent_execution_policy(
         self,

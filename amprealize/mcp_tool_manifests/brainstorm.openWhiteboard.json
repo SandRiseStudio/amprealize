@@ -37,7 +37,7 @@
     "properties": {
       "success": { "type": "boolean" },
       "room_id": { "type": "string" },
-      "room_url": { "type": "string" },
+      "room_url": { "type": "string", "description": "URL to the whiteboard room in the web console (AMPREALIZE_CONSOLE_URL/whiteboard/{room_id}). Share this link with human participants." },
       "sync_url": { "type": "string" },
       "title": { "type": "string" },
       "session_id": { "type": "string" },

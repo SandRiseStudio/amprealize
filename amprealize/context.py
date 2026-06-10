@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import socket
 import sys
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -56,6 +57,9 @@ ConfigType = Union[AmprealizeConfig, ContextConfig]
 
 __all__ = [
     "ContextInfo",
+    "STANDARD_LOCAL_POSTGRES_MAIN_DSN",
+    "STANDARD_LOCAL_POSTGRES_TELEMETRY_DSN",
+    "ensure_standard_local_postgres_contexts",
     "get_current_context",
     "get_context_name",
     "list_contexts",
@@ -64,7 +68,24 @@ __all__ = [
     "check_port_conflicts",
     "validate_context_connection",
     "apply_context_to_environment",
+    "postgres_dsn_uses_local_host",
+    "active_amprealize_context_targets_remote_postgres",
+    "suggest_local_postgres_context_names",
 ]
+
+# Host-forwarded DSNs for BreakerAmp ``development`` / ``test`` in ``infra/environments.yaml``.
+# Both stacks publish the same localhost ports when the matching Podman machine is active.
+STANDARD_LOCAL_POSTGRES_MAIN_DSN = (
+    "postgresql://amprealize:amprealize_dev@localhost:5432/amprealize"  # pragma: allowlist secret
+)
+STANDARD_LOCAL_POSTGRES_TELEMETRY_DSN = (
+    "postgresql://telemetry:telemetry_dev@localhost:5433/telemetry"  # pragma: allowlist secret
+)
+
+# Names created by :func:`ensure_standard_local_postgres_contexts` / ``context init-standard-local``.
+STANDARD_SEEDED_LOCAL_CONTEXT_NAMES: frozenset[str] = frozenset(
+    ("local-postgres-dev", "local-postgres-test")
+)
 
 # Path to user config file
 AMPREALIZE_HOME = Path(os.environ.get("AMPREALIZE_HOME", "~/.amprealize")).expanduser()
@@ -140,6 +161,34 @@ def _extract_port_from_dsn(dsn: str) -> Optional[int]:
     return 5432  # PostgreSQL default
 
 
+def _postgres_host_port_from_dsn(dsn: str) -> Optional[Tuple[str, int]]:
+    """Parse Postgres DSN into ``(host, port)`` for conflict grouping and probes.
+
+    Remote Neon ``host:5432`` and local ``localhost:5432`` are distinct keys.
+    """
+    if not dsn or "@" not in dsn:
+        return None
+    port = _extract_port_from_dsn(dsn)
+    if port is None:
+        port = 5432
+    after_at = dsn.split("@", 1)[1]
+    host_port = after_at.split("/")[0]
+    if host_port.startswith("["):
+        bracket_end = host_port.find("]")
+        host = host_port[1:bracket_end] if bracket_end > 0 else "localhost"
+    else:
+        host = host_port.rsplit(":", 1)[0] if ":" in host_port else host_port
+    return (host.lower(), port)
+
+
+def _loopback_normalize_for_port_conflicts(host: str) -> str:
+    """Treat common loopback spellings as one host for port-overlap display."""
+    h = host.lower()
+    if h in ("localhost", "127.0.0.1", "::1"):
+        return "loopback"
+    return h
+
+
 def _is_v2_config(data: Dict[str, Any]) -> bool:
     """Check if config is v2 format with contexts."""
     return data.get("version") == 2 and "contexts" in data
@@ -188,14 +237,23 @@ def get_context_name() -> str:
 def get_current_context() -> Tuple[str, ConfigType]:
     """Get the current context name and its configuration.
 
+    If ``AMPREALIZE_CONTEXT`` is set to a name that exists in ``contexts``,
+    that context wins over ``current_context`` in ``config.yaml``. Use this
+    so MCP / IDE launch configs can pin a context without mutating the global
+    active context on disk.
+
     Returns:
         Tuple of (context_name, config)
     """
     data = _load_raw_config()
+    env_override = os.environ.get("AMPREALIZE_CONTEXT", "").strip()
 
     if _is_v2_config(data):
-        current = data.get("current_context", "default")
         contexts = data.get("contexts", {})
+        if env_override and env_override in contexts:
+            return env_override, _context_to_config(contexts[env_override])
+
+        current = data.get("current_context", "default")
 
         if current in contexts:
             return current, _context_to_config(contexts[current])
@@ -236,32 +294,63 @@ def _get_storage_location(cfg: ConfigType) -> str:
 def _get_port(cfg: ConfigType) -> Optional[int]:
     """Extract port from config (PostgreSQL or server port)."""
     if cfg.storage.backend == "postgres":
-        return _extract_port_from_dsn(cfg.storage.postgres.dsn)
+        dsn = cfg.storage.postgres.dsn or ""
+        hp = _postgres_host_port_from_dsn(dsn)
+        return hp[1] if hp else _extract_port_from_dsn(dsn)
     return cfg.server.port if hasattr(cfg, "server") else None
 
 
 def check_port_conflicts(contexts: Dict[str, Dict[str, Any]]) -> Dict[str, Tuple[str, str]]:
     """Check for port conflicts between contexts.
 
+    Postgres contexts only conflict when **host and port** match (e.g. two
+    ``localhost:5432`` URLs). A Neon ``*.neon.tech:5432`` context does not
+    conflict with ``localhost:5432``.
+
+    Two contexts that share the **same primary Postgres DSN** (e.g.
+    ``local-postgres-dev`` and ``local-postgres-test`` seeded with identical
+    URLs) are treated as aliases and do **not** surface a port conflict.
+
+    Non-Postgres backends still key conflicts by numeric port only (legacy).
+
     Returns dict mapping context names to (conflict_context, conflicting_port) tuples.
     """
     conflicts: Dict[str, Tuple[str, str]] = {}
-    port_to_context: Dict[int, str] = {}
+    key_to_context: Dict[str, str] = {}
 
     for name, ctx_data in contexts.items():
         try:
             cfg = _context_to_config(ctx_data)
-            port = _get_port(cfg)
+            if cfg.storage.backend == "postgres":
+                dsn = cfg.storage.postgres.dsn or ""
+                hp = _postgres_host_port_from_dsn(dsn)
+                if hp is None:
+                    continue
+                host, port = hp
+                key = f"pg:{_loopback_normalize_for_port_conflicts(host)}:{port}"
+            else:
+                port = _get_port(cfg)
+                if port is None:
+                    continue
+                key = f"np:{port}"
 
-            if port is not None:
-                if port in port_to_context:
-                    # Found conflict
-                    other = port_to_context[port]
-                    conflicts[name] = (other, str(port))
-                    if other not in conflicts:
-                        conflicts[other] = (name, str(port))
-                else:
-                    port_to_context[port] = name
+            if key in key_to_context:
+                other = key_to_context[key]
+                if cfg.storage.backend == "postgres":
+                    dsn_self = (cfg.storage.postgres.dsn or "").strip()
+                    try:
+                        other_cfg = _context_to_config(contexts[other])
+                        if other_cfg.storage.backend == "postgres":
+                            dsn_other = (other_cfg.storage.postgres.dsn or "").strip()
+                            if dsn_self and dsn_self == dsn_other:
+                                continue
+                    except Exception:
+                        pass
+                conflicts[name] = (other, str(port))
+                if other not in conflicts:
+                    conflicts[other] = (name, str(port))
+            else:
+                key_to_context[key] = name
         except Exception:
             continue
 
@@ -279,23 +368,11 @@ def validate_context_connection(cfg: ConfigType) -> Tuple[bool, Optional[str]]:
     """
     if cfg.storage.backend == "postgres":
         dsn = cfg.storage.postgres.dsn
-        port = _extract_port_from_dsn(dsn)
-
-        # Extract host
-        if "@" not in dsn:
+        hp = _postgres_host_port_from_dsn(dsn or "")
+        if hp is None:
             return False, "Invalid DSN format"
 
-        after_at = dsn.split("@", 1)[1]
-        host_port = after_at.split("/")[0]
-
-        # Handle IPv6
-        if host_port.startswith("["):
-            bracket_end = host_port.find("]")
-            host = host_port[1:bracket_end] if bracket_end > 0 else "localhost"
-        else:
-            host = host_port.rsplit(":", 1)[0] if ":" in host_port else host_port
-
-        port = port or 5432
+        host, port = hp
 
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -428,7 +505,12 @@ def use_context(name: str) -> Tuple[bool, str]:
 
     if name not in contexts:
         available = ", ".join(sorted(contexts.keys())) if contexts else "(none)"
-        return False, f"Context '{name}' not found. Available contexts: {available}"
+        msg = f"Context '{name}' not found. Available contexts: {available}"
+        if name in STANDARD_SEEDED_LOCAL_CONTEXT_NAMES:
+            msg += (
+                "\n  Create BreakerAmp localhost contexts: amprealize context init-standard-local"
+            )
+        return False, msg
 
     # Validate the context before switching
     try:
@@ -468,6 +550,91 @@ def get_context_indicator() -> str:
         return f"[{backend_short}]"
 
     return f"[{name}:{backend_short}]"
+
+
+# Hosts treated as "local" for BreakerAmp / pytest safety (main app Postgres).
+_LOCAL_POSTGRES_HOSTS_FOR_TESTS = frozenset(
+    {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "host.containers.internal",
+        "host.docker.internal",
+    }
+)
+
+
+def postgres_dsn_uses_local_host(dsn: str) -> bool:
+    """Return True if the DSN's hostname is a loopback / container-bridge host."""
+    parsed = urllib.parse.urlparse(dsn)
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False
+    return host in _LOCAL_POSTGRES_HOSTS_FOR_TESTS
+
+
+def active_amprealize_context_targets_remote_postgres() -> Tuple[bool, str, str]:
+    """Detect whether the active context's primary Postgres DSN is non-local.
+
+    Used before BreakerAmp ``--env test`` runs so the shell can warn when the
+    user still has e.g. a Neon-backed ``neon`` context selected after using
+    ``cloud-dev``.
+
+    Returns:
+        (is_remote, context_name, reason). When ``is_remote`` is False,
+        ``reason`` is empty.
+    """
+    name, cfg = get_current_context()
+    if cfg.storage.backend != "postgres":
+        return False, name, ""
+    dsn = (cfg.storage.postgres.dsn or "").strip()
+    if not dsn:
+        return False, name, ""
+    if postgres_dsn_uses_local_host(dsn):
+        return False, name, ""
+    masked = _get_storage_location(cfg)
+    return (
+        True,
+        name,
+        f"active context '{name}' uses non-local Postgres ({masked})",
+    )
+
+
+def suggest_local_postgres_context_names() -> List[str]:
+    """Context names whose primary Postgres DSN uses a local host, ordered for UX.
+
+    Prefers ``local-postgres-test``, ``local-test``, ``local-postgres-dev``,
+    ``local-postgres``, ``local``, ``default``, then remaining matching contexts
+    alphabetically.
+    """
+    data = _load_raw_config()
+    priority = (
+        "local-postgres-test",
+        "local-test",
+        "local-postgres-dev",
+        "local-postgres",
+        "local",
+        "default",
+    )
+    local_names: List[str] = []
+
+    if not _is_v2_config(data):
+        return list(priority)
+
+    for nm, ctx_data in (data.get("contexts") or {}).items():
+        try:
+            cfg = _context_to_config(ctx_data)
+            if cfg.storage.backend != "postgres":
+                continue
+            dsn = (cfg.storage.postgres.dsn or "").strip()
+            if dsn and postgres_dsn_uses_local_host(dsn):
+                local_names.append(nm)
+        except Exception:
+            continue
+
+    ordered = [n for n in priority if n in local_names]
+    rest = sorted(n for n in local_names if n not in ordered)
+    return ordered + rest
 
 
 def add_context(
@@ -533,6 +700,46 @@ def add_context(
     _save_raw_config(data)
 
     return True, f"Created context '{name}'"
+
+
+def ensure_standard_local_postgres_contexts() -> Tuple[int, List[str]]:
+    """Create ``local-postgres-dev`` and ``local-postgres-test`` if they do not exist.
+
+    Uses :data:`STANDARD_LOCAL_POSTGRES_MAIN_DSN` and
+    :data:`STANDARD_LOCAL_POSTGRES_TELEMETRY_DSN` (aligned with
+    ``infra/environments.yaml`` host port forwards). Idempotent.
+
+    Returns:
+        ``(created_count, human-readable status lines)``
+    """
+    specs: Tuple[Tuple[str, str, str, str], ...] = (
+        (
+            "local-postgres-dev",
+            STANDARD_LOCAL_POSTGRES_MAIN_DSN,
+            STANDARD_LOCAL_POSTGRES_TELEMETRY_DSN,
+            "BreakerAmp development (infra environments `development` / blueprint `local-dev`)",
+        ),
+        (
+            "local-postgres-test",
+            STANDARD_LOCAL_POSTGRES_MAIN_DSN,
+            STANDARD_LOCAL_POSTGRES_TELEMETRY_DSN,
+            "BreakerAmp pytest stack (infra environments `test` / blueprint `local-test-env`)",
+        ),
+    )
+    created = 0
+    lines: List[str] = []
+    for name, dsn, telemetry_dsn, description in specs:
+        ok, msg = add_context(
+            name=name,
+            storage_backend="postgres",
+            dsn=dsn,
+            telemetry_dsn=telemetry_dsn,
+            description=description,
+        )
+        lines.append(msg)
+        if ok:
+            created += 1
+    return created, lines
 
 
 def remove_context(name: str) -> Tuple[bool, str]:
@@ -626,6 +833,10 @@ def apply_context_to_environment(force: bool = False) -> Optional[str]:
     This bridges the gap between the context system (config.yaml) and the
     service layer (which reads DATABASE_URL / AMPREALIZE_*_PG_DSN env vars).
 
+    The active context is ``get_current_context()`` — including an optional
+    ``AMPREALIZE_CONTEXT`` env override when it names a valid entry under
+    ``contexts`` in config.
+
     Sets:
         DATABASE_URL              — main DB DSN (universal fallback)
         TELEMETRY_DATABASE_URL    — telemetry DB DSN
@@ -646,15 +857,18 @@ def apply_context_to_environment(force: bool = False) -> Optional[str]:
         return None
 
     dsn = cfg.storage.postgres.dsn
-    telemetry_dsn = cfg.storage.postgres.telemetry_dsn
+    telemetry_dsn = cfg.storage.postgres.get_explicit_telemetry_dsn()
 
     # Set DATABASE_URL as universal fallback (dsn.py checks this)
     if force or not os.environ.get("DATABASE_URL"):
         os.environ["DATABASE_URL"] = dsn
 
-    # Set telemetry DSN if available and not already set
-    if telemetry_dsn and (force or not os.environ.get("TELEMETRY_DATABASE_URL")):
-        os.environ["TELEMETRY_DATABASE_URL"] = telemetry_dsn
+    # Set telemetry DSN only when explicitly configured by the context.
+    if telemetry_dsn:
+        if force or not os.environ.get("TELEMETRY_DATABASE_URL"):
+            os.environ["TELEMETRY_DATABASE_URL"] = telemetry_dsn
+    elif force:
+        os.environ.pop("TELEMETRY_DATABASE_URL", None)
 
     # Set ALL per-service DSNs so that services which read their own
     # AMPREALIZE_*_PG_DSN env var (before DATABASE_URL fallback) also pick up
@@ -663,9 +877,11 @@ def apply_context_to_environment(force: bool = False) -> Optional[str]:
         if force or not os.environ.get(env_var):
             os.environ[env_var] = _build_service_dsn(dsn, search_path)
 
-    # Telemetry-specific services point to telemetry DB when available
-    telemetry_target = telemetry_dsn or dsn
-    if force or not os.environ.get("AMPREALIZE_TELEMETRY_PG_DSN"):
-        os.environ["AMPREALIZE_TELEMETRY_PG_DSN"] = telemetry_target
+    # Telemetry-specific services only get a DSN when telemetry is explicit.
+    if telemetry_dsn:
+        if force or not os.environ.get("AMPREALIZE_TELEMETRY_PG_DSN"):
+            os.environ["AMPREALIZE_TELEMETRY_PG_DSN"] = telemetry_dsn
+    elif force:
+        os.environ.pop("AMPREALIZE_TELEMETRY_PG_DSN", None)
 
     return name

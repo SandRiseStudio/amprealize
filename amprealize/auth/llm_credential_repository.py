@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 class CredentialScopeType(str, Enum):
     """Scope type for credentials."""
+    USER = "user"
     ORG = "org"
     PROJECT = "project"
 
@@ -274,7 +275,7 @@ class LLMCredentialRepository:
         include_invalid: bool = False,
         decrypt: bool = False,
     ) -> List[LLMCredential]:
-        """Get credentials for a scope (org or project)."""
+        """Get credentials for a scope (user, org, or project)."""
         with self._pool.connection() as conn:
             query = """
                 SELECT
@@ -310,13 +311,14 @@ class LLMCredentialRepository:
         scope_type: CredentialScopeType,
         scope_id: str,
         decrypt: bool = False,
+        include_invalid: bool = False,
     ) -> Optional[LLMCredential]:
         """Get the active credential for a specific provider and scope."""
         credentials = self.get_for_scope(
             scope_type=scope_type,
             scope_id=scope_id,
             provider=provider,
-            include_invalid=False,
+            include_invalid=include_invalid,
             decrypt=decrypt,
         )
         return credentials[0] if credentials else None

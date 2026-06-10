@@ -505,6 +505,9 @@ class PostgresAgentOrchestratorService:
         if context:
             task_type = context.get("task_type")
             if task_type:
+                persona_name = str(task_type)
+                if persona_name in ("analytics", "ml_experiment"):
+                    persona_name = "data_science"
                 cur.execute(
                     """
                     SELECT id, name, description, role,
@@ -512,7 +515,7 @@ class PostgresAgentOrchestratorService:
                     FROM agent_personas
                     WHERE name = %s AND is_active = TRUE
                     """,
-                    (task_type,),
+                    (persona_name,),
                 )
                 row = cur.fetchone()
                 if row:

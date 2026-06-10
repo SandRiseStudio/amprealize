@@ -368,6 +368,7 @@ class AnthropicProvider(Provider):
             yield StreamChunk(
                 type=StreamChunkType.ERROR,
                 error=str(exc),
+                error_class=type(exc).__name__,
             )
 
     def is_available(self) -> bool:

@@ -64,6 +64,20 @@ _DEFAULT_PERSONA_DEFS = [
         "playbook_refs": ["amprealize/agents/playbooks/AGENT_SECURITY.md"],
         "capabilities": ["auth", "threat_model"],
     },
+    {
+        "agent_id": "data_science",
+        "display_name": "Data Science Agent",
+        "role_alignment": "TEACHER",
+        "default_behaviors": [
+            "behavior_principal_data_science_workflow",
+            "behavior_create_data_pipeline",
+            "behavior_validate_product_hypotheses",
+            "behavior_instrument_metrics_pipeline",
+            "behavior_update_docs_after_changes",
+        ],
+        "playbook_refs": ["amprealize/agents/playbooks/AGENT_DATA_SCIENCE.md"],
+        "capabilities": ["metrics", "experimentation", "telemetry", "insights"],
+    },
 ]
 
 
@@ -466,6 +480,8 @@ class AgentOrchestratorService:
                 return self._personas["security"]
             if task_type == "finance" and "finance" in self._personas:
                 return self._personas["finance"]
+            if task_type in ("data_science", "analytics", "ml_experiment") and "data_science" in self._personas:
+                return self._personas["data_science"]
         return self._personas.get("engineering") or next(iter(self._personas.values()))
 
     def _build_heuristics(
