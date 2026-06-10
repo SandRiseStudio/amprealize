@@ -13,12 +13,10 @@ DIFFER   adherence_tracker.py
 DIFFER   advanced_retrieval_contracts.py
 DIFFER   advanced_retrieval_service.py
 DIFFER   agent_execution_loop.py
-DIFFER   agent_lifecycle_actions.py
 DIFFER   agent_orchestrator_service_postgres.py
 DIFFER   agent_performance_contracts.py
 DIFFER   agent_registry_service.py
 DIFFER   agent_review_contracts.py
-DIFFER   agents/work_item_planner/planner.py
 MISSING  api_http_telemetry.py
 DIFFER   api_rate_limiting_contracts.py
 DIFFER   auth/consent_service.py
@@ -85,11 +83,9 @@ DIFFER   llm/providers/anthropic.py
 DIFFER   llm/providers/openai.py
 DIFFER   llm/providers/openrouter.py
 DIFFER   llm/providers/test.py
-DIFFER   llm/retry.py
 DIFFER   llm/types.py
 MISSING  local_connector_tool_delegate.py
 MISSING  local_execution_connector_ws_handler.py
-DIFFER   mcp/handlers/agent_performance_handlers.py
 DIFFER   mcp/handlers/agent_registry_handlers.py
 DIFFER   mcp/handlers/bci_handlers.py
 DIFFER   mcp/handlers/behavior_handlers.py
@@ -132,7 +128,6 @@ DIFFER   output_handlers/gitlab_mr.py
 DIFFER   output_handlers/local_sync.py
 DIFFER   output_handlers/patch_file.py
 DIFFER   platform_management_actions.py
-DIFFER   policy_composition.py
 MISSING  project_settings_api.py
 DIFFER   projects_api.py
 DIFFER   reflection_service_postgres.py
@@ -146,7 +141,6 @@ DIFFER   run_service_postgres.py
 MISSING  runtime_env.py
 MISSING  server_timing_middleware.py
 DIFFER   services/agent_auth_service.py
-DIFFER   services/agent_performance_api.py
 DIFFER   services/assignment_service.py
 DIFFER   services/audit_log_service.py
 DIFFER   services/board_api_v2.py
@@ -173,7 +167,6 @@ DIFFER   services/work_item_execution_api.py
 DIFFER   session_audit.py
 DIFFER   storage/embedding_metrics.py
 DIFFER   storage/factory.py
-DIFFER   storage/feature_flags_pg.py
 DIFFER   storage/opensearch_storage.py
 DIFFER   storage/postgres_metrics.py
 DIFFER   storage/postgres_pool.py
