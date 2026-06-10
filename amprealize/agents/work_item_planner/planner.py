@@ -11,11 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from amprealize.agents.work_item_planner.prompts import (
-    GWS_VERSION,
-    HIERARCHY,
-    validate_title,
-)
+from amprealize.agents.work_item_planner.prompts import GWS_VERSION, validate_title
 
 logger = logging.getLogger(__name__)
 

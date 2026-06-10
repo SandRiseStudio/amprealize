@@ -11,16 +11,7 @@ from typing import Any, Dict, List, Optional
 from dataclasses import asdict
 
 from ...services.agent_performance_service import AgentPerformanceService
-from ...agent_performance_contracts import (
-    AgentPerformanceDaily,
-    AgentPerformanceSnapshot,
-    AgentPerformanceSummary,
-    AgentPerformanceThresholds,
-    PerformanceAlertSeverity,
-    PerformanceAlert,
-    RecordStatusChangeRequest,
-    RecordTaskCompletionRequest,
-)
+from ...agent_performance_contracts import AgentPerformanceDaily, AgentPerformanceSnapshot, AgentPerformanceSummary, AgentPerformanceThresholds, PerformanceAlertSeverity, PerformanceAlert, RecordTaskCompletionRequest
 
 
 def _parse_date(value: Optional[str]) -> Optional[date]:

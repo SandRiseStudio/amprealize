@@ -7,7 +7,6 @@ so we simply set the base URL and disable API key requirement.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
 
 from amprealize.llm.providers.openai import OpenAIProvider
 from amprealize.llm.types import LLMConfig

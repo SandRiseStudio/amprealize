@@ -72,19 +72,16 @@ DIFFER   edition.py
 DIFFER   execution_gateway.py
 DIFFER   execution_gateway_adapter.py
 DIFFER   execution_gateway_contracts.py
-DIFFER   execution_metrics.py
 DIFFER   execution_wiring.py
 DIFFER   execution_worker.py
 MISSING  execution_workspace_contracts.py
 DIFFER   feature_flags.py
-DIFFER   knowledge_pack/builder.py
 DIFFER   knowledge_pack/extractor.py
 DIFFER   knowledge_pack/schema.py
 DIFFER   knowledge_pack/source_registry.py
 DIFFER   knowledge_pack/storage.py
 MISSING  knowledge_retrieval_receipt.py
 DIFFER   llm/providers/anthropic.py
-DIFFER   llm/providers/ollama.py
 DIFFER   llm/providers/openai.py
 DIFFER   llm/providers/openrouter.py
 DIFFER   llm/providers/test.py
@@ -98,7 +95,6 @@ DIFFER   mcp/handlers/bci_handlers.py
 DIFFER   mcp/handlers/behavior_handlers.py
 DIFFER   mcp/handlers/billing_handlers.py
 DIFFER   mcp/handlers/board_handlers.py
-DIFFER   mcp/handlers/bootstrap_handlers.py
 MISSING  mcp/handlers/execution_connector_handlers.py
 DIFFER   mcp/handlers/file_handlers.py
 DIFFER   mcp/handlers/github_handlers.py
@@ -124,7 +120,6 @@ DIFFER   migration.py
 DIFFER   mode_executors.py
 DIFFER   module_registry.py
 DIFFER   multi_tenant_contracts.py
-DIFFER   multi_tenant_service.py
 DIFFER   notifications/webhook_dispatcher.py
 DIFFER   notify/service.py
 MISSING  observability_export_config.py
@@ -183,9 +178,7 @@ DIFFER   storage/opensearch_storage.py
 DIFFER   storage/postgres_metrics.py
 DIFFER   storage/postgres_pool.py
 DIFFER   storage/redis_cache.py
-DIFFER   storage/s3_storage.py
 DIFFER   storage/s3_worm_storage.py
-DIFFER   storage/sqlite_pool.py
 DIFFER   task_assignments.py
 DIFFER   task_cycle_service.py
 DIFFER   telemetry.py

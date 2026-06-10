@@ -6,7 +6,6 @@ Primer format follows architecture doc §6.6 (BCI Prompt Composer).
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

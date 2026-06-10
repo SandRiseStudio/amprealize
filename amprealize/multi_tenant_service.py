@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 import logging
 import uuid
-import re
 
 from .multi_tenant_contracts import (
     TenantStatus, SecurityLevel, Tenant, TenantUser, RowLevelSecurityPolicy,

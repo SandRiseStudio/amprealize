@@ -6,7 +6,6 @@ Following `behavior_prefer_mcp_tools` - MCP provides consistent schemas and auto
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
