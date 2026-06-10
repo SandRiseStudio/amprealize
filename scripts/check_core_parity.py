@@ -48,6 +48,7 @@ SEAM_PREFIXES = (
     "research/",            # enterprise differentiation
     "crypto/",              # enterprise differentiation
     "tenant/",              # OSS-only single-tenant shim
+    "wizard/",              # OSS-only CLI setup wizard
     "auth/invite_policy.py",  # invitations are part of orgs (enterprise)
     "api.py",               # mounts enterprise routes
     "cli.py",               # mounts enterprise commands

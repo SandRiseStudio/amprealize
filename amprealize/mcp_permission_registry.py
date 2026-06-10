@@ -13,7 +13,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Final, Optional
 
-from .tenant.permissions import OrgPermission, ProjectPermission
+try:
+    from .tenant.permissions import OrgPermission, ProjectPermission
+except ImportError:  # tenant/ is OSS-only; enterprise uses multi_tenant
+    from .multi_tenant.permissions import OrgPermission, ProjectPermission
 
 
 @dataclass(frozen=True)
