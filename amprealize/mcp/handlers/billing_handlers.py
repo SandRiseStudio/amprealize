@@ -7,7 +7,7 @@ Following `behavior_prefer_mcp_tools` - MCP provides consistent schemas and auto
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, TYPE_CHECKING
 # NOTE: Billing objects may be Pydantic models - use .model_dump() not asdict()
 
 if TYPE_CHECKING:

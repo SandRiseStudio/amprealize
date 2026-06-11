@@ -29,7 +29,7 @@ Example MCP call (tasks.listAssignments):
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from .services.task_service import TaskService, CreateTaskRequest, UpdateTaskRequest, ListTasksRequest
 

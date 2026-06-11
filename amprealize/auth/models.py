@@ -18,7 +18,7 @@ Service principals (for agents) authenticate via:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import Optional
 

@@ -3,7 +3,6 @@
 # See CORE_DRIFT_INVENTORY.md.
 
 DIFFER   __init__.py
-DIFFER   action_capturability.py
 DIFFER   action_replay_executor.py
 DIFFER   action_service.py
 DIFFER   action_service_postgres.py
@@ -12,17 +11,14 @@ DIFFER   adherence_tracker.py
 DIFFER   agent_execution_loop.py
 DIFFER   agent_orchestrator_service_postgres.py
 DIFFER   agent_registry_service.py
-DIFFER   auth/consent_service.py
 DIFFER   auth/github_app_service.py
 DIFFER   auth/github_credential_repository.py
 DIFFER   auth/jwt_service.py
 DIFFER   auth/middleware.py
-DIFFER   auth/models.py
 DIFFER   auth/postgres_device_flow.py
 DIFFER   auth/providers/google.py
 DIFFER   auth/providers/registry.py
 DIFFER   auth/user_auth_service.py
-DIFFER   auth_tokens.py
 DIFFER   bci_service.py
 DIFFER   behavior_retriever.py
 DIFFER   behavior_service.py
@@ -42,7 +38,6 @@ DIFFER   collaboration_service_postgres.py
 DIFFER   config/settings.py
 DIFFER   context.py
 DIFFER   conversation_contracts.py
-DIFFER   cost_alert_service.py
 DIFFER   deploy_migrate.py
 DIFFER   deployment.py
 DIFFER   device_flow.py
@@ -51,18 +46,14 @@ DIFFER   execution_gateway.py
 DIFFER   execution_gateway_adapter.py
 DIFFER   execution_wiring.py
 DIFFER   feature_flags.py
-DIFFER   knowledge_pack/extractor.py
-DIFFER   knowledge_pack/schema.py
 DIFFER   knowledge_pack/source_registry.py
 DIFFER   knowledge_pack/storage.py
 DIFFER   llm/providers/openrouter.py
 DIFFER   mcp/handlers/agent_registry_handlers.py
 DIFFER   mcp/handlers/bci_handlers.py
 DIFFER   mcp/handlers/behavior_handlers.py
-DIFFER   mcp/handlers/billing_handlers.py
 DIFFER   mcp/handlers/board_handlers.py
 DIFFER   mcp/handlers/file_handlers.py
-DIFFER   mcp/handlers/github_handlers.py
 DIFFER   mcp/handlers/knowledge_pack_handlers.py
 DIFFER   mcp/handlers/org_agent_handlers.py
 DIFFER   mcp/handlers/org_handlers.py
@@ -74,13 +65,11 @@ DIFFER   mcp_lazy_loader.py
 DIFFER   mcp_long_running.py
 DIFFER   mcp_rate_limiter.py
 DIFFER   mcp_service_adapter.py
-DIFFER   mcp_task_handler.py
 DIFFER   mcp_tool_groups.py
 DIFFER   midnighter/__init__.py
 DIFFER   migration.py
 DIFFER   mode_executors.py
 DIFFER   module_registry.py
-DIFFER   notifications/webhook_dispatcher.py
 DIFFER   notify/service.py
 DIFFER   output_handlers/github_pr.py
 DIFFER   output_handlers/gitlab_mr.py
@@ -98,7 +87,6 @@ DIFFER   services/audit_log_service.py
 DIFFER   services/board_api_v2.py
 DIFFER   services/board_service.py
 DIFFER   services/board_service_backup.py
-DIFFER   services/conversation_analytics_api.py
 DIFFER   services/conversation_api.py
 DIFFER   services/conversation_events_api.py
 DIFFER   services/conversation_reply_service.py
@@ -106,22 +94,16 @@ DIFFER   services/conversation_service.py
 DIFFER   services/github_service.py
 DIFFER   services/run_events_api.py
 DIFFER   services/slack_bridge.py
-DIFFER   services/task_service.py
 DIFFER   services/work_item_assignment.py
 DIFFER   services/work_item_execution_api.py
 DIFFER   session_audit.py
-DIFFER   storage/embedding_metrics.py
 DIFFER   storage/factory.py
-DIFFER   storage/opensearch_storage.py
-DIFFER   storage/postgres_metrics.py
 DIFFER   storage/postgres_pool.py
 DIFFER   storage/redis_cache.py
 DIFFER   storage/s3_worm_storage.py
-DIFFER   task_assignments.py
 DIFFER   task_cycle_service.py
 DIFFER   telemetry.py
 DIFFER   tool_executor.py
 DIFFER   trace_analysis_service_postgres.py
 DIFFER   wiki_service.py
 DIFFER   work_item_execution_service.py
-DIFFER   zombie_reaper.py

@@ -6,7 +6,7 @@ Implements the data model from architecture doc section 7.1 / 7.2.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 

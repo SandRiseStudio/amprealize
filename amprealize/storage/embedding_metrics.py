@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import time
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import Optional
 
 try:
     from prometheus_client import Counter, Gauge, Histogram, Info
