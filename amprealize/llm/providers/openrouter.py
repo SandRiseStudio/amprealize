@@ -7,10 +7,9 @@ add the required HTTP-Referer and X-Title headers.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
 
 from amprealize.llm.providers.openai import OpenAIProvider
-from amprealize.llm.types import LLMConfig, ProviderType
+from amprealize.llm.types import LLMConfig
 
 
 class OpenRouterProvider(OpenAIProvider):

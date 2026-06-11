@@ -17,7 +17,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .auth.providers import (
     GitHubOAuthProvider,
@@ -26,8 +26,6 @@ from .auth.providers import (
     SlowDownError,
     ExpiredTokenError,
     AccessDeniedError,
-    InvalidCredentialsError,
-    OAuthError,
     UserInfo,
 )
 from .telemetry import TelemetryClient

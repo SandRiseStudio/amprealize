@@ -12,16 +12,14 @@ Follows patterns established in behavior_service.py.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-import os
 import re
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from amprealize.agent_registry_contracts import (
     Agent,

@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from .reflection_contracts import ReflectRequest
@@ -42,7 +42,6 @@ from .task_cycle_contracts import (
     DesignSection,
     GateType,
     PHASE_GATES,
-    PHASE_ROLES,
     PhaseTransition,
     PlanStep,
     RequestVerificationRequest,
@@ -58,7 +57,6 @@ from .task_cycle_contracts import (
     VALID_TRANSITIONS,
 )
 from .telemetry import TelemetryClient
-from .storage.postgres_pool import PostgresPool
 from .utils.dsn import resolve_postgres_dsn
 
 

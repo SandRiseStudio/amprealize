@@ -24,9 +24,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Query, Request, status
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 logger = logging.getLogger(__name__)

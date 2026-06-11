@@ -10,9 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional

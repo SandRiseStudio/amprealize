@@ -22,8 +22,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
-from ..action_contracts import Actor, utc_now_iso
-from ..auth.policy_engine import PolicyEngine, PolicyDecision, get_policy_engine
+from ..auth.policy_engine import PolicyDecision, get_policy_engine
 from ..storage.postgres_pool import PostgresPool
 from ..surfaces import normalize_actor_surface
 from ..telemetry import TelemetryClient

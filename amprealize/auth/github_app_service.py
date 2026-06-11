@@ -23,7 +23,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -34,7 +34,6 @@ from ..utils.dsn import resolve_postgres_dsn
 from .github_app_installation_repository import (
     GitHubAppInstallation,
     GitHubAppInstallationRepository,
-    CachedInstallationToken,
 )
 from .github_credential_repository import CredentialScopeType
 

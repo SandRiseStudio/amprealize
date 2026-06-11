@@ -7,9 +7,8 @@ Part of E3 — Agent Execution Loop Rearchitecture (Phase 4 / S3.8).
 
 from __future__ import annotations
 
-import base64
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from urllib.parse import quote
 
 import httpx
@@ -17,7 +16,6 @@ import httpx
 from .base import (
     FileChange,
     OutputContext,
-    OutputHandler,
     OutputResult,
     OutputStatus,
 )

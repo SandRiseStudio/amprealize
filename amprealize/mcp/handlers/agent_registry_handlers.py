@@ -15,11 +15,10 @@ Following `behavior_prefer_mcp_tools` - MCP provides consistent schemas and auto
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from amprealize.agent_registry_contracts import (
     CreateAgentRequest,
-    CreateNewVersionRequest,
     DeprecateAgentRequest,
     ListAgentsRequest,
     PublishAgentRequest,

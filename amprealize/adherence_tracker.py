@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from amprealize.bci_contracts import (
     AdherenceResult,
-    ParseCitationsRequest,
     PhaseAdherenceRecord,
     PrependedBehavior,
     ValidateCitationsRequest,

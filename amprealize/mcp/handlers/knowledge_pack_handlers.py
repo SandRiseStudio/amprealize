@@ -8,17 +8,11 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
-from ...knowledge_pack.validator import validate_manifest, lint_manifest
+from ...knowledge_pack.validator import validate_manifest
 from ...knowledge_pack.schema import (
     KnowledgePackManifest,
-    OverlayFragment,
-    OverlayKind,
-    PackScope,
-    PackSource,
-    PackSourceType,
-    SourceScope,
     ValidationResult,
 )
 

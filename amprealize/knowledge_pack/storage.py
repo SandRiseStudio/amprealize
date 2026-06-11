@@ -15,11 +15,10 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Any, Callable, Dict, List, Optional, TypeVar, Union
+from typing import Any, Dict, List, Optional, TypeVar
 
 from amprealize.knowledge_pack.schema import (
     KnowledgePackManifest,

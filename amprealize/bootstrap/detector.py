@@ -8,9 +8,8 @@ auto-select a knowledge pack (architecture doc §8.1, §8.2).
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 from amprealize.bootstrap.profile import (
     ProfileDetectionResult,

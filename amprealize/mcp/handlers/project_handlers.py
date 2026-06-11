@@ -9,16 +9,15 @@ from __future__ import annotations
 from datetime import datetime
 import inspect
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from ...multi_tenant.organization_service import OrganizationService
-from ...projects.contracts import (
+from ...multi_tenant.contracts import (
     Project,
     ProjectMembership,
     ProjectRole,
     ProjectVisibility,
     MemberRole,
-    CreateProjectRequest,
     UpdateProjectRequest,
 )
 

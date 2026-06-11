@@ -18,10 +18,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
-import json
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -37,8 +36,6 @@ from amprealize.conversation_contracts import (
 )
 from amprealize.conversation_event_hub import (
     EVENT_MESSAGE_NEW,
-    EVENT_MESSAGE_UPDATED,
-    EVENT_MESSAGE_DELETED,
     EVENT_REACTION_ADDED,
     EVENT_REACTION_REMOVED,
 )
