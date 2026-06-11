@@ -12,7 +12,6 @@ NOTE: The standalone breakeramp package is REQUIRED. Install with:
 
 from typing import Optional, Dict, Any, List, Generator
 from pathlib import Path
-import uuid
 import os
 import sys
 import time
@@ -229,7 +228,7 @@ class AmprealizeBreakerAmpService:
                         return True
                     time.sleep(0.5)
                 return self._check_redis_available()
-            except Exception as inspect_err:
+            except Exception:
                 print(f"  Container {container_name} not found, creating new one...", file=sys.stderr)
 
             # Create and start new Redis container

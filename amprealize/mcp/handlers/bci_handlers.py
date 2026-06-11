@@ -96,10 +96,18 @@ def _parse_trace_format(value: Optional[str]) -> TraceFormat:
         "chain_of_thought": TraceFormat.CHAIN_OF_THOUGHT,
         "json": TraceFormat.JSON_STEPS,
         "json_steps": TraceFormat.JSON_STEPS,
+        "structured_json": TraceFormat.JSON_STEPS,
+        "structured_log": TraceFormat.JSON_STEPS,
         "markdown": TraceFormat.PLAN_MARKDOWN,
         "plan": TraceFormat.PLAN_MARKDOWN,
+        "plan_markdown": TraceFormat.PLAN_MARKDOWN,
     }
-    return alias_map.get(normalized, TraceFormat.CHAIN_OF_THOUGHT)
+    if normalized in alias_map:
+        return alias_map[normalized]
+    try:
+        return TraceFormat(normalized)
+    except ValueError:
+        return TraceFormat.CHAIN_OF_THOUGHT
 
 
 def _build_retrieve_request(

@@ -10,7 +10,6 @@ DIFFER   adapters.py
 DIFFER   agent_execution_loop.py
 DIFFER   agent_orchestrator_service_postgres.py
 DIFFER   auth/github_credential_repository.py
-DIFFER   auth/jwt_service.py
 DIFFER   auth/middleware.py
 DIFFER   auth/postgres_device_flow.py
 DIFFER   auth/providers/google.py
@@ -21,12 +20,10 @@ DIFFER   behavior_retriever.py
 DIFFER   behavior_service.py
 DIFFER   boards/contracts.py
 DIFFER   breakeramp/__init__.py
-DIFFER   breakeramp/service.py
 DIFFER   caps_enforcer.py
 DIFFER   chat_action_router.py
 DIFFER   chat_analysis_runner.py
 DIFFER   chat_workspace_targeted_fetch.py
-DIFFER   cli_dr.py
 DIFFER   cloud_client.py
 DIFFER   collaboration_contracts.py
 DIFFER   collaboration_service.py
@@ -41,7 +38,6 @@ DIFFER   execution_gateway.py
 DIFFER   execution_gateway_adapter.py
 DIFFER   execution_wiring.py
 DIFFER   feature_flags.py
-DIFFER   mcp/handlers/bci_handlers.py
 DIFFER   mcp/handlers/behavior_handlers.py
 DIFFER   mcp/handlers/board_handlers.py
 DIFFER   mcp/handlers/work_item_execution_handlers.py
@@ -50,7 +46,6 @@ DIFFER   mcp_guidance.py
 DIFFER   mcp_lazy_loader.py
 DIFFER   mcp_long_running.py
 DIFFER   mcp_rate_limiter.py
-DIFFER   mcp_service_adapter.py
 DIFFER   mcp_tool_groups.py
 DIFFER   midnighter/__init__.py
 DIFFER   migration.py

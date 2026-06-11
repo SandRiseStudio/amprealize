@@ -12,7 +12,7 @@ Following behavior_lock_down_security_surface (Student).
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Optional, Protocol, Set, TYPE_CHECKING
+from typing import Any, Dict, Optional, Set, TYPE_CHECKING
 import uuid
 
 if TYPE_CHECKING:
@@ -354,7 +354,7 @@ class ContextSwitchHandler:
                     if role is None:
                         return ContextSwitchResult(
                             success=False,
-                            error=f"Access denied to project's organization",
+                            error="Access denied to project's organization",
                             error_code="ACCESS_DENIED",
                         )
             else:

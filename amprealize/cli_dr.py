@@ -10,7 +10,7 @@ import os
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional
 
 
 logger = logging.getLogger(__name__)
@@ -292,7 +292,7 @@ def status_command(service: str, backup_dir: str):
             backups = list(svc_backup_dir.glob(f"{svc}_backup_*.tar.gz"))
 
         if not backups:
-            click.echo(f"  ❌ No backups found")
+            click.echo("  ❌ No backups found")
             click.echo()
             continue
 

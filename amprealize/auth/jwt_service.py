@@ -6,7 +6,7 @@ Generates and validates JWT tokens for access and refresh tokens.
 
 import os
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 import secrets
 
@@ -186,5 +186,5 @@ class JWTService:
         payload = self.decode_token_without_validation(token)
         exp_timestamp = payload.get("exp")
         if exp_timestamp:
-            return datetime.fromtimestamp(exp_timestamp)
+            return datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
         raise ValueError("Token has no expiration claim")
