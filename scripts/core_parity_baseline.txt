@@ -55,8 +55,6 @@ DIFFER   mcp/handlers/behavior_handlers.py
 DIFFER   mcp/handlers/board_handlers.py
 DIFFER   mcp/handlers/file_handlers.py
 DIFFER   mcp/handlers/knowledge_pack_handlers.py
-DIFFER   mcp/handlers/org_agent_handlers.py
-DIFFER   mcp/handlers/org_handlers.py
 DIFFER   mcp/handlers/project_handlers.py
 DIFFER   mcp/handlers/work_item_execution_handlers.py
 DIFFER   mcp_device_flow.py
@@ -82,11 +80,9 @@ DIFFER   resource_analysis.py
 DIFFER   run_service.py
 DIFFER   run_service_postgres.py
 DIFFER   services/agent_auth_service.py
-DIFFER   services/assignment_service.py
 DIFFER   services/audit_log_service.py
 DIFFER   services/board_api_v2.py
 DIFFER   services/board_service.py
-DIFFER   services/board_service_backup.py
 DIFFER   services/conversation_api.py
 DIFFER   services/conversation_events_api.py
 DIFFER   services/conversation_reply_service.py
@@ -94,7 +90,6 @@ DIFFER   services/conversation_service.py
 DIFFER   services/github_service.py
 DIFFER   services/run_events_api.py
 DIFFER   services/slack_bridge.py
-DIFFER   services/work_item_assignment.py
 DIFFER   services/work_item_execution_api.py
 DIFFER   session_audit.py
 DIFFER   storage/factory.py

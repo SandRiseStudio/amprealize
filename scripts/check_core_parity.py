@@ -49,6 +49,13 @@ SEAM_PREFIXES = (
     "crypto/",              # enterprise differentiation
     "tenant/",              # OSS-only single-tenant shim
     "wizard/",              # OSS-only CLI setup wizard
+    # Single-tenant (OSS) vs multi-tenant (enterprise) implementations — these
+    # files import boards/projects.contracts (OSS) vs multi_tenant.* (enterprise);
+    # they are legitimately different and will not converge.
+    "mcp/handlers/org_agent_handlers.py",
+    "mcp/handlers/org_handlers.py",
+    "services/assignment_service.py",
+    "services/work_item_assignment.py",
     "auth/invite_policy.py",  # invitations are part of orgs (enterprise)
     "api.py",               # mounts enterprise routes
     "cli.py",               # mounts enterprise commands
