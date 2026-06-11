@@ -17,6 +17,7 @@ import logging
 
 if TYPE_CHECKING:
     from .mcp_server import MCPSessionContext
+    from .services.agent_auth_service import AgentAuthService
 
 
 class AuthDecision(Enum):
